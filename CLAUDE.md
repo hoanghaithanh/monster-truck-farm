@@ -3,14 +3,16 @@
 A simple 3D browser game built for the developer's son.
 
 **Core loop:**
-1. **Build** — player assembles a monster truck by picking a body, wheels, and an engine.
+1. **Build** — player assembles a monster truck by picking a body, wheels, an engine, and a gas tank.
 2. **Drive** — the truck spawns on a farm map with terrain variety (hills, mountains, a river) and farm structures (windmill, barn, farmhouse, fences, etc).
 3. **Chase** — animals (cows, chickens, pigs, etc.) spawn randomly around the farm and wander/flee.
 4. **Reward** — hitting an animal awards coins; payout scales with the animal's size and speed (bigger/faster = more coins).
-5. **Upgrade** — coins buy better bodies/wheels/engines, looping back into the build step.
-6. **Farmer chase (comic relief, not threat)** — an angry farmer occasionally appears and chases the truck for ~10 seconds before giving up tired. Farmer speed is capped at 1/3 of the truck's speed so it's never actually stressful for a young player — it's a chase-me gag, not a fail state.
+5. **Upgrade** — coins buy better parts, each on its own axis: body = more hits survived from the farmer (base 3, +1/tier), wheels = bigger obstacles clearable (bush → rock → derelict car), engine = higher top speed, gas tank = more range before needing to stop and recover. Looping back into the build step.
+6. **Gas** — driving continuously drains a gas meter; it auto-regenerates while the truck is stopped/idle. Running out limits the truck rather than ending the session.
+7. **Farmer chase** — an angry farmer occasionally appears, chases the truck, and can bump it, draining one hit from the body's capacity. Farmer speed is capped at 1/3 of the truck's speed. Sprint 1 ships only this minimal bump behavior; the full ~10s-chase-then-"tired" giveup is Sprint 2.
+8. **Game over** — if the farmer drains the body's hits to 0, it's a **hard game over**: the player restarts from the beginning (rebuild/reselect truck). This is a deliberate exception to the "forgiving" bias below — confirmed with the human on 2026-07-06 — because losing the truck and starting over is itself part of the challenge/fun for this player.
 
-**Target player:** a young child. Design bias: forgiving, colorful, no fail states, no violence framing (animals aren't harmed, they "boop" and scatter for coins), short session length, simple controls (likely just arrow keys / WASD, no complex combos).
+**Target player:** a young child. Design bias: forgiving, colorful, no violence framing (animals aren't harmed, they "boop" and scatter for coins), short session length, simple controls (keyboard only for v1 — arrow keys / WASD, no complex combos). The one deliberate exception to "forgiving" is the hard game-over described above.
 
 **Tech stack:** Three.js + Vite web app.
 - Runs in any browser, nothing to install for the player.
