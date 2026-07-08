@@ -63,10 +63,13 @@ describe('integrateTruckMotion — steering (drive AC1-AC3)', () => {
   it('turns heading when steer is applied while moving', () => {
     // Use a short dt: with idle throttle, friction would otherwise coast speed
     // to 0 within a full 1s step, which correctly (per code) disables steering.
+    // steer=1 is the right-key intent, which *decreases* heading (see
+    // TruckMotionState.heading doc comment: forward=+Z means the truck's
+    // physical right side is -X, so turning right must swing heading negative).
     const shortDt = 0.1;
     const movingState: TruckMotionState = { heading: 0, speed: 3 };
     const result = integrateTruckMotion(movingState, { throttle: 0, steer: 1 }, TOP_SPEED, DEFAULT_DRIVING_CONFIG, shortDt);
-    expect(result.state.heading).toBeCloseTo(DEFAULT_DRIVING_CONFIG.turnRate * shortDt);
+    expect(result.state.heading).toBeCloseTo(-DEFAULT_DRIVING_CONFIG.turnRate * shortDt);
   });
 
   it('steer=-1 turns the opposite direction from steer=1', () => {
@@ -80,6 +83,30 @@ describe('integrateTruckMotion — steering (drive AC1-AC3)', () => {
   it('steering has no effect while stationary (cannot spin in place)', () => {
     const result = integrateTruckMotion(restState, { throttle: 0, steer: 1 }, TOP_SPEED, DEFAULT_DRIVING_CONFIG, DT);
     expect(result.state.heading).toBe(0);
+  });
+
+  // Regression test for the inverted-steering bug (Up+Left turned the truck
+  // right instead of left): the heading tests above only check internal
+  // consistency between steer=1 and steer=-1, which does NOT catch a
+  // globally-flipped sign — both directions would still be "opposite" of
+  // each other even if both were backwards. These tests instead pin steer
+  // direction to the truck's *physical* left/right using the same
+  // displacement math the renderer/physics actually consume
+  // (displacement = (sin(heading), cos(heading)), forward = +Z at heading 0,
+  // so the truck's physical right is -X per Forward x Up).
+  describe('steer direction matches the truck\'s physical left/right (not just internal symmetry)', () => {
+    const shortDt = 0.1;
+    const movingState: TruckMotionState = { heading: 0, speed: 3 };
+
+    it('steer=1 (right key) curves the truck toward its physical right (-X)', () => {
+      const result = integrateTruckMotion(movingState, { throttle: 0, steer: 1 }, TOP_SPEED, DEFAULT_DRIVING_CONFIG, shortDt);
+      expect(result.displacement.x).toBeLessThan(0);
+    });
+
+    it('steer=-1 (left key) curves the truck toward its physical left (+X)', () => {
+      const result = integrateTruckMotion(movingState, { throttle: 0, steer: -1 }, TOP_SPEED, DEFAULT_DRIVING_CONFIG, shortDt);
+      expect(result.displacement.x).toBeGreaterThan(0);
+    });
   });
 });
 

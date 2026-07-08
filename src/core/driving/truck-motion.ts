@@ -8,7 +8,17 @@ import type { DriveIntent, Vec2 } from '../types';
 import type { DrivingConfig } from './config';
 
 export interface TruckMotionState {
-  /** Heading in radians. 0 = facing +Z, increasing clockwise (matches steer=+1 turning right). */
+  /**
+   * Heading in radians. 0 = facing +Z. `displacement` is derived as
+   * (sin(heading), cos(heading)), the same convention `render/scene.ts`
+   * uses for `mesh.rotation.y` — i.e. this is a standard Three.js Y-axis
+   * rotation. Given forward = +Z, the truck's physical right side (Forward
+   * x Up) is -X, so *increasing* heading swings the nose toward +X, which
+   * is the truck's LEFT. Decreasing heading turns it right. The heading
+   * update below therefore subtracts `intent.steer`: steer=+1 (right key)
+   * must decrease heading to turn right; steer=-1 (left key) increases it
+   * to turn left.
+   */
   heading: number;
   /** Signed forward speed (negative = reversing), units/s. */
   speed: number;
@@ -49,7 +59,9 @@ export function integrateTruckMotion(
   // Steering only has an effect while moving, otherwise the truck could spin in place.
   let heading = state.heading;
   if (Math.abs(speed) > EPSILON) {
-    heading += intent.steer * config.turnRate * dt;
+    // Subtract, not add: see the TruckMotionState.heading doc comment above
+    // for why steer=+1 (right) must *decrease* heading to actually turn right.
+    heading -= intent.steer * config.turnRate * dt;
   }
 
   const displacement: Vec2 = {
