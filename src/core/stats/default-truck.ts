@@ -1,9 +1,8 @@
-// Hardcoded default TruckSpec, standing in for the truck builder (issues
-// #1-4), which is explicitly out of scope this pass. `DEFAULT_TRUCK_BUILD`
-// is the one place to change to exercise a different wheel tier against the
-// stub terrain's obstacles (drive AC6-AC8) — swap `wheels` below and every
-// downstream system (clearance, physics obstacle setup) picks it up via
-// resolveSpec(), with no other code changes needed.
+// `DEFAULT_TRUCK_BUILD` seeds the builder screen's initial/preselected tiers
+// (issues #1-4) — the player can change any axis freely before confirming
+// (builder AC6); nothing downstream reads this build directly once a game
+// is running. `DEFAULT_TRUCK_SPEC` is kept as a convenience for tests/tools
+// that want a ready-made spec without going through the builder UI.
 import type { TruckBuild } from '../types';
 import { resolveSpec } from './resolve-spec';
 

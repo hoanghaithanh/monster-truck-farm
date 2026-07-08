@@ -1,8 +1,8 @@
 // resolveSpec: the single, unit-testable place that maps a TruckBuild
 // (selected tier index per axis) to the flat TruckSpec every gameplay
-// system consumes (ADR 0002). The builder UI that produces a TruckBuild is
-// out of scope this pass (issues #1-4); driving/clearance/coins consume
-// DEFAULT_TRUCK_SPEC (see default-truck.ts) in the meantime.
+// system consumes (ADR 0002). GameStore.confirmBuild() (see
+// core/game-state.ts) calls this with the player's actual builder-screen
+// selection (issues #1-4) each time a run starts.
 import type { TruckBuild, TruckSpec } from '../types';
 import { BODY_TIERS, ENGINE_TIERS, GAS_TIERS, WHEEL_TIERS } from './tiers';
 
