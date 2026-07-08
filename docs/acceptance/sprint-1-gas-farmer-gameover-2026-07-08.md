@@ -181,3 +181,60 @@ Per the task's explicit instruction: **since the crash still reproduces, steps 3
 **Sprint 1 is still not ready for sign-off.** The crash this task was sent to re-verify is not resolved — it is, if anything, more consistently and immediately reproducible than the original report suggested, and now has a precise, unminified stack trace pointing away from the code `ef80351` changed and toward either the obstacle-collider bootstrap path or (more likely, per the evidence above) an upstream defect in the pinned Rapier version. Steps 3-4 (the #20 fairness live re-check and the hard game-over/restart round trip) remain unexecuted, for the same reason as the prior pass: no driving session survives long enough to reach them. `ef80351` is a legitimate fix for a real, distinct defect (#16) and should stay merged, but it does not resolve #21. I'd recommend prioritizing the dependency-upgrade spike the developer flagged as the next concrete step, since two independent commits (`d79a6a1` and `ef80351`) have now both been ruled out as the cause via direct live testing.
 
 **This is a recommendation only — I am not the approver.**
+
+---
+
+## Addendum 2, 2026-07-08 (same day, third pass) — re-verification of issue #21 after `5e9a694` (Rapier 0.14.0 -> 0.19.3 upgrade)
+
+**Status of this addendum: RECOMMENDATION ONLY**, same as the rest of this report. **Still blocked. Sprint 1 is not ready for sign-off. The version-gap hypothesis is now ruled out.**
+
+### What changed since the section above
+
+Per Addendum 1's finding that the crash predates and survives `ef80351` and traces to `createObstacleColliders`'s very first `RAPIER.World.createCollider()` calls, the developer researched the pinned dependency version, found no smoking-gun changelog entry but confirmed the codebase was 5 minor releases behind (spanning a Rapier engine bump from 0.22 to 0.30), audited the small API surface actually used for breaking changes (none found), and pushed `5e9a694`: `@dimforge/rapier3d-compat` `0.14.0 -> 0.19.3`. Full 163-test suite, typecheck, lint, and build all pass. The developer explicitly flagged this as a moderate-confidence "attempt" — none of those checks exercise the live WASM runtime path that actually crashes — and asked for a live re-run before treating #21 as resolved.
+
+### Task 1 — zero-input crash repro, re-run against `5e9a694`
+
+**Result: FAIL. Crash still reproduces, 5/5 runs, effectively at t≈0s every time**, identical to Addendum 1's timing and identical error signature. Method: `puppeteer-core` driving real Edge (`msedge.exe`), zero keyboard events sent in any run (truck never moved).
+
+Runs:
+1. `vite build && vite preview` (production build, `5e9a694`, `rapier3d-compat@0.19.3` per `node_modules`), headless — crashed at +0ms.
+2. Same, headless, repeat — crashed at +0ms.
+3. Same, headless, repeat — crashed at +0ms.
+4. `npm run dev` (unminified, for a readable stack trace), headless — crashed at +0ms, full stack trace captured (below).
+5. Same dev server, **headed** (non-headless, ruling out a headless-only artifact) — crashed at +0ms, identical stack trace.
+
+Unminified stack trace (runs 4-5), confirming the crash site is byte-for-byte unchanged from Addendum 1's pre-upgrade trace:
+
+```
+RangeError: Maximum call stack size exceeded
+    at $func629 (wasm://wasm/...)
+    at $func243 (wasm://wasm/...)
+    at $rawcolliderset_createCollider (wasm://wasm/...)
+    at createCollider (@dimforge_rapier3d-compat.js:1:1)   [x3]
+    at <anonymous> (src/physics/world.ts:1:1)
+    at createObstacleColliders (src/physics/world.ts:1:1)
+    at startDriving (src/main.ts:42:26)
+    at <anonymous> (src/main.ts:26:17)
+```
+
+Same crash site as before: inside `createObstacleColliders`, on the first `RAPIER.World.createCollider()` calls made against a freshly-initialized WASM instance (for the 3 `STUB_OBSTACLES`), before `TruckController` exists and before `world.step()` is ever called.
+
+**This directly rules out the version-gap hypothesis** the developer's fix was targeting: a 5-minor-version jump, spanning a Rapier engine bump from 0.22 to 0.30, produced an identical panic at an identical call site. Two independent Rapier versions (0.14.0 and 0.19.3) now both crash the same way on the same code — the defect is not explained by staleness of the pinned dependency.
+
+### Task 2 — active-input driving re-test
+
+**Not attempted.** Per the task's explicit branching instruction: since the zero-input crash still reproduces (in fact more consistently than ever — 5/5 at t≈0s, before any frame renders), a dedicated active-driving run cannot get further than the zero-input case and would not produce meaningful new evidence — no session survives long enough for player input to matter.
+
+### Tasks 3 and 4 (the #20 fairness re-check and the hard game-over/restart round trip) — not attempted
+
+Per the task's explicit instruction: since the crash still reproduces, these live checks were not attempted this pass, for the same reason as Addendum 1 — no driving session survives long enough to reach a farmer spawn window, a gas-drain window, or a game-over trigger.
+
+### Action taken: commented on #21 with new evidence, did not close
+
+Posted a detailed comment on [#21](https://github.com/hoanghaithanh/monster-truck-farm/issues/21) (https://github.com/hoanghaithanh/monster-truck-farm/issues/21#issuecomment-4914146737) with the full new evidence: 5/5 reproduction against `5e9a694`, the unminified stack trace confirming the crash site is unchanged, and the version-gap hypothesis being explicitly ruled out. Left the issue **open** (did not close it — the fix attempt did not resolve it) and recommended the developer's own next-step suggestion: a live browser-debugging pass with a breakpoint at the crash site (`createObstacleColliders` in `src/physics/world.ts` and/or Rapier's `createCollider`) to inspect what's actually being passed into `RAPIER.World.createCollider()` for the 3 stub obstacles and whether there's any re-entrant call into the collider set from within that construction loop, rather than further dependency-version spikes (two versions have now been ruled out).
+
+### Updated recommendation
+
+**Sprint 1 is still not ready for sign-off.** The Rapier dependency upgrade (`5e9a694`) did not fix issue #21 — the crash reproduces identically (same signature, same call site, same near-immediate timing) on `rapier3d-compat@0.19.3` as it did on `0.14.0`. This is useful negative evidence: it eliminates "stale dependency" as the explanation and narrows the search to either a genuine defect in this codebase's obstacle-collider construction (most actionable next step: live-debug with a breakpoint, as recommended above and by the developer) or a long-lived upstream Rapier defect present across multiple release lines. Steps 2-4 (active-driving confirmation, the #20 fairness live re-check, and the hard game-over/restart round trip) remain unexecuted for the third consecutive pass, for the same root cause each time. I'd recommend the team stop attempting dependency-version changes as a fix strategy and move directly to live in-browser debugging at the identified crash site.
+
+**This is a recommendation only — I am not the approver.**
