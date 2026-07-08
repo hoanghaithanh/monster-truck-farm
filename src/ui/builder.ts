@@ -1,18 +1,27 @@
 import type { GameStore } from '../core/game-state';
 import type { TruckBuild } from '../core/types';
 import { BODY_TIERS, ENGINE_TIERS, GAS_TIERS, WHEEL_TIERS } from '../core/stats/tiers';
+import { owned, purchasable } from '../core/stats/ownership';
 
-// DOM truck builder screen (issues #1-4, builder AC1/AC6): plain DOM overlay
-// over the canvas, matching hud.ts's approach (ADR 0001 §3). All four axes
-// are freely selectable this sprint -- no coin gating (Sprint 2, deferred).
-// Selection/screen-transition logic itself lives in GameStore (core/); this
-// module only renders it and forwards input.
+// DOM truck builder screen (issues #1-4, builder AC1/AC6; purchase flow
+// backlog #14 / ADR 0006). Plain DOM overlay over the canvas, matching
+// hud.ts's approach (ADR 0001 §3). Selection/purchase logic itself lives in
+// GameStore (core/); this module only renders it and forwards input.
+//
+// Each tier button renders one of three visual states (ADR 0006 §5):
+//  - equipped: currently selected/equipped on the build.
+//  - owned-not-equipped: unlocked, but a different tier is equipped.
+//  - locked: not yet owned; shows a lock icon and its coin cost. The tier
+//    that's the axis's *next* sequential unlock (the only one purchasable
+//    right now) additionally gets a gold "buy" highlight -- brighter/green
+//    cost text if affordable, dimmer/red cost text if not.
 
 type Axis = keyof TruckBuild;
 
 interface AxisOption {
   tier: number;
   text: string;
+  cost: number;
 }
 
 interface AxisRow {
@@ -25,22 +34,22 @@ const ROWS: AxisRow[] = [
   {
     axis: 'body',
     label: 'Body',
-    options: BODY_TIERS.map((t) => ({ tier: t.tier, text: `Tier ${t.tier} — ${t.hitCapacity} hits` })),
+    options: BODY_TIERS.map((t) => ({ tier: t.tier, text: `Tier ${t.tier} — ${t.hitCapacity} hits`, cost: t.cost })),
   },
   {
     axis: 'wheels',
     label: 'Wheels',
-    options: WHEEL_TIERS.map((t) => ({ tier: t.tier, text: `${t.name} — clears ${t.clearance}` })),
+    options: WHEEL_TIERS.map((t) => ({ tier: t.tier, text: `${t.name} — clears ${t.clearance}`, cost: t.cost })),
   },
   {
     axis: 'engine',
     label: 'Engine',
-    options: ENGINE_TIERS.map((t) => ({ tier: t.tier, text: `${t.name} — top speed ${t.topSpeed}` })),
+    options: ENGINE_TIERS.map((t) => ({ tier: t.tier, text: `${t.name} — top speed ${t.topSpeed}`, cost: t.cost })),
   },
   {
     axis: 'gasTank',
     label: 'Gas tank',
-    options: GAS_TIERS.map((t) => ({ tier: t.tier, text: `${t.name} — ${t.capacity}s of drive` })),
+    options: GAS_TIERS.map((t) => ({ tier: t.tier, text: `${t.name} — ${t.capacity}s of drive`, cost: t.cost })),
   },
 ];
 
@@ -68,7 +77,10 @@ export function createBuilderScreen(container: HTMLElement, store: GameStore): {
   panel.appendChild(title);
 
   let focusedRow = 0;
-  const rowEls: { row: AxisRow; optionButtons: HTMLButtonElement[] }[] = [];
+  // Keyboard highlight cursor per row (ADR 0006 §5): the option index the
+  // player has navigated to with Left/Right, independent of which tier is
+  // actually equipped -- Space then acts on whichever option is highlighted.
+  const rowEls: { row: AxisRow; optionButtons: HTMLButtonElement[]; highlighted: number }[] = [];
 
   for (const row of ROWS) {
     const rowEl = document.createElement('div');
@@ -89,22 +101,22 @@ export function createBuilderScreen(container: HTMLElement, store: GameStore): {
     for (const option of row.options) {
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.textContent = option.text;
       btn.style.padding = '8px 12px';
       btn.style.borderRadius = '8px';
       btn.style.border = '2px solid transparent';
       btn.style.cursor = 'pointer';
       btn.style.font = '14px sans-serif';
       btn.addEventListener('click', () => {
-        focusedRow = ROWS.indexOf(row);
-        store.selectTier(row.axis, option.tier);
+        const rowIndex = ROWS.indexOf(row);
+        const optionIndex = row.options.indexOf(option);
+        actOnTier(rowIndex, optionIndex);
       });
       optionsEl.appendChild(btn);
       optionButtons.push(btn);
     }
     rowEl.appendChild(optionsEl);
     panel.appendChild(rowEl);
-    rowEls.push({ row, optionButtons });
+    rowEls.push({ row, optionButtons, highlighted: 0 });
   }
 
   const confirmBtn = document.createElement('button');
@@ -124,32 +136,74 @@ export function createBuilderScreen(container: HTMLElement, store: GameStore): {
   overlay.appendChild(panel);
   container.appendChild(overlay);
 
+  // Equip the highlighted tier if owned; buy it if locked and purchasable;
+  // gentle no-op (no coins deducted, nothing crashes) otherwise -- e.g. not
+  // enough coins yet, or the axis's next-in-line tier isn't this one.
+  function actOnTier(rowIndex: number, optionIndex: number) {
+    const entry = rowEls[rowIndex];
+    focusedRow = rowIndex;
+    entry.highlighted = optionIndex;
+    const tier = entry.row.options[optionIndex].tier;
+    if (owned(store.ownership, entry.row.axis, tier)) {
+      store.selectTier(entry.row.axis, tier);
+    } else {
+      store.purchaseTier(entry.row.axis, tier);
+    }
+    render();
+  }
+
   function render() {
     const build = store.build;
-    for (const { row, optionButtons } of rowEls) {
-      const selectedTier = build[row.axis];
+    const ownership = store.ownership;
+    const coins = store.coins;
+
+    for (const entry of rowEls) {
+      const { row, optionButtons } = entry;
+      // The one tier per axis that's actually purchasable right now (the
+      // next rung of the sequential ladder) gets the buy-affordance styling.
+      const nextTier = row.options.find((o) => !owned(ownership, row.axis, o.tier) && owned(ownership, row.axis, o.tier - 1));
+
       optionButtons.forEach((btn, index) => {
-        const isSelected = row.options[index].tier === selectedTier;
-        btn.style.background = isSelected ? '#4caf7d' : 'rgba(255, 255, 255, 0.15)';
-        btn.style.color = isSelected ? '#fff' : '#eee';
+        const option = row.options[index];
+        const isOwned = owned(ownership, row.axis, option.tier);
+        const isEquipped = isOwned && build[row.axis] === option.tier;
+        const isNextUnlockable = nextTier?.tier === option.tier;
+        const canAfford = isNextUnlockable && purchasable(ownership, row.axis, option.tier, coins, option.cost);
+
+        if (isEquipped) {
+          btn.textContent = `✅ ${option.text}`;
+          btn.style.background = '#4caf7d';
+          btn.style.color = '#fff';
+          btn.style.opacity = '1';
+        } else if (isOwned) {
+          btn.textContent = option.text;
+          btn.style.background = 'rgba(255, 255, 255, 0.3)';
+          btn.style.color = '#fff';
+          btn.style.opacity = '1';
+        } else {
+          const costColor = !isNextUnlockable ? '#999' : canAfford ? '#8be08b' : '#ff8a8a';
+          btn.innerHTML = `\u{1F512} ${option.text} <span style="color:${costColor}">— ${option.cost}\u{1FA99}</span>`;
+          btn.style.background = isNextUnlockable ? 'rgba(255, 226, 122, 0.18)' : 'rgba(255, 255, 255, 0.08)';
+          btn.style.color = '#bbb';
+          btn.style.opacity = isNextUnlockable ? '1' : '0.6';
+        }
+
+        btn.style.borderColor = focusedRow === ROWS.indexOf(row) && entry.highlighted === index ? '#ffe27a' : 'transparent';
       });
     }
-    rowEls.forEach(({ optionButtons }, index) => {
-      optionButtons.forEach((btn) => {
-        btn.style.borderColor = index === focusedRow ? '#ffe27a' : 'transparent';
-      });
-    });
     overlay.style.display = store.screen === 'BUILDER' ? 'flex' : 'none';
   }
   render();
 
-  // Keyboard-only operability (builder constraint): Up/Down move between
-  // categories, Left/Right cycle the focused category's tier, Enter confirms.
+  // Keyboard-only operability (builder constraint, ADR 0006 §5): Up/Down
+  // move between categories; Left/Right move a highlight cursor across the
+  // focused category's tiers (owned or locked, without acting on them);
+  // Space acts on the highlighted tier (equip if owned, buy if locked and
+  // affordable, gentle no-op otherwise); Enter stays the distinct
+  // "start driving" confirm control.
   function onKeyDown(e: KeyboardEvent) {
     if (store.screen !== 'BUILDER') return;
-    const { row } = rowEls[focusedRow];
-    const build = store.build;
-    const currentIndex = row.options.findIndex((o) => o.tier === build[row.axis]);
+    const entry = rowEls[focusedRow];
 
     switch (e.code) {
       case 'ArrowUp':
@@ -160,18 +214,18 @@ export function createBuilderScreen(container: HTMLElement, store: GameStore): {
         focusedRow = (focusedRow + 1) % rowEls.length;
         render();
         break;
-      case 'ArrowLeft': {
-        const nextIndex = Math.max(0, currentIndex - 1);
-        store.selectTier(row.axis, row.options[nextIndex].tier);
+      case 'ArrowLeft':
+        entry.highlighted = Math.max(0, entry.highlighted - 1);
+        render();
         break;
-      }
-      case 'ArrowRight': {
-        const nextIndex = Math.min(row.options.length - 1, currentIndex + 1);
-        store.selectTier(row.axis, row.options[nextIndex].tier);
+      case 'ArrowRight':
+        entry.highlighted = Math.min(entry.row.options.length - 1, entry.highlighted + 1);
+        render();
         break;
-      }
-      case 'Enter':
       case 'Space':
+        actOnTier(focusedRow, entry.highlighted);
+        break;
+      case 'Enter':
         store.confirmBuild();
         break;
       default:

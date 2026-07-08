@@ -5,6 +5,7 @@
 import type { TruckBuild, TruckSpec } from './types';
 import { DEFAULT_TRUCK_BUILD } from './stats/default-truck';
 import { resolveSpec } from './stats/resolve-spec';
+import { initialOwnership, purchasable, selectable, tierCost, type Ownership } from './stats/ownership';
 
 export type Screen = 'BUILDER' | 'DRIVING' | 'GAME_OVER';
 
@@ -24,13 +25,16 @@ type Listener = () => void;
  * `DEFAULT_TRUCK_BUILD` only seeds the builder's initial/preselected tiers —
  * once the player confirms, `confirmBuild()` resolves *their* selection into
  * `spec`, which is the one TruckSpec every gameplay system should read from
- * here on (ADR 0002). Coin-spend/tier-locking (Sprint 2) is not modeled yet
- * — every tier is freely selectable this sprint (builder AC6).
+ * here on (ADR 0002). Coin-spend/tier-locking (Sprint 2, ADR 0006): tiers
+ * must be owned (`_ownership`) before they can be equipped via `selectTier`;
+ * `purchaseTier` spends coins to unlock (and auto-equip) the next tier in an
+ * axis's sequential ladder.
  */
 export class GameStore {
   private _coins = 0;
   private _screen: Screen = 'BUILDER';
   private _build: TruckBuild = { ...DEFAULT_TRUCK_BUILD };
+  private _ownership: Ownership = { ...initialOwnership };
   private _spec: TruckSpec | undefined;
   private _hitsRemaining = 0;
   private _gas = 0;
@@ -46,6 +50,11 @@ export class GameStore {
 
   get build(): TruckBuild {
     return this._build;
+  }
+
+  /** Owned tier indices per axis (ADR 0006 §1) — tier 0 is pre-owned on every axis. */
+  get ownership(): Ownership {
+    return this._ownership;
   }
 
   /** The resolved TruckSpec for the current run — undefined until the builder is confirmed at least once. */
@@ -91,10 +100,33 @@ export class GameStore {
     }
   }
 
-  /** Sets one axis's selected tier index (builder AC1-AC6). All tiers are freely selectable this sprint. */
+  /**
+   * Sets one axis's selected tier index (builder AC1-AC6) — gated (ADR 0006
+   * §1/§5): a tier can only be equipped if it's already owned. A no-op
+   * (silent, no emit) when the requested tier isn't owned.
+   */
   selectTier(axis: keyof TruckBuild, tierIndex: number): void {
+    if (!selectable(this._ownership, axis, tierIndex)) return;
     this._build = { ...this._build, [axis]: tierIndex };
     this.emit();
+  }
+
+  /**
+   * Spends coins to unlock (and immediately equip) the next tier in an
+   * axis's sequential ladder (backlog #14, ADR 0006 §3). Requires the
+   * preceding tier already owned and enough coins for `tierIndex`'s cost;
+   * a no-op (returns false, no emit) otherwise. On success, deducts the
+   * cost, adds the tier to ownership, and sets it as the equipped tier on
+   * that axis in one action ("buy-equips").
+   */
+  purchaseTier(axis: keyof TruckBuild, tierIndex: number): boolean {
+    const cost = tierCost(axis, tierIndex);
+    if (!purchasable(this._ownership, axis, tierIndex, this._coins, cost)) return false;
+    this._coins -= cost;
+    this._ownership = { ...this._ownership, [axis]: [...this._ownership[axis], tierIndex] };
+    this._build = { ...this._build, [axis]: tierIndex };
+    this.emit();
+    return true;
   }
 
   /** Resolves the current selection into a TruckSpec and moves BUILDER -> DRIVING (builder AC1). */
@@ -114,7 +146,12 @@ export class GameStore {
     this.emit();
   }
 
-  /** Returns to the builder after a hard game over; coins reset, prior selection is kept (builder AC7). */
+  /**
+   * Returns to the builder after a hard game over; coins reset, prior
+   * selection (builder AC7) and tier ownership (ADR 0006 §4, human-confirmed)
+   * are both kept — progression survives a game-over within the session,
+   * only the run's coin balance does not.
+   */
   restart(): void {
     this._screen = nextScreen(this._screen, 'restart');
     this._coins = 0;
