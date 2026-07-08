@@ -16,3 +16,16 @@ Dated entries, one per sprint close-out, recorded by the `project-manager` agent
 ### Changes to try next sprint
 1. Introduce earlier live browser smoke testing during development, rather than deferring all live interaction to the end-of-sprint acceptance-validation pass. Goal: catch runtime/interaction bugs like #21 and #18 cheaper and sooner.
 2. Add an explicit cross-ADR check step: when a story's design touches mechanics already covered by an existing ADR (or when two ADRs are written in the same sprint that plausibly interact), explicitly check them against each other for interaction effects before implementation, not just at code review.
+
+## Sprint 2 (2026-07-08 – 2026-07-15) — retro recorded 2026-07-08
+
+**Outcome:** 4/4 issues closed (#22, #23, #24, #25). Milestone closed 2026-07-08, ahead of the due date.
+
+### What went well
+- Both Sprint 1 process changes are confirmed working. On earlier live browser smoke testing: "yes as no big failure found at test/review stage, I believe it worked" (human). On the explicit cross-ADR check step: "looks like it worked" (human). This is evidenced by Sprint 2 shipping 4 stories — including the highest-risk session-lifecycle change yet, #25 (voluntary pause-to-builder) — with zero Blocker-severity defects reaching test/review stage, in contrast to Sprint 1, where #18 and #21 both survived multiple review passes undetected.
+
+### What didn't go well
+- During the #25 (pause-to-builder) implementation, the developer built and validated everything correctly but never actually committed/pushed the work. It was only caught when the next agent in the pipeline (test-engineer) reported that the production code was still sitting uncommitted.
+
+### Changes to try next sprint
+1. The developer agent should explicitly confirm via `git log`/`git status` that its commit landed before reporting completion — verify, don't just narrate. Note: test-engineer already started doing this self-check on its own after the #25 incident; this makes it an explicit convention for the developer step as well.
