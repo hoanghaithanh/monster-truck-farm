@@ -137,12 +137,32 @@ describe('GameStore.purchaseTier (backlog #14, ADR 0006 §3)', () => {
     expect(store.coins).toBe(0);
   });
 
+  it('makes no partial coin deduction when a purchase is blocked for insufficient funds (1 coin short)', () => {
+    const store = new GameStore();
+    store.addCoins(BODY_TIERS[1].cost - 1);
+    const bought = store.purchaseTier('body', 1);
+    expect(bought).toBe(false);
+    expect(store.coins).toBe(BODY_TIERS[1].cost - 1); // unchanged, not partially spent
+    expect(store.ownership.body).toEqual([0]);
+    expect(store.build.body).toBe(0);
+  });
+
   it('is blocked when the preceding tier is not yet owned (sequential unlock)', () => {
     const store = new GameStore();
     store.addCoins(10_000);
     const bought = store.purchaseTier('body', 2); // tier 1 not owned yet
     expect(bought).toBe(false);
     expect(store.ownership.body).toEqual([0]);
+  });
+
+  it('is blocked skip-buying tier 2 even with ample coins for tier 2, while tier 1 remains locked (does not accidentally deduct or partially unlock)', () => {
+    const store = new GameStore();
+    store.addCoins(BODY_TIERS[2].cost + 1000); // far more than enough for tier 2 alone
+    const bought = store.purchaseTier('body', 2);
+    expect(bought).toBe(false);
+    expect(store.coins).toBe(BODY_TIERS[2].cost + 1000);
+    expect(store.ownership.body).toEqual([0]);
+    expect(store.build.body).toBe(0);
   });
 
   it('deducts the tier cost, adds the tier to ownership, and auto-equips it on a successful purchase', () => {
@@ -162,7 +182,7 @@ describe('GameStore.purchaseTier (backlog #14, ADR 0006 §3)', () => {
     expect(store.coins).toBe(25);
   });
 
-  it('is a no-op if the tier is already owned (cannot re-buy)', () => {
+  it('is a no-op if the tier is already owned (cannot re-buy, no double-charge)', () => {
     const store = new GameStore();
     store.addCoins(10_000);
     store.purchaseTier('body', 1);
@@ -170,6 +190,7 @@ describe('GameStore.purchaseTier (backlog #14, ADR 0006 §3)', () => {
     const bought = store.purchaseTier('body', 1);
     expect(bought).toBe(false);
     expect(store.coins).toBe(coinsAfterFirstBuy);
+    expect(store.ownership.body).toEqual([0, 1]); // not duplicated in the ownership array either
   });
 
   it('allows purchasing the next sequential tier once the preceding one is owned', () => {
@@ -197,6 +218,55 @@ describe('GameStore.purchaseTier (backlog #14, ADR 0006 §3)', () => {
     store.subscribe(() => calls++);
     store.purchaseTier('body', 1); // can't afford
     expect(calls).toBe(0);
+  });
+
+  // The tests above exercise the flow once on 'body' as the primary case;
+  // the remaining three axes have independent tier tables/costs (ADR 0006
+  // §2) and their own TIER_TABLES entry in ownership.ts, so each is worth
+  // its own successful-purchase + sequential-unlock-block assertion rather
+  // than assuming 'body' is representative.
+  describe.each([
+    ['wheels', WHEEL_TIERS] as const,
+    ['engine', ENGINE_TIERS] as const,
+    ['gasTank', GAS_TIERS] as const,
+  ])('axis: %s', (axis, tiers) => {
+    it('deducts the exact tier cost, adds to ownership, and auto-equips on a successful purchase', () => {
+      const store = new GameStore();
+      store.addCoins(tiers[1].cost);
+      const bought = store.purchaseTier(axis, 1);
+      expect(bought).toBe(true);
+      expect(store.coins).toBe(0);
+      expect(store.ownership[axis]).toEqual([0, 1]);
+      expect(store.build[axis]).toBe(1);
+    });
+
+    it('blocks skip-buying tier 2 while tier 1 is unowned, even with ample coins for tier 2 alone', () => {
+      const store = new GameStore();
+      store.addCoins(tiers[2].cost + 1000);
+      const bought = store.purchaseTier(axis, 2);
+      expect(bought).toBe(false);
+      expect(store.ownership[axis]).toEqual([0]);
+      expect(store.coins).toBe(tiers[2].cost + 1000); // no deduction
+    });
+
+    it('blocks purchase and makes no deduction when short even 1 coin', () => {
+      const store = new GameStore();
+      store.addCoins(tiers[1].cost - 1);
+      const bought = store.purchaseTier(axis, 1);
+      expect(bought).toBe(false);
+      expect(store.coins).toBe(tiers[1].cost - 1);
+      expect(store.ownership[axis]).toEqual([0]);
+    });
+
+    it('is a no-op with no double-charge when re-purchasing an already-owned tier', () => {
+      const store = new GameStore();
+      store.addCoins(10_000);
+      store.purchaseTier(axis, 1);
+      const coinsAfterFirstBuy = store.coins;
+      const bought = store.purchaseTier(axis, 1);
+      expect(bought).toBe(false);
+      expect(store.coins).toBe(coinsAfterFirstBuy);
+    });
   });
 });
 
@@ -431,6 +501,43 @@ describe('GameStore.restart (builder AC7, ADR 0006 §4)', () => {
     store.gameOver();
     store.restart();
     expect(store.ownership.body).toEqual([0, 1, 2]);
+  });
+
+  it('preserves ownership independently across all four axes on a single restart round trip, while coins reset and equipped build is retained (full ADR 0006 §4 round trip)', () => {
+    const store = new GameStore();
+    buyUpTo(store, 'body', 1);
+    buyUpTo(store, 'wheels', 2);
+    buyUpTo(store, 'engine', 1);
+    buyUpTo(store, 'gasTank', 2);
+    store.addCoins(999); // leftover run coins on top of purchase spend
+    store.confirmBuild();
+    store.gameOver();
+    store.restart();
+
+    expect(store.ownership).toEqual({ body: [0, 1], wheels: [0, 1, 2], engine: [0, 1], gasTank: [0, 1, 2] });
+    expect(store.build).toEqual({ body: 1, wheels: 2, engine: 1, gasTank: 2 });
+    expect(store.coins).toBe(0);
+  });
+
+  it('allows purchasing the next tier after a restart, carrying forward the ownership gained before the game-over (progression is not frozen at the ownership snapshot from before restart)', () => {
+    const store = new GameStore();
+    buyUpTo(store, 'body', 1); // owns tier 0, 1
+    store.confirmBuild();
+    store.gameOver();
+    store.restart();
+
+    store.addCoins(BODY_TIERS[2].cost);
+    const bought = store.purchaseTier('body', 2);
+    expect(bought).toBe(true);
+    expect(store.ownership.body).toEqual([0, 1, 2]);
+    expect(store.build.body).toBe(2);
+  });
+
+  it('a brand new session (no purchases made) starts from DEFAULT_TRUCK_BUILD\'s all-zero build with only tier 0 owned per axis -- the intended first-run baseline that restart must not regress toward', () => {
+    const store = new GameStore();
+    expect(store.build).toEqual(DEFAULT_TRUCK_BUILD);
+    expect(store.ownership).toEqual({ body: [0], wheels: [0], engine: [0], gasTank: [0] });
+    expect(store.coins).toBe(0);
   });
 
   it('is a no-op on the screen when called outside GAME_OVER (e.g. still on BUILDER)', () => {
