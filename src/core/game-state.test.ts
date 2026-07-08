@@ -145,6 +145,139 @@ describe('GameStore.confirmBuild (builder AC1)', () => {
   });
 });
 
+describe('GameStore.confirmBuild — hits/gas reseeding (farmer AC3/AC6, drive AC10)', () => {
+  it('seeds hitsRemaining to the resolved body tier\'s hitCapacity on confirm', () => {
+    const store = new GameStore();
+    store.confirmBuild();
+    expect(store.hitsRemaining).toBe(BODY_TIERS[DEFAULT_TRUCK_BUILD.body].hitCapacity);
+  });
+
+  it('seeds gas to the resolved gas-tank tier\'s capacity on confirm', () => {
+    const store = new GameStore();
+    store.confirmBuild();
+    expect(store.gas).toBe(GAS_TIERS[DEFAULT_TRUCK_BUILD.gasTank].capacity);
+  });
+
+  it('is 0 for both hitsRemaining and gas before any confirmBuild has run', () => {
+    const store = new GameStore();
+    expect(store.hitsRemaining).toBe(0);
+    expect(store.gas).toBe(0);
+  });
+
+  it('reseeds hitsRemaining/gas to a fresh full tank/hits on a restart round trip, not stale drained values from the previous run', () => {
+    const store = new GameStore();
+    store.confirmBuild(); // hitsRemaining = 3, gas = 20 (default tiers)
+    store.bump();
+    store.bump();
+    expect(store.hitsRemaining).toBe(1);
+    store.setGas(2);
+    expect(store.gas).toBe(2);
+
+    store.bump(); // drains last hit -> gameOver()
+    expect(store.screen).toBe('GAME_OVER');
+    store.restart();
+    store.confirmBuild(); // fresh run against the (possibly same) build
+
+    expect(store.hitsRemaining).toBe(BODY_TIERS[DEFAULT_TRUCK_BUILD.body].hitCapacity);
+    expect(store.gas).toBe(GAS_TIERS[DEFAULT_TRUCK_BUILD.gasTank].capacity);
+  });
+
+  it('reseeds to the newly-selected (not previous) tier\'s capacity when the player changes their build before restarting', () => {
+    const store = new GameStore();
+    store.confirmBuild(); // body tier 0 -> hitsRemaining 3
+    store.bump();
+    store.bump();
+    store.bump(); // hits to 0 -> gameOver
+    store.restart();
+
+    store.selectTier('body', 2); // higher hit capacity tier
+    store.selectTier('gasTank', 2); // higher gas capacity tier
+    store.confirmBuild();
+
+    expect(store.hitsRemaining).toBe(BODY_TIERS[2].hitCapacity);
+    expect(store.gas).toBe(GAS_TIERS[2].capacity);
+  });
+});
+
+describe('GameStore.bump (farmer AC3/AC6)', () => {
+  it('decrements hitsRemaining by exactly 1 per bump', () => {
+    const store = new GameStore();
+    store.confirmBuild(); // default body tier 0 -> hitCapacity 3
+    store.bump();
+    expect(store.hitsRemaining).toBe(2);
+  });
+
+  it('decrements correctly for a higher body tier (tier 2 -> hitCapacity 5)', () => {
+    const store = new GameStore();
+    store.selectTier('body', 2);
+    store.confirmBuild();
+    expect(store.hitsRemaining).toBe(BODY_TIERS[2].hitCapacity);
+    store.bump();
+    expect(store.hitsRemaining).toBe(BODY_TIERS[2].hitCapacity - 1);
+  });
+
+  it('does not trigger gameOver while hitsRemaining stays above 0', () => {
+    const store = new GameStore();
+    store.selectTier('body', 2); // hitCapacity 5
+    store.confirmBuild();
+    store.bump();
+    store.bump();
+    expect(store.screen).toBe('DRIVING');
+  });
+
+  it('triggers gameOver (DRIVING -> GAME_OVER) exactly when the bump brings hitsRemaining to 0 (AC6)', () => {
+    const store = new GameStore();
+    store.confirmBuild(); // hitCapacity 3
+    store.bump();
+    store.bump();
+    expect(store.screen).toBe('DRIVING');
+    store.bump(); // 3rd bump -> 0 -> gameOver
+    expect(store.hitsRemaining).toBe(0);
+    expect(store.screen).toBe('GAME_OVER');
+  });
+
+  it('resets the visible coin counter to 0 as part of the hard game over (AC6c) once restart runs', () => {
+    const store = new GameStore();
+    store.confirmBuild();
+    store.addCoins(25);
+    store.bump();
+    store.bump();
+    store.bump(); // -> gameOver
+    store.restart();
+    expect(store.coins).toBe(0);
+  });
+
+  it('is a no-op once hitsRemaining is already 0 (does not go negative or double-fire gameOver)', () => {
+    const store = new GameStore();
+    store.confirmBuild();
+    store.bump();
+    store.bump();
+    store.bump(); // -> 0, gameOver
+    let calls = 0;
+    store.subscribe(() => calls++);
+    store.bump(); // extra bump after game over should be a no-op
+    expect(store.hitsRemaining).toBe(0);
+    expect(calls).toBe(0);
+  });
+
+  it('is a no-op when called outside DRIVING (e.g. still on BUILDER, no run started)', () => {
+    const store = new GameStore();
+    store.bump();
+    expect(store.hitsRemaining).toBe(0);
+    expect(store.screen).toBe('BUILDER');
+  });
+
+  it('notifies subscribers on a bump that does not end the run', () => {
+    const store = new GameStore();
+    store.selectTier('body', 2);
+    store.confirmBuild();
+    let calls = 0;
+    store.subscribe(() => calls++);
+    store.bump();
+    expect(calls).toBe(1);
+  });
+});
+
 describe('GameStore.gameOver', () => {
   it('moves the screen from DRIVING to GAME_OVER', () => {
     const store = new GameStore();
