@@ -127,3 +127,57 @@ This was the last of Sprint 1's original 13 stories to reach the acceptance-vali
 Based on the evidence above, the gas, farmer, and hard-game-over systems (#8, #12, #13) are **soundly implemented at the code and unit-test level**, including the ADR-0005 fairness fix for issue #20, which has a specific, well-targeted regression test. However, I was **not able to deliver the live verification this task specifically prioritized** — the #20 fairness re-check under real play, and the game-over/restart round trip — because of a severe, newly-discovered crash (issue #21) that blocked every sustained live session I attempted this pass (8+ direct reproductions, 5 dedicated game-over-flow attempts, all blocked). AC4's HUD visibility requirement is the one criterion I *was* able to newly confirm live this pass (both HUD elements render correctly the instant a run starts).
 
 **This is a recommendation only — I am not the approver.** Given issue #21's severity and its direct interference with this pass's most important checks, I'd specifically recommend the human **not** give final sign-off on #8/#12/#13 (or close out Sprint 1) until #21 is fixed and this pass's blocked live checks (the #20 fairness re-verification and the game-over/restart round trip) are re-run successfully. Please review the evidence above — especially the #21 write-up and the AC6/#20 live-verification gaps — before deciding how to proceed.
+
+---
+
+## Addendum, 2026-07-08 (same day, later pass) — re-verification of issue #21 after `ef80351`
+
+**Status of this addendum: RECOMMENDATION ONLY**, same as the rest of this report. **Still blocked. Sprint 1 is not ready for sign-off.**
+
+### What changed since the section above
+
+The developer traced #21's root cause to a confirmed double `world.step()` call per tick (previously-"harmless" #16, whose safety precondition broke once the farmer NPC was added) and fixed it structurally in `ef80351` — `world.step()` now has exactly one call site in the codebase (audited via grep, confirmed again this pass). #21 and #16 were closed. The developer explicitly flagged that they could not run a live browser to confirm the fix actually resolves the crash, and specifically asked for the zero-input repro (repro 2 from the original write-up) to be re-run before treating this as resolved, since that repro's own pre-fix trace only ever hit a single, correctly-ordered `step()` call — meaning it was never mechanically guaranteed to be fixed by the double-step change in the first place.
+
+### Task 1 — zero-input crash repro, re-run
+
+**Result: FAIL. Crash still reproduces, 4/4 runs, effectively at t≈0s every time** (well under 1 second from entering `DRIVING`, before a single physics frame runs). This is a shorter/more consistent timing than the original report's "sub-1s to ~35s" range, but the same error signature:
+
+```
+RangeError: Maximum call stack size exceeded
+    ... at $rawcolliderset_createCollider (wasm://wasm/...)
+    at createCollider (assets/index-*.js:1:1)   [x3]
+Error: recursive use of an object detected which would lead to unsafe aliasing in rust
+    ... at $__wbg_rawshape_free (wasm://wasm/...)
+```
+
+Method: `puppeteer-core` driving real Edge (`msedge.exe`), both headless and headed, both `npm run dev`'s Vite dev server (unminified, for a readable stack trace) and `vite build && vite preview` (production build, matching what's actually deployed). Zero keyboard events were sent in any run; the truck never moved. Runs:
+1. `vite preview` (production build, HEAD `ef80351`), headless — crashed at +0ms.
+2. `vite` dev server, headless — crashed at +0ms, mapped stack trace obtained (see below).
+3. `vite preview`, headless, re-run for stack-trace confirmation — crashed at +0ms.
+4. `vite preview`, **headed** (non-headless, ruling out a headless-only artifact) — crashed at +0ms.
+
+**The stack trace (unminified via the dev server) is the key new finding: the crash is not in the `TruckController.moveBy`/`setPosition`/`step()` path `ef80351` touched at all.** It's in `src/physics/world.ts`'s `createObstacleColliders`, called exactly once from `main.ts`'s `startDriving()` on the `BUILDER -> DRIVING` transition, creating fixed colliders for the 3 `STUB_OBSTACLES` — this happens **before** `TruckController` is even constructed and before any `world.step()` call, fixed or otherwise. `ef80351`'s single-call-site guarantee is real and correct, but it cannot be the fix for a crash that happens before `step()` is ever invoked.
+
+**Isolating whether this is a regression from `ef80351` itself:** checked out the pre-fix commit `d79a6a1` (the exact commit the original acceptance pass in this report validated against — bundle hash `index-C4ObdvOx.js`, matching the deployed site) in a separate git worktree, built it fresh, and ran the identical repro against it. **Identical crash, identical signature, identical immediate timing.** This crash pre-dates `ef80351` and is unchanged by it — it's a genuine second, independent defect, not a regression the fix introduced and not (only) explained by the double-step mechanism. `ef80351` did fix the double-step defect it targeted (#16) — that part is real and worth keeping — it just isn't the (only) cause of #21's crash.
+
+### Task 2 — active-input driving re-test
+
+**Not meaningfully separable from Task 1's result.** Since the crash now reproduces before the render/physics loop ever runs a single frame (i.e. before player input could have any effect), a dedicated "60s of active driving" run cannot get further than the zero-input case — the session never reaches a point where steering/throttle input is processed. One additional run was made with the same harness (idle-only, since the crash preempts any input from mattering) and crashed identically at +0ms, consistent with runs 1-4 above.
+
+### Tasks 3 and 4 — not attempted
+
+Per the task's explicit instruction: **since the crash still reproduces, steps 3 (the #20 fairness live re-check, the hard game-over/restart round trip) were not attempted this pass.** Attempting them would not produce meaningful new evidence — no driving session survives long enough to reach a farmer spawn window or a gas-drain window, exactly as in the prior pass.
+
+### Action taken: reopened #21, did not file a separate issue
+
+**Reopened [issue #21](https://github.com/hoanghaithanh/monster-truck-farm/issues/21)** rather than filing a new one — this is judgment call, reasoning below:
+- The re-test surfaced the *same* error signature (`RangeError: Maximum call stack size exceeded` -> `recursive use of an object detected`) that #21 originally reported, and the original report's own timing data ("sub-1s to ~35s") already included instances consistent with what I'm now seeing consistently (sub-1s). This reads as the same underlying defect, observed more precisely this pass thanks to an unminified stack trace, not a new, unrelated bug.
+- Filing a fresh issue would fragment the history of a single ongoing defect across two issues with overlapping symptoms, evidence, and the same open hypothesis (upstream Rapier bug). Reopening keeps the full repro history — including the developer's root-cause trace of #16 and this pass's proof that the crash predates and survives `ef80351` — in one place.
+- Posted a detailed comment on #21 with the full new evidence: unminified stack trace pointing at `createObstacleColliders`, confirmation the crash reproduces on the pre-fix commit `d79a6a1` unchanged, and an updated, more specific hypothesis (crash triggers on the first few `RAPIER.World.createCollider()` calls made against a freshly-initialized WASM instance — nothing exotic, just a `bush`/`rock`/`derelictCar` cylinder collider each — consistent with a WASM/JS boundary re-entrancy bug in the pinned `rapier3d-compat@0.14.0`, not application call-site logic). Recommended next step, unchanged from the developer's original note: a dependency-upgrade spike against a current `rapier3d-compat` release (`0.19.3` at last check), then re-run this exact repro.
+- Did **not** reopen #16 — that specific defect (double `world.step()` per tick) is confirmed genuinely fixed by `ef80351` (single call site, audited via grep) and is not implicated by this crash's stack trace at all.
+
+### Updated recommendation
+
+**Sprint 1 is still not ready for sign-off.** The crash this task was sent to re-verify is not resolved — it is, if anything, more consistently and immediately reproducible than the original report suggested, and now has a precise, unminified stack trace pointing away from the code `ef80351` changed and toward either the obstacle-collider bootstrap path or (more likely, per the evidence above) an upstream defect in the pinned Rapier version. Steps 3-4 (the #20 fairness live re-check and the hard game-over/restart round trip) remain unexecuted, for the same reason as the prior pass: no driving session survives long enough to reach them. `ef80351` is a legitimate fix for a real, distinct defect (#16) and should stay merged, but it does not resolve #21. I'd recommend prioritizing the dependency-upgrade spike the developer flagged as the next concrete step, since two independent commits (`d79a6a1` and `ef80351`) have now both been ruled out as the cause via direct live testing.
+
+**This is a recommendation only — I am not the approver.**
