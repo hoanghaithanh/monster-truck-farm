@@ -62,16 +62,27 @@ export class TruckController {
     const t = this.body.translation();
     return { x: t.x, z: t.z };
   }
+
+  /** Removes the truck's body (and its collider) from the world, e.g. when a driving session ends. */
+  dispose(): void {
+    this.world.removeRigidBody(this.body);
+  }
 }
 
-/** Creates fixed colliders for obstacles that block the truck (post-clearance partition, drive AC6-AC8). */
-export function createObstacleColliders(world: RAPIER.World, obstacles: ObstacleInstance[]): void {
-  for (const obstacle of obstacles) {
+/**
+ * Creates fixed colliders for obstacles that block the truck (post-clearance partition, drive AC6-AC8).
+ * Returns the created bodies so a caller can remove them again (e.g. on a GAME_OVER -> restart round
+ * trip, where a fresh driving session re-partitions and re-creates obstacle colliders for the new
+ * TruckSpec's clearance — the old ones would otherwise leak in the shared Rapier world forever).
+ */
+export function createObstacleColliders(world: RAPIER.World, obstacles: ObstacleInstance[]): RAPIER.RigidBody[] {
+  return obstacles.map((obstacle) => {
     const body = world.createRigidBody(
       RAPIER.RigidBodyDesc.fixed().setTranslation(obstacle.position.x, 0.5, obstacle.position.z),
     );
     world.createCollider(RAPIER.ColliderDesc.cylinder(0.5, obstacle.radius), body);
-  }
+    return body;
+  });
 }
 
 export function createGroundCollider(world: RAPIER.World): void {

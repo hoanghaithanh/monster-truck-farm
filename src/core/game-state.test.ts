@@ -204,3 +204,74 @@ describe('GameStore.restart (builder AC7)', () => {
     expect(calls).toBe(1);
   });
 });
+
+describe('driving-session lifecycle across a full DRIVING -> GAME_OVER -> BUILDER -> DRIVING round trip (issue #18)', () => {
+  // main.ts wires a rAF/render/physics driving session to the screen FSM via
+  // exactly this start/dispose guard shape (start on BUILDER -> DRIVING while
+  // no session is active, dispose on DRIVING -> GAME_OVER). Three.js/Rapier
+  // can't be exercised in core/'s unit tests (ADR 0001 §4/§6 boundary), but
+  // the guard logic itself — the actual bug in #18 — is pure and reproduced
+  // here against a real GameStore so a regression trips a fast unit test
+  // instead of only being catchable by manually restarting the running app.
+  function wireFakeDrivingSession(store: GameStore) {
+    let started = 0;
+    let disposed = 0;
+    let active = false;
+    store.subscribe(() => {
+      if (store.screen === 'DRIVING' && !active && store.spec) {
+        active = true;
+        started++;
+      } else if (store.screen === 'GAME_OVER' && active) {
+        active = false;
+        disposed++;
+      }
+    });
+    return {
+      get started() {
+        return started;
+      },
+      get disposed() {
+        return disposed;
+      },
+      get active() {
+        return active;
+      },
+    };
+  }
+
+  it('starts a session on the first BUILDER -> DRIVING transition', () => {
+    const store = new GameStore();
+    const session = wireFakeDrivingSession(store);
+    store.confirmBuild();
+    expect(session.started).toBe(1);
+    expect(session.active).toBe(true);
+  });
+
+  it('disposes the session on DRIVING -> GAME_OVER and starts a fresh one on the next DRIVING entry', () => {
+    const store = new GameStore();
+    const session = wireFakeDrivingSession(store);
+
+    store.confirmBuild(); // BUILDER -> DRIVING: session #1 starts
+    store.gameOver(); // DRIVING -> GAME_OVER: session #1 disposed
+    expect(session.disposed).toBe(1);
+    expect(session.active).toBe(false);
+
+    store.restart(); // GAME_OVER -> BUILDER
+    store.confirmBuild(); // BUILDER -> DRIVING: session #2 starts
+
+    expect(session.started).toBe(2);
+    expect(session.disposed).toBe(1);
+    expect(session.active).toBe(true);
+  });
+
+  it('does not double-start when other store mutations (e.g. addCoins) re-fire the subscriber while already DRIVING', () => {
+    const store = new GameStore();
+    const session = wireFakeDrivingSession(store);
+
+    store.confirmBuild();
+    store.addCoins(10);
+    store.addCoins(5);
+
+    expect(session.started).toBe(1);
+  });
+});

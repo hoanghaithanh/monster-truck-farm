@@ -31,10 +31,22 @@ async function main() {
   const hud = createHud(app, store);
   const builder = createBuilderScreen(app, store);
 
+  // A driving session (rAF loop, input listeners, Rapier obstacle/truck
+  // bodies, three.js scene) is started fresh on every BUILDER -> DRIVING
+  // transition and torn down on the matching DRIVING -> GAME_OVER
+  // transition, so a restart (GAME_OVER -> BUILDER -> DRIVING, builder AC7)
+  // rebuilds against the player's possibly-new TruckSpec instead of
+  // silently continuing the stale session (issue #18). The `!driving` /
+  // `driving` guards make each branch fire exactly once per transition,
+  // not on every store mutation (e.g. addCoins) that re-fires this
+  // subscriber while already mid-session.
   let driving: ReturnType<typeof startDriving> | undefined;
   const unsubscribe = store.subscribe(() => {
     if (store.screen === 'DRIVING' && !driving && store.spec) {
       driving = startDriving(app, world, store, store.spec);
+    } else if (store.screen === 'GAME_OVER' && driving) {
+      driving.dispose();
+      driving = undefined;
     }
   });
 
@@ -51,7 +63,7 @@ function startDriving(app: HTMLElement, world: RAPIER.World, store: GameStore, s
   // Obstacle clearance is fixed for the run: partition once against the
   // truck's wheel tier (drive AC6-AC9), only blocking obstacles get colliders.
   const { blocking } = partitionObstacles(STUB_OBSTACLES, spec.clearance);
-  createObstacleColliders(world, blocking);
+  const obstacleBodies = createObstacleColliders(world, blocking);
 
   const truckStart = { x: 0, z: 6 };
   const truckController = new TruckController(world, truckStart, 0.9, TRUCK_HALF_HEIGHT);
@@ -88,6 +100,8 @@ function startDriving(app: HTMLElement, world: RAPIER.World, store: GameStore, s
       disposed = true;
       input.dispose();
       scene.dispose();
+      truckController.dispose();
+      for (const body of obstacleBodies) world.removeRigidBody(body);
     },
   };
 }
