@@ -45,9 +45,32 @@ async function main() {
   // not on every store mutation (e.g. addCoins) that re-fires this
   // subscriber while already mid-session.
   let driving: ReturnType<typeof startDriving> | undefined;
+  // Guards against *re-entrant* `store.emit()` calls firing synchronously
+  // while this very listener is still on the call stack constructing a
+  // session -- e.g. `GasSystem`'s constructor calls `store.setGas()`
+  // (drive AC10) partway through `startDriving()`, which synchronously
+  // notifies every subscriber, including this one, before `driving` below
+  // has been assigned. The `!driving` guard alone can't catch that: it's
+  // still `undefined` at that point (the assignment only happens once
+  // `startDriving()` *returns*), so the re-entrant call passed the guard
+  // too, called `startDriving()` again, which itself re-entered via its own
+  // `GasSystem` construction, and so on -- unbounded synchronous recursion,
+  // each level standing up a whole extra scene/physics session that never
+  // gets disposed (only the last one survives in `driving`), until the JS
+  // call stack overflowed mid-`Rapier.World.createCollider()` WASM call.
+  // That's the actual root cause of issue #21's "Maximum call stack size
+  // exceeded" / "recursive use of an object" crash -- confirmed by
+  // instrumenting this listener, which logged 1643 nested `startDriving()`
+  // entries (and hundreds of "Too many active WebGL contexts" warnings from
+  // the orphaned scenes) before the crash. It is not a bug in
+  // `createObstacleColliders`/Rapier's collider API, which builds a fresh
+  // descriptor per obstacle and reproduces cleanly in isolation.
+  let startingDriving = false;
   const unsubscribe = store.subscribe(() => {
-    if (store.screen === 'DRIVING' && !driving && store.spec) {
+    if (store.screen === 'DRIVING' && !driving && !startingDriving && store.spec) {
+      startingDriving = true;
       driving = startDriving(app, world, store, store.spec);
+      startingDriving = false;
     } else if (store.screen === 'GAME_OVER' && driving) {
       driving.dispose();
       driving = undefined;
