@@ -1,7 +1,7 @@
 // Pure gas drain/regen/limp model (ADR 0004 §Decision, drive AC10-AC14).
 // No fail state anywhere in this module -- running out only ever reduces
 // effective top speed, never stops the truck (drive AC11/AC14).
-import { GAS_DRAIN_PER_SECOND, GAS_LIMP_FACTOR, GAS_LIMP_MIN_SPEED, GAS_REGEN_PER_SECOND } from './config';
+import { GAS_DRAIN_PER_SECOND, GAS_LIMP_FACTOR, GAS_REGEN_PER_SECOND } from './config';
 
 export interface GasState {
   /** Remaining tank amount, 0..capacity. */
@@ -30,13 +30,15 @@ export function updateGas(state: GasState, inputs: GasInputs): GasState {
 }
 
 /**
- * Limp-mode top speed for a given nominal top speed (ADR 0004, floored per
- * ADR 0005 to fix issue #20): proportional to the engine tier, but never
- * below GAS_LIMP_MIN_SPEED, so an empty tank can't drop the truck below the
- * farmer's speed on any tier (ADR 0003 "always outrunnable" guarantee).
+ * Limp-mode top speed for a given nominal top speed (ADR 0004): a pure
+ * proportional scale of the engine tier's own top speed. ADR 0005's floor
+ * (GAS_LIMP_MIN_SPEED) is retired (ADR 0007 §3) now that the farmer scales
+ * off the truck's actual instantaneous velocity rather than a fixed speed --
+ * there's no fixed farmer speed a floor-free limp could fall below. Per-tier
+ * differentiation in limp mode is restored as a result.
  */
 export function limpTopSpeed(topSpeed: number): number {
-  return Math.max(topSpeed * GAS_LIMP_FACTOR, GAS_LIMP_MIN_SPEED);
+  return topSpeed * GAS_LIMP_FACTOR;
 }
 
 /**
@@ -46,4 +48,15 @@ export function limpTopSpeed(topSpeed: number): number {
  */
 export function effectiveTopSpeed(topSpeed: number, remaining: number): number {
   return remaining > 0 ? topSpeed : limpTopSpeed(topSpeed);
+}
+
+/**
+ * Flat, additive gas refill (ADR 0008 §2, fuel AC9/AC10/AC12): reuses the
+ * same `Math.min(capacity, ...)` clamp `updateGas` already applies, so a
+ * near-full tank just tops off with no penalty. Only ever *raises*
+ * `remaining` -- never touches drain/regen/limp, which stay entirely in
+ * `updateGas`/`effectiveTopSpeed`/`limpTopSpeed` above.
+ */
+export function refillGas(state: GasState, amount: number, capacity: number): GasState {
+  return { remaining: Math.min(capacity, state.remaining + amount) };
 }

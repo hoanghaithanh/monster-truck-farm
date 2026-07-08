@@ -51,6 +51,12 @@ export interface AnimalState {
   alive: boolean;
 }
 
+/** A fuel pickup on the map (ADR 0008 §1, fuel AC1-AC13) -- mirrors AnimalState minus alive/species/scatter, since collection is instant with no fleeing. */
+export interface FuelPickupState {
+  id: string;
+  position: Vec2;
+}
+
 /** Keyboard-derived driving intent (drive AC1-AC3). Values are normalized -1..1. */
 export interface DriveIntent {
   /** +1 = accelerate forward, -1 = brake/reverse, 0 = neither. */

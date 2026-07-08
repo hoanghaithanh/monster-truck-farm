@@ -15,6 +15,16 @@ const BUMP_FLASH_SECONDS = 0.3;
 const TRUCK_BASE_COLOR = 0xff8c1a;
 const TRUCK_FLASH_COLOR = 0xff3b3b;
 const FARMER_COLOR = 0xd1495b;
+// TIRED give-up beat (ADR 0007 §1, farmer AC7 tone): a friendly amber tint,
+// distinct from the truck's bump-flash red -- "phew, giving up", not scary.
+const FARMER_TIRED_COLOR = 0xf4c542;
+
+// Fuel pickup (ADR 0008 §3): a recognizable jerry-can-ish color, and a brief
+// positive glow burst on collection -- no scatter (fuel AC13), just a
+// friendly sparkle then gone.
+const FUEL_COLOR = 0xffd23f;
+const FUEL_GLOW_COLOR = 0xffffff;
+const FUEL_GLOW_SECONDS = 0.35;
 
 // Thin rendering adapter (ADR 0001 §4/§7): three.js meshes only, no
 // gameplay rules live here. systems/ tells this module where things are;
@@ -80,7 +90,10 @@ export function createGameScene(container: HTMLElement, bounds: TerrainBounds, o
   let bumpFlashRemaining = 0;
 
   const animalMeshes = new Map<string, THREE.Object3D>();
-  let farmerMesh: THREE.Object3D | undefined;
+  let farmerMesh: THREE.Mesh | undefined;
+  let farmerMaterial: THREE.MeshStandardMaterial | undefined;
+  const fuelMeshes = new Map<string, THREE.Object3D>();
+  const fuelGlows: { mesh: THREE.Mesh; material: THREE.MeshBasicMaterial; remaining: number }[] = [];
 
   function setTruckTransform(position: Vec2, heading: number): void {
     truckMesh.position.set(position.x, 0.4, position.z);
@@ -120,13 +133,24 @@ export function createGameScene(container: HTMLElement, bounds: TerrainBounds, o
   /** Places (creating on first call) the farmer mesh at its current position (farmer AC1/AC2). */
   function setFarmerTransform(position: Vec2): void {
     if (!farmerMesh) {
-      farmerMesh = new THREE.Mesh(
-        new THREE.CapsuleGeometry(0.35, 0.8, 4, 8),
-        new THREE.MeshStandardMaterial({ color: FARMER_COLOR }),
-      );
+      farmerMaterial = new THREE.MeshStandardMaterial({ color: FARMER_COLOR });
+      farmerMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.35, 0.8, 4, 8), farmerMaterial);
       scene.add(farmerMesh);
     }
     farmerMesh.position.set(position.x, 0.75, position.z);
+  }
+
+  /** TIRED give-up beat (ADR 0007 §1): a friendly, non-scary tint -- no motion change, just feedback that the farmer is done chasing for now. */
+  function farmerTired(): void {
+    farmerMaterial?.color.setHex(FARMER_TIRED_COLOR);
+  }
+
+  /** LEAVING -> ABSENT (ADR 0007 §1): the farmer has walked off; remove the mesh so a later re-appear recreates it fresh (base color). */
+  function farmerDespawn(): void {
+    if (!farmerMesh) return;
+    scene.remove(farmerMesh);
+    farmerMesh = undefined;
+    farmerMaterial = undefined;
   }
 
   /** Triggers the bump feedback flash (farmer AC5); decayed each frame in tickEffects. */
@@ -134,12 +158,55 @@ export function createGameScene(container: HTMLElement, bounds: TerrainBounds, o
     bumpFlashRemaining = BUMP_FLASH_SECONDS;
   }
 
-  /** Per-frame visual-effect decay (currently just the bump flash) -- called once per render frame from main.ts. */
+  /** Places (creating on first call) a fuel pickup mesh (ADR 0008 §3, fuel AC1-AC4). */
+  function upsertFuelPickup(id: string, position: Vec2): void {
+    let mesh = fuelMeshes.get(id);
+    if (!mesh) {
+      mesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.3, 0.35, 0.6, 10),
+        new THREE.MeshStandardMaterial({ color: FUEL_COLOR }),
+      );
+      scene.add(mesh);
+      fuelMeshes.set(id, mesh);
+    }
+    mesh.position.set(position.x, 0.3, position.z);
+  }
+
+  /** Instant collect (fuel AC13): removes the pickup mesh immediately and starts a brief glow-burst effect at its last position, decayed in tickEffects. */
+  function collectFuelPickup(id: string): void {
+    const mesh = fuelMeshes.get(id);
+    if (!mesh) return;
+    const glowMaterial = new THREE.MeshBasicMaterial({ color: FUEL_GLOW_COLOR, transparent: true, opacity: 0.9 });
+    const glowMesh = new THREE.Mesh(new THREE.SphereGeometry(0.5, 10, 10), glowMaterial);
+    glowMesh.position.copy(mesh.position);
+    scene.add(glowMesh);
+    fuelGlows.push({ mesh: glowMesh, material: glowMaterial, remaining: FUEL_GLOW_SECONDS });
+
+    scene.remove(mesh);
+    fuelMeshes.delete(id);
+  }
+
+  /** Per-frame visual-effect decay (bump flash + fuel glow bursts) -- called once per render frame from main.ts. */
   function tickEffects(dt: number): void {
-    if (bumpFlashRemaining <= 0) return;
-    bumpFlashRemaining = Math.max(0, bumpFlashRemaining - dt);
-    const t = bumpFlashRemaining / BUMP_FLASH_SECONDS;
-    truckMaterial.color.copy(new THREE.Color(TRUCK_FLASH_COLOR)).lerp(new THREE.Color(TRUCK_BASE_COLOR), 1 - t);
+    if (bumpFlashRemaining > 0) {
+      bumpFlashRemaining = Math.max(0, bumpFlashRemaining - dt);
+      const t = bumpFlashRemaining / BUMP_FLASH_SECONDS;
+      truckMaterial.color.copy(new THREE.Color(TRUCK_FLASH_COLOR)).lerp(new THREE.Color(TRUCK_BASE_COLOR), 1 - t);
+    }
+
+    for (let i = fuelGlows.length - 1; i >= 0; i--) {
+      const glow = fuelGlows[i];
+      glow.remaining -= dt;
+      if (glow.remaining <= 0) {
+        scene.remove(glow.mesh);
+        fuelGlows.splice(i, 1);
+        continue;
+      }
+      const t = glow.remaining / FUEL_GLOW_SECONDS;
+      glow.material.opacity = t;
+      const scale = 1 + (1 - t) * 0.6;
+      glow.mesh.scale.setScalar(scale);
+    }
   }
 
   function onResize() {
@@ -159,5 +226,18 @@ export function createGameScene(container: HTMLElement, bounds: TerrainBounds, o
     container.removeChild(renderer.domElement);
   }
 
-  return { setTruckTransform, upsertAnimal, removeAnimal, setFarmerTransform, flashTruck, tickEffects, render, dispose };
+  return {
+    setTruckTransform,
+    upsertAnimal,
+    removeAnimal,
+    setFarmerTransform,
+    farmerTired,
+    farmerDespawn,
+    flashTruck,
+    upsertFuelPickup,
+    collectFuelPickup,
+    tickEffects,
+    render,
+    dispose,
+  };
 }

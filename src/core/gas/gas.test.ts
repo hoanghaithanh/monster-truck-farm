@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { updateGas, effectiveTopSpeed, limpTopSpeed, type GasState } from './gas';
-import { GAS_DRAIN_PER_SECOND, GAS_LIMP_FACTOR, GAS_LIMP_MIN_SPEED, GAS_REGEN_PER_SECOND } from './config';
+import { updateGas, effectiveTopSpeed, limpTopSpeed, refillGas, type GasState } from './gas';
+import { GAS_DRAIN_PER_SECOND, GAS_LIMP_FACTOR, GAS_REGEN_PER_SECOND } from './config';
 
 const CAPACITY = 20;
 
@@ -70,9 +70,9 @@ describe('effectiveTopSpeed — limp mode (drive AC11/AC13)', () => {
     expect(effectiveTopSpeed(TOP_SPEED, 0.01)).toBe(TOP_SPEED);
   });
 
-  it('returns the floored limp speed (GAS_LIMP_MIN_SPEED) when remaining is exactly 0 — the transition boundary (ADR 0005, TOP_SPEED * 0.25 = 3.0 is below the floor of 5)', () => {
+  it('returns the proportional limp speed (ADR 0007 §3: the floor is retired) when remaining is exactly 0 — the transition boundary', () => {
     expect(effectiveTopSpeed(TOP_SPEED, 0)).toBe(limpTopSpeed(TOP_SPEED));
-    expect(effectiveTopSpeed(TOP_SPEED, 0)).toBe(GAS_LIMP_MIN_SPEED);
+    expect(effectiveTopSpeed(TOP_SPEED, 0)).toBe(TOP_SPEED * GAS_LIMP_FACTOR);
   });
 
   it('never returns a negative or NaN speed for a negative remaining (defensive: same as 0 case)', () => {
@@ -85,15 +85,36 @@ describe('effectiveTopSpeed — limp mode (drive AC11/AC13)', () => {
     expect(effectiveTopSpeed(TOP_SPEED, regenerated.remaining)).toBe(TOP_SPEED);
   });
 
-  it('floors to GAS_LIMP_MIN_SPEED for every current engine tier (ADR 0005: proportional 0.25x alone falls below FARMER_SPEED on every tier, so the floor dominates and tier differentiation is intentionally lost for now)', () => {
-    expect(limpTopSpeed(6)).toBe(GAS_LIMP_MIN_SPEED);
-    expect(limpTopSpeed(9)).toBe(GAS_LIMP_MIN_SPEED);
-    expect(limpTopSpeed(12)).toBe(GAS_LIMP_MIN_SPEED);
+  it('scales proportionally (0.25x) per engine tier (ADR 0007 §3: GAS_LIMP_MIN_SPEED is retired, restoring per-tier differentiation in limp mode)', () => {
+    expect(limpTopSpeed(6)).toBe(6 * GAS_LIMP_FACTOR);
+    expect(limpTopSpeed(9)).toBe(9 * GAS_LIMP_FACTOR);
+    expect(limpTopSpeed(12)).toBe(12 * GAS_LIMP_FACTOR);
+    // Distinct values per tier -- the point of retiring the floor.
+    expect(limpTopSpeed(6)).not.toBe(limpTopSpeed(9));
+    expect(limpTopSpeed(9)).not.toBe(limpTopSpeed(12));
+  });
+});
+
+describe('refillGas — fuel pickup refill (ADR 0008 §2, fuel AC9/AC10/AC12)', () => {
+  it('adds the flat amount to remaining', () => {
+    const result = refillGas(state(5), 15, CAPACITY);
+    expect(result.remaining).toBe(20);
   });
 
-  it('reverts to proportional (0.25x) scaling once topSpeed is high enough that the proportional term exceeds the floor — documents the formula, not a shipping tier', () => {
-    const hypotheticalTopSpeed = (GAS_LIMP_MIN_SPEED / GAS_LIMP_FACTOR) + 1; // just above the crossover point
-    expect(limpTopSpeed(hypotheticalTopSpeed)).toBe(hypotheticalTopSpeed * GAS_LIMP_FACTOR);
-    expect(limpTopSpeed(hypotheticalTopSpeed)).toBeGreaterThan(GAS_LIMP_MIN_SPEED);
+  it('clamps to capacity, discarding excess (a full/near-full tank just tops off, no penalty)', () => {
+    const result = refillGas(state(CAPACITY - 2), 15, CAPACITY);
+    expect(result.remaining).toBe(CAPACITY);
+  });
+
+  it('never lowers remaining (additive only)', () => {
+    const result = refillGas(state(10), 0, CAPACITY);
+    expect(result.remaining).toBe(10);
+  });
+
+  it('does not touch drain/regen/limp -- it is a pure additive clamp, independent of updateGas', () => {
+    const before = state(3);
+    const after = refillGas(before, 5, CAPACITY);
+    expect(after).toEqual({ remaining: 8 });
+    expect(before).toEqual({ remaining: 3 }); // original untouched
   });
 });

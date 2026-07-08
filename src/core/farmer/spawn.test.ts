@@ -31,43 +31,53 @@ describe('pickSpawnDelay — random spawn timing (farmer AC1)', () => {
   });
 });
 
-describe('FARMER_SPEED fairness invariant (ADR 0003 "Farmer speed")', () => {
+describe('FARMER_CREEP_FLOOR fairness invariant (ADR 0007 §2/§3 Check A -- supersedes the retired ADR 0005 FARMER_SPEED-vs-limp check)', () => {
   // config.ts throws at *module load* if this invariant is violated, but a
   // throw-on-import isn't itself a regression-catching test — if a future
-  // edit narrowed the margin (e.g. raised FARMER_SPEED close to but still
-  // under the lowest tier) without breaking the assertion, nothing here
-  // would flag it. This test independently re-derives and checks the
-  // invariant against the real tier table so a regression is caught by the
-  // suite, not only by the app crashing at runtime.
-  it('is genuinely below every engine tier\'s top speed, not just the lowest one', async () => {
-    const { FARMER_SPEED } = await import('./config');
-    const { ENGINE_TIERS } = await import('../stats/tiers');
-    for (const tier of ENGINE_TIERS) {
-      expect(FARMER_SPEED).toBeLessThan(tier.topSpeed);
-    }
-  });
-
-  it('is below the lowest engine tier top speed specifically (the binding constraint)', async () => {
-    const { FARMER_SPEED } = await import('./config');
-    const { ENGINE_TIERS } = await import('../stats/tiers');
-    const lowest = Math.min(...ENGINE_TIERS.map((t) => t.topSpeed));
-    expect(FARMER_SPEED).toBeLessThan(lowest);
-  });
-});
-
-describe('FARMER_SPEED vs gas limp mode fairness invariant (ADR 0005, fixes issue #20)', () => {
-  // Re-derives the cross-system invariant that #20 found missing: the
-  // nominal-topSpeed check above doesn't cover limp mode, so a truck with an
-  // empty tank could drop below FARMER_SPEED and become genuinely
-  // unescapable. This independently re-checks the real limpTopSpeed formula
-  // against the real tier table so a regression (farmer sped up, or the
-  // limp floor lowered/removed) is caught by the suite.
-  it('the farmer is still outrunnable at every engine tier\'s limp-mode (empty tank) speed', async () => {
-    const { FARMER_SPEED } = await import('./config');
+  // edit narrowed the margin (e.g. raised FARMER_CREEP_FLOOR close to but
+  // still under the slowest limp speed) without breaking the assertion,
+  // nothing here would flag it. This test independently re-derives and
+  // checks the invariant against the real tier table so a regression is
+  // caught by the suite, not only by the app crashing at runtime.
+  it('the creep floor is below every engine tier\'s limp-mode (empty tank) speed', async () => {
+    const { FARMER_CREEP_FLOOR } = await import('./config');
     const { ENGINE_TIERS } = await import('../stats/tiers');
     const { limpTopSpeed } = await import('../gas/gas');
     for (const tier of ENGINE_TIERS) {
-      expect(FARMER_SPEED).toBeLessThan(limpTopSpeed(tier.topSpeed));
+      expect(FARMER_CREEP_FLOOR).toBeLessThan(limpTopSpeed(tier.topSpeed));
     }
+  });
+
+  it('is below the lowest engine tier\'s limp speed specifically (the binding constraint, ADR 0007 Check A: 1.0 < 1.5)', async () => {
+    const { FARMER_CREEP_FLOOR } = await import('./config');
+    const { ENGINE_TIERS } = await import('../stats/tiers');
+    const { limpTopSpeed } = await import('../gas/gas');
+    const lowestLimpSpeed = Math.min(...ENGINE_TIERS.map((t) => limpTopSpeed(t.topSpeed)));
+    expect(FARMER_CREEP_FLOOR).toBeLessThan(lowestLimpSpeed);
+  });
+});
+
+describe('farmerSpeed(v) structural fairness (ADR 0007 §2/§3): "driving away always widens the gap"', () => {
+  // farmerSpeed(v) = max(v/3, FARMER_CREEP_FLOOR) -- this test re-derives the
+  // formula (systems/farmer-system.ts computes it inline) and asserts the
+  // structural guarantee holds for every v the floor no longer dominates at
+  // (v >= 3 * FARMER_CREEP_FLOOR), so a future change to the formula or the
+  // floor that breaks "always outrunnable while driving" fails the suite.
+  function farmerSpeed(v: number, creepFloor: number): number {
+    return Math.max(Math.abs(v) / 3, creepFloor);
+  }
+
+  it('farmerSpeed(v) < v for every v at or above 3x the creep floor', async () => {
+    const { FARMER_CREEP_FLOOR } = await import('./config');
+    for (const v of [3 * FARMER_CREEP_FLOOR, 4, 6, 9, 12, 100]) {
+      expect(farmerSpeed(v, FARMER_CREEP_FLOOR)).toBeLessThan(v);
+    }
+  });
+});
+
+describe('Check B — a stopped truck at the closest spawn is reachable within the chase window (ADR 0007 §2, deliberate design, pinned so it is not "fixed" back)', () => {
+  it('FARMER_CREEP_FLOOR * FARMER_CHASE_DURATION >= FARMER_MIN_SPAWN_DISTANCE_FROM_TRUCK (10 >= 8)', async () => {
+    const { FARMER_CREEP_FLOOR, FARMER_CHASE_DURATION, FARMER_MIN_SPAWN_DISTANCE_FROM_TRUCK } = await import('./config');
+    expect(FARMER_CREEP_FLOOR * FARMER_CHASE_DURATION).toBeGreaterThanOrEqual(FARMER_MIN_SPAWN_DISTANCE_FROM_TRUCK);
   });
 });

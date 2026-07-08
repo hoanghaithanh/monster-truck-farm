@@ -1,7 +1,7 @@
 // Bridges the pure gas model (core/gas) <-> GameStore <-> the driving
 // system's effective top speed (ADR 0004: drain-while-driving,
 // regen-while-idle, limp mode never hard-stops the truck).
-import { updateGas, effectiveTopSpeed, type GasState } from '../core/gas/gas';
+import { updateGas, effectiveTopSpeed, refillGas, type GasState } from '../core/gas/gas';
 import { GAS_IDLE_SPEED_EPSILON } from '../core/gas/config';
 import type { DriveIntent } from '../core/types';
 import type { GameStore } from '../core/game-state';
@@ -37,5 +37,17 @@ export class GasSystem {
     this.state = updateGas(this.state, { capacity: this.capacity, throttleOn, movingIdle, dt });
     this.store.setGas(this.state.remaining);
     return effectiveTopSpeed(this.topSpeed, this.state.remaining);
+  }
+
+  /**
+   * Applies a flat gas refill (ADR 0008 §2, fuel AC8/AC9): `GasSystem` stays
+   * the single owner/writer of `GasState`, so a fuel pickup routes here
+   * rather than writing `store.setGas` directly (which would desync from
+   * the next per-frame `update()`'s stale `state`). Updates the HUD gauge
+   * immediately via the same `store.setGas` path `update()` already uses.
+   */
+  refill(amount: number): void {
+    this.state = refillGas(this.state, amount, this.capacity);
+    this.store.setGas(this.state.remaining);
   }
 }

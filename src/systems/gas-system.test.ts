@@ -25,3 +25,32 @@ describe('GasSystem constructor seeding (ADR 0009 §2b/§5)', () => {
     expect(store.gas).toBe(10);
   });
 });
+
+// ADR 0008 §2/§5: GasSystem stays the single owner/writer of GasState --
+// fuel-pickup collection routes through refill() rather than store.setGas
+// directly, so the HUD gauge updates immediately and the next update() tick
+// doesn't clobber the refill from stale state.
+describe('GasSystem.refill (ADR 0008 §2, fuel AC8/AC9)', () => {
+  it('adds the amount and updates the store mirror immediately', () => {
+    const store = new GameStore();
+    const gas = new GasSystem(store, 20, 8, 5);
+    gas.refill(15);
+    expect(store.gas).toBe(20);
+  });
+
+  it('clamps to capacity on a near-full tank (no penalty, no overflow)', () => {
+    const store = new GameStore();
+    const gas = new GasSystem(store, 20, 8, 18);
+    gas.refill(15);
+    expect(store.gas).toBe(20);
+  });
+
+  it('a subsequent per-frame update() does not clobber the refill (single-owner correctness)', () => {
+    const store = new GameStore();
+    const gas = new GasSystem(store, 20, 8, 5);
+    gas.refill(10);
+    expect(store.gas).toBe(15);
+    gas.update({ throttle: 0, steer: 0 }, 0, 1); // idle, regen
+    expect(store.gas).toBeGreaterThanOrEqual(15); // continues from the refilled value, not the stale pre-refill one
+  });
+});

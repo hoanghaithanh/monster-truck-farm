@@ -10,6 +10,7 @@ import { TRUCK_CONTACT_RADIUS } from './core/driving/config';
 import { AnimalSystem } from './systems/animal-system';
 import { GasSystem } from './systems/gas-system';
 import { FarmerSystem, type FarmerRunState } from './systems/farmer-system';
+import { FuelSystem } from './systems/fuel-system';
 import { partitionObstacles } from './core/clearance';
 import { STUB_OBSTACLES, TERRAIN_BOUNDS } from './core/terrain';
 import type { TruckSpec } from './core/types';
@@ -134,6 +135,7 @@ function startDriving(
   const animalSystem = new AnimalSystem(store);
   const gasSystem = new GasSystem(store, spec.gasCapacity, spec.topSpeed, initialGas);
   const farmerSystem = new FarmerSystem(store, Math.random, farmerSeed);
+  const fuelSystem = new FuelSystem(Math.random);
 
   // Render-continuity gap (ADR 0009 §5): a seeded non-ABSENT farmer resumes
   // already PURSUING, so the ABSENT->PURSUING onAppear callback that would
@@ -168,13 +170,18 @@ function startDriving(
       onRemove: (id) => scene.removeAnimal(id),
     });
 
-    // Farmer (farmer AC1-AC6): appear -> chase -> bump. A bump may end the
-    // run via GameStore.gameOver(), which the module-level subscriber above
-    // reacts to by disposing this session (issue #18's dispose/recreate fix).
-    farmerSystem.update(dt, position, {
+    // Farmer (farmer AC1-AC6, ADR 0007 full chase-timer FSM): appear -> chase
+    // (dynamic 1/3-speed) -> tired -> leaving -> appear again. A bump may end
+    // the run via GameStore.gameOver(), which the module-level subscriber
+    // above reacts to by disposing this session (issue #18's dispose/recreate
+    // fix). `drivingSystem.speed` is this frame's instantaneous truck speed
+    // (ADR 0007 §2) -- the farmer stays gas-ignorant, same as before.
+    farmerSystem.update(dt, position, drivingSystem.speed, {
       onAppear: (farmerPosition) => scene.setFarmerTransform(farmerPosition),
       onMove: (farmerPosition) => scene.setFarmerTransform(farmerPosition),
       onBump: () => scene.flashTruck(),
+      onTired: () => scene.farmerTired(),
+      onDespawn: () => scene.farmerDespawn(),
     });
 
     // A bump above may have just driven hits to 0, which synchronously
@@ -182,6 +189,17 @@ function startDriving(
     // this very session (sets `disposed`, tears down the scene/renderer) --
     // bail out immediately rather than touching the now-disposed scene.
     if (disposed) return;
+
+    // Fuel pickups (ADR 0008): independent spawn/cap/timer from animals;
+    // collection routes to gasSystem.refill (the single GasState owner) plus
+    // a positive scene effect, never coins/hits (fuel AC7).
+    fuelSystem.update(dt, position, {
+      onSpawn: (id, fuelPosition) => scene.upsertFuelPickup(id, fuelPosition),
+      onCollect: (id, amount) => {
+        gasSystem.refill(amount);
+        scene.collectFuelPickup(id);
+      },
+    });
 
     scene.tickEffects(dt);
     scene.render();
