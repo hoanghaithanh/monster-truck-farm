@@ -238,3 +238,77 @@ Posted a detailed comment on [#21](https://github.com/hoanghaithanh/monster-truc
 **Sprint 1 is still not ready for sign-off.** The Rapier dependency upgrade (`5e9a694`) did not fix issue #21 — the crash reproduces identically (same signature, same call site, same near-immediate timing) on `rapier3d-compat@0.19.3` as it did on `0.14.0`. This is useful negative evidence: it eliminates "stale dependency" as the explanation and narrows the search to either a genuine defect in this codebase's obstacle-collider construction (most actionable next step: live-debug with a breakpoint, as recommended above and by the developer) or a long-lived upstream Rapier defect present across multiple release lines. Steps 2-4 (active-driving confirmation, the #20 fairness live re-check, and the hard game-over/restart round trip) remain unexecuted for the third consecutive pass, for the same root cause each time. I'd recommend the team stop attempting dependency-version changes as a fix strategy and move directly to live in-browser debugging at the identified crash site.
 
 **This is a recommendation only — I am not the approver.**
+
+---
+
+## Addendum 3, 2026-07-08 (same day, fourth pass) — independent re-verification of issue #21 after `6f44904` (the actual root-cause fix)
+
+**Status of this addendum: RECOMMENDATION ONLY**, same as the rest of this report. **All checks pass. Recommending sign-off, subject to the human's final call — see the explicit ask at the end.**
+
+### What changed since Addendum 2
+
+Given Addendum 2's finding that the crash happens *before* `world.step()` is ever called (inside `createObstacleColliders`'s first `createCollider()` calls) and survives both a version upgrade and the `ef80351` double-step fix, the developer went back and, this time, **reproduced the mechanism directly** (not just the symptom) via live instrumentation: a call counter on `main.ts`'s module-level `store.subscribe` listener logged **1643 nested `startDriving()` invocations** before the crash. Root cause: the `!driving` re-entrancy guard only takes effect *after* `startDriving()` returns and assigns `driving`, but `GasSystem`'s constructor (called synchronously partway through `startDriving()`) calls `store.setGas()`, which synchronously calls `GameStore.emit()`, re-invoking the same subscriber while `driving` is still `undefined` — passing the guard again, calling `startDriving()` again, recursing until the JS stack overflowed mid-Rapier-WASM-call. That overflow, and the immediately following `wasm-bindgen` borrow-guard panic on the next touch of the corrupted object, is what every prior pass's stack trace pointed at (`createObstacleColliders`/`createCollider`) — that's simply wherever the stack happened to give out, not where the actual defect lived, which is why two Rapier versions and the `ef80351` double-step fix were both innocent bystanders. Fix (`6f44904`, `src/main.ts`): a `startingDriving` guard set *before* calling `startDriving()` (not after, unlike `driving`), so a re-entrant `emit()` during setup sees the guard already active and no-ops instead of recursing.
+
+The developer's own live re-check (Edge/puppeteer, zero input, dev + preview builds) showed 15s clean with zero crashes/errors, and explicitly asked for an independent re-verification given this issue's history of two prior false fixes on this same issue — this addendum is that independent pass, run without taking the developer's own check at face value, and deliberately extended well past this report's prior rigor given how much confidence has already been misplaced here.
+
+**Note on process:** the human closed issue #21 (referencing `6f44904`) before this independent re-verification pass ran. This addendum documents that re-verification regardless — posted as a comment on the already-closed issue (https://github.com/hoanghaithanh/monster-truck-farm/issues/21#issuecomment-4914603032) rather than a re-open/re-close cycle, since the fix does in fact hold (see below).
+
+### Task 1 — zero-input crash repro, extended
+
+**Result: PASS, 8/8 runs, zero crashes.** Method: `puppeteer-core` driving real Edge (`msedge.exe`), zero keyboard events in any run, against both `npm run dev`'s dev server and `vite build && vite preview`'s production build (build hash `assets/index-DqOvo-WI.js`, confirmed identical to both the currently-deployed GitHub Pages site and a from-scratch rebuild of the exact HEAD commit `6f44904` after reverting a temporary debug instrumentation used later in this pass — see Task 3 note below).
+
+- 2 extended-duration runs, **150 seconds (2.5 minutes) each** — well past this task's 2-minute floor and roughly 4-6x the duration of any prior pass's individual run — one against `vite preview`, one against the dev server. Both **SURVIVED**, zero errors.
+- 1 headed run (65s, non-headless) — **SURVIVED**, ruling out a headless-only artifact.
+- 5 further runs (30s each, mixed across dev server, preview, and headed) — all **SURVIVED**.
+- A final confirmation run (60s) against the freshly-rebuilt, debug-hook-reverted production build (see Task 3) — **SURVIVED**.
+
+Total: 8 independent zero-input sessions, well over 10 minutes of cumulative idle wall-clock time, zero crashes, zero `pageerror` events, zero Rapier/wasm-bindgen panics of any kind.
+
+**One methodology correction made mid-pass, disclosed for transparency:** the first two runs of this extended repro were initially flagged "CRASHED" by the scratch harness script, which turned out to be two compounding false positives: (1) stale `vite preview`/`vite` processes left listening on ports 4173/5173 from an earlier point in this session meant the harness was briefly hitting an old server instance rather than the freshly-built one (fixed by killing the stale processes and confirming the correct build hash was being served before re-running); (2) the harness's console-error filter was matching on message *text* for a known-benign browser-default `favicon.ico` 404 (pre-existing, unrelated to app code, confirmed via a dedicated `page.on('response')` check), but Edge/Chrome's console text for that message carries no URL — only the message's *source location* does — so the filter was fixed to match on `msg.location().url` instead. Neither issue was a real crash; both were caught and corrected before any run was treated as a genuine pass, and both are transparency notes about the QA harness, not about the application.
+
+### Task 2 — sustained active driving
+
+**Result: PASS, no crash, gameplay confirmed working.** Two sessions (70s and 100s+) holding throttle plus continuous/reactive steering:
+- Gas HUD visibly and smoothly drained from 100% to empty over the tank's rated duration (drive AC10) — the first time in this report's four passes that gas drain has been directly observed live rather than inferred, since every prior pass was blocked by the crash before the HUD could move.
+- Farmer bump mechanic engaged correctly: hit-icon row updated live on each bump (full heart → dim heart), game-over overlay appeared correctly at 0 hits.
+- Zero crashes, zero JS errors (beyond the benign favicon 404 addressed above) across both sessions.
+
+### Task 3 — #20 fairness re-verification (live, blocked for 3 consecutive prior passes — now completed)
+
+Selected Engine Tier 0 (topSpeed 6) + Gas Tier 0 (20s tank) — ADR 0005's own narrowest-margin configuration (`limpTopSpeed(6)=5` vs `FARMER_SPEED=4`, a 25% margin). A first attempt at scripting evasive input blindly (alternating steer pulses, matching the pattern used in the original acceptance pass before #21 existed) repeatedly got the truck boundary-cornered against the 40x40 terrain's edge well before the tank ever emptied, letting the farmer close in while the truck was pinned — a scripted-bot geometry artifact, not a game defect (a real player watching the truck approach a wall reacts trivially; a blind script does not).
+
+To get a trustworthy read, this pass added a **temporary, uncommitted debug hook** to `src/main.ts` (exposing live truck/farmer positions on `window` for the test harness only) so the evasion script could steer genuinely away from the farmer's real position and away from walls, the same way a sighted player would. This hook was reverted via `git checkout -- src/main.ts` before this pass concluded — confirmed via `git diff` showing zero changes and a rebuild producing the byte-identical hash (`index-DqOvo-WI.js`) as the very first clean build of this HEAD, i.e. **no debug code is present in what's being signed off on.**
+
+With reactive, position-aware evasion:
+- **Run 1:** 100s total. Gas hit exactly 0% at t=20s (confirms AC10's drain timing live) and the truck continued in **sustained limp mode for the remaining 80 seconds**, taking 2 bumps but **surviving the full duration with 1 hit remaining — never reached game over.**
+- **Run 2:** 90s total. Same result: gas empty at t=20s, survived the full 90s in limp mode with 1 hit remaining, never reached game over.
+
+This is now **directly, live-confirmed** — not solely resting on the ADR-0005 regression test (which also still passes, part of 163/163) — for the first time across all four passes of this report. The margin holds: a reasonably-competent reactive evader (scripted, imperfect, occasionally still gets bumped, exactly as expected from a real 25%-margin chase) is never trapped into an unavoidable hard loss.
+
+### Task 4 — hard game-over / restart round trip (also blocked for 3 consecutive prior passes — now completed)
+
+3 independent attempts (truck deliberately left stationary so the farmer, once spawned, bumps it to 0 hits quickly), all clean:
+- Game-over overlay appears at 0 hits, with the confirmed kid-friendly copy: **"🚜 Oops! Let's build a new truck!"** / **"The farmer caught up with you. Time to try again!"** — no scary/violent framing (farmer AC7, direct source + live confirmation).
+- Clicking "Build a new truck!" returns to the builder screen; coin counter confirmed at 0 (farmer AC6b/c).
+- Confirming a fresh build starts a new driving session with the HUD showing gas back to 100% and hits back to 3 full hearts (❤️❤️❤️), read live from the DOM, not inferred — confirms the restart's state reset (farmer AC6d) and re-tests the exact `BUILDER -> DRIVING` transition path `6f44904`'s guard protects.
+- Held throttle for 1.5s in the fresh session with zero errors in all 3 attempts — the restart path does not re-trigger the recursion bug.
+
+### Test suite / build, re-confirmed on the reverted tree
+
+`npx vitest run` → 163/163 passing. `npx tsc -p tsconfig.json --noEmit` → clean. `npx vite build` → succeeds, produces the same bundle hash (`index-DqOvo-WI.js`) as the deployed GitHub Pages site, confirming the production deploy is current and matches what was tested.
+
+### Action taken
+
+Posted the full independent-verification evidence as a comment on the already-closed issue #21: https://github.com/hoanghaithanh/monster-truck-farm/issues/21#issuecomment-4914603032. Did not re-open (nothing to re-open — every check passed) and did not need to re-close (the human already closed it referencing the correct commit).
+
+### Sprint 1 completeness check
+
+Checked all issues under the Sprint 1 milestone. Of the original 13 stories (#1-13): **#1-11 are closed; #12 (farmer appear/chase/bump) and #13 (hard game over + restart) remain open.** These are exactly the two stories this whole report has been validating across all four passes, and every AC for both is now either code+test-confirmed or, as of this pass, also live-confirmed (see the AC-by-AC table above, now materially strengthened by this pass's live evidence for AC4's dynamic update, AC6's full round trip, AC10-AC13's live gas telemetry, and the #20 fix). Closing #12/#13 themselves is a call for the project-manager/human at sprint review, not something I'm doing unilaterally here — flagging it as the next concrete action. Two more issues remain open under the milestone: #14 and #15, both pre-existing, explicitly-scoped tech-debt items (non-blocking, already noted as deferred, not part of the original 13 stories' AC scope).
+
+### Updated recommendation
+
+**All checks in this pass are clean.** Issue #21 — three times previously and incorrectly believed fixed — now has both a correctly-identified root cause (unbounded synchronous re-entrancy in `main.ts`, not Rapier, not the obstacle-collider bootstrap, not a stale dependency) and a fix that survived materially more rigorous independent testing than any prior attempt: 8 zero-input sessions (including two 150-second/2.5-minute runs, this pass's explicit ask), active driving with live gas/farmer telemetry, two full narrowest-margin limp-mode evasion sessions reaching genuine empty-tank sustained pursuit, and three full game-over/restart round trips — all without a single reproduction of the crash, and with a clean, reverted, byte-verified tree.
+
+**I am recommending, not approving, that Sprint 1's remaining gate — issue #21 — is now genuinely resolved**, and that the #20 fairness fix and the hard game-over/restart flow (the two live checks blocked since this report's very first acceptance pass) are now both live-confirmed working correctly. **Final sign-off on #21's closure, on stories #12/#13, and on Sprint 1 as a whole remains the human's call** — please review the evidence above (particularly the reactive-evasion methodology and the debug-hook revert verification) before making that call. If accepted, the concrete next step is for project-manager to close #12/#13 and proceed to Sprint 1's retrospective/close-out per the project's standard sprint ceremonies.
+
+**This is a recommendation only — I am not the approver.**
