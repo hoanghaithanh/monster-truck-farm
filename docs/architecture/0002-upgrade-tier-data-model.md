@@ -3,6 +3,7 @@
 Status: Proposed (Sprint 1)
 Date: 2026-07-06
 Related: `truck-builder-and-upgrades.md`; ADR 0001 (`core/stats`), ADR 0004 (gas consumes tank tier)
+Realized by: ADR 0006 (Sprint 2) — the anticipated `Ownership` wrapper, `selectable`/`purchasable` predicates, per-tier `cost`, and the coin-spend flow are specified there; this ADR's tier tables and `resolveSpec` stay unchanged, as designed.
 
 ## Context
 

@@ -4,6 +4,7 @@ Status: Proposed (Sprint 1, fixes issue #20)
 Date: 2026-07-07
 Related: ADR 0003 (farmer state machine, "always outrunnable" guarantee), ADR 0004 (gas system & limp mode), ADR 0002 (`ENGINE_TIERS.topSpeed`)
 Amends: ADR 0003 §"Farmer speed", ADR 0004 §"Limp semantics"
+Superseded by: ADR 0007 (Sprint 2) — this ADR's `GAS_LIMP_MIN_SPEED` floor was an explicit Sprint 1 stopgap; ADR 0007's dynamic farmer speed makes "always outrunnable" structural, so the floor is retired and the cross-system test flips from `FARMER_SPEED < limpTopSpeed(tier)` to `FARMER_CREEP_FLOOR < limpTopSpeed(lowestTier)` plus a structural `farmerSpeed(v) < v` check.
 
 ## Context
 
@@ -31,14 +32,14 @@ limpTopSpeed(topSpeed) = max(topSpeed * GAS_LIMP_FACTOR, GAS_LIMP_MIN_SPEED)
 
 **Load-bearing numeric fact (test-enforced):** for every engine tier, `FARMER_SPEED < limpTopSpeed(tier.topSpeed)`. A test re-derives this from the real `ENGINE_TIERS` table, mirroring the existing `FARMER_SPEED < min(topSpeed)` pattern in `src/core/farmer/spawn.test.ts`.
 
-This is a **Sprint 1 stopgap by design.** The proper long-term fix is candidate (a) below — the farmer's Sprint 2 dynamic "1/3 of the truck's *current* speed" cap. Once the farmer slows *with* the truck, the limp floor can be relaxed back toward `0.25` and per-tier differentiation returns. We are not pulling that mechanic forward now.
+This is a **Sprint 1 stopgap by design.** The proper long-term fix is candidate (a) below — the farmer's Sprint 2 dynamic "1/3 of the truck's *current* speed" cap. Once the farmer slows *with* the truck, the limp floor can be relaxed back toward `0.25` and per-tier differentiation returns. We are not pulling that mechanic forward now. **(That mechanic is now delivered by ADR 0007, which retires this floor — see the "Superseded by" note above.)**
 
 ## Alternatives considered
 
-- **(a) Farmer respects the truck's current effective top speed (slow/pause in limp mode).** The correct long-term fix and the data is already at the `main.ts` call site — but it *is* ADR 0003's Sprint 2 dynamic-cap mechanic, which ADR 0003 defers specifically to keep the Sprint 1 FSM simple. It also changes the farmer's normal (full-gas) kinematics unless carefully clamped, adds a new gas→farmer coupling the FSM was designed to avoid, and turns a static numeric invariant into a behavioral one that's harder to pin to a single test. Scope-expanding for a Sprint 1 blocker.
+- **(a) Farmer respects the truck's current effective top speed (slow/pause in limp mode).** The correct long-term fix and the data is already at the `main.ts` call site — but it *is* ADR 0003's Sprint 2 dynamic-cap mechanic, which ADR 0003 defers specifically to keep the Sprint 1 FSM simple. It also changes the farmer's normal (full-gas) kinematics unless carefully clamped, adds a new gas→farmer coupling the FSM was designed to avoid, and turns a static numeric invariant into a behavioral one that's harder to pin to a single test. Scope-expanding for a Sprint 1 blocker. **(Adopted in ADR 0007 — which, notably, avoids the feared gas→farmer coupling by keying off the truck's *instantaneous velocity*, not gas state.)**
 - **(b-alt) Raise `GAS_LIMP_FACTOR` instead of adding a floor.** To clear the farmer on the lowest tier needs `6 * factor > 4`, i.e. `factor > 0.667` — limp would be ~67% of top speed on every tier, no longer a "limp" at all and contradicting AC11's "roughly 25%". Rejected; a floor bounds only the low tiers that need it.
 - **Lower `FARMER_SPEED` below the lowest limp speed (1.5).** Would make the farmer slower than `1.5` units/s — effectively uncatchable, gutting ADR 0003's whole bump/hit/game-over feature. Rejected.
-- **Keep proportional limp *and* full tier differentiation.** Provably incompatible with an outrunnable-but-meaningful farmer: preserving all three proportional speeds requires the floor (and thus the farmer) below `1.5`. Not achievable; documented as the accepted trade-off.
+- **Keep proportional limp *and* full tier differentiation.** Provably incompatible with an outrunnable-but-meaningful farmer: preserving all three proportional speeds requires the floor (and thus the farmer) below `1.5`. Not achievable; documented as the accepted trade-off. **(Resolved in ADR 0007: a farmer that scales with the truck's velocity is outrunnable *and* proportional limp differentiation returns — the two are compatible once the farmer is no longer a fixed speed.)**
 
 ## Consequences
 
@@ -56,7 +57,6 @@ main.ts frame loop (per tick, unchanged):
   effectiveTopSpeed = gasSystem.update(intent, drivingSystem.speed, dt)  // now floored
   drivingSystem.setTopSpeed(effectiveTopSpeed)
   farmerSystem.update(dt, position, cbs)   // still constant FARMER_SPEED = 4, gas-unaware
-
 core/gas/gas.ts:
   effectiveTopSpeed(topSpeed, remaining)
     = remaining > 0 ? topSpeed : limpTopSpeed(topSpeed)

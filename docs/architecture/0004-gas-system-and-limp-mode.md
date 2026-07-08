@@ -4,6 +4,7 @@ Status: Proposed (Sprint 1)
 Date: 2026-07-06
 Related: `drive-terrain-and-gas.md` (AC10–AC14), `truck-builder-and-upgrades.md` (gas tier = capacity); ADR 0001 (driving), ADR 0002 (`gasCapacity`, `topSpeed`)
 Amended by: ADR 0005 (issue #20) — limp speed now takes a `GAS_LIMP_MIN_SPEED` floor for farmer fairness; under the current tier table the floor dominates, so interpretation-(b) tier differentiation (Open Q2) is superseded until Sprint 2's farmer speed cap lands.
+Amended by: ADR 0007 (Sprint 2) — Sprint 2's dynamic farmer speed lands, so `GAS_LIMP_MIN_SPEED` is retired and limp reverts to pure proportional `topSpeed × GAS_LIMP_FACTOR`; interpretation-(b) engine-tier differentiation in limp mode is restored.
 
 ## Context
 
@@ -39,11 +40,13 @@ Rationale: keeping limp proportional to the engine tier means a higher-engine tr
 
 > **Amended by ADR 0005 (issue #20).** This proportional rule made empty-tank limp speeds (1.5 / 2.25 / 3.0 across tiers) fall *below* the farmer's constant `FARMER_SPEED = 4`, so a child who ran out of gas while chased could not outrun the farmer on any tier — violating ADR 0003's "always outrunnable" guarantee. Fix: `limpTopSpeed = max(topSpeed * LIMP_FACTOR, GAS_LIMP_MIN_SPEED)` with `GAS_LIMP_MIN_SPEED = 5` (> farmer 4, < lowest nominal top speed 6). Because the largest proportional limp (3.0) is below the floor, **all current tiers limp at the floor** — interpretation-(b) tier differentiation is effectively superseded (limp reverts to the flat interpretation (a) the doc noted was "one line away"). This is a Sprint 1 stopgap; Sprint 2's dynamic farmer speed cap (ADR 0003) is what lets the floor relax and restores differentiation.
 
+> **Amended by ADR 0007 (Sprint 2).** Sprint 2's farmer now moves at 1/3 of the truck's *instantaneous* velocity, so a limping (slow) truck produces a correspondingly slow farmer — the fairness guarantee holds by construction with no fixed farmer speed to exceed limp. `GAS_LIMP_MIN_SPEED` is therefore **retired** and `limpTopSpeed` reverts to the bare proportional `topSpeed * LIMP_FACTOR`, restoring interpretation-(b) engine-tier differentiation in limp mode (a higher-engine truck limps faster again). See ADR 0007 §3 for the transitive resolution and the updated cross-system test.
+
 There is **no fail state, no UI "game over", no hard stall** anywhere in this system (drive AC14). The only player-visible effect of empty gas is reduced top speed; the DOM HUD shows a gas gauge that a child can read at a glance.
 
 ## Alternatives considered
 
-- **Limp interpretation (a): fixed low speed regardless of engine tier.** Not chosen (but one line away): simpler, but erases the engine tier's value while low on gas, which is the less forgiving reading. Left selectable via `LIMP_FACTOR`/config if the human overrides. (Per ADR 0005, the fairness floor makes the shipped behavior equivalent to (a) for all current tiers anyway.)
+- **Limp interpretation (a): fixed low speed regardless of engine tier.** Not chosen (but one line away): simpler, but erases the engine tier's value while low on gas, which is the less forgiving reading. Left selectable via `LIMP_FACTOR`/config if the human overrides. (Per ADR 0005, the fairness floor makes the shipped behavior equivalent to (a) for all current tiers anyway; per ADR 0007 the floor is retired and (b) returns.)
 - **Hard stall at empty (truck stops).** Rejected outright — violates AC11/AC14 and the no-fail-state bias for this system.
 - **Drain-rate-per-tier instead of capacity-per-tier.** Rejected for Sprint 1 to match ADR 0002 (one number changes per tier; simpler to reason/test). Revisitable there if the human prefers, via a `drainRate` field — the gas model would just read it instead of a constant.
 - **Escalate limp semantics to requirements-analyst.** Not done: the ambiguity doesn't change the architecture (one swappable function), and the human already owns the choice; escalating would burn effort re-deriving a documented open question.
@@ -56,6 +59,6 @@ There is **no fail state, no UI "game over", no hard stall** anywhere in this sy
 
 ## Risks
 
-- **Limp semantics still unconfirmed (Open Q2).** Low risk — a one-line switch. Detected at this ADR's confirmation checkpoint; if unresolved it's documented here rather than blocking. (Superseded by ADR 0005: the fairness floor now pins limp to a flat `GAS_LIMP_MIN_SPEED` for all current tiers; Open Q2's differentiation returns only alongside Sprint 2's farmer cap.)
+- **Limp semantics still unconfirmed (Open Q2).** Low risk — a one-line switch. Detected at this ADR's confirmation checkpoint; if unresolved it's documented here rather than blocking. (Superseded by ADR 0005: the fairness floor now pins limp to a flat `GAS_LIMP_MIN_SPEED` for all current tiers; Open Q2's differentiation returns only alongside Sprint 2's farmer cap — which ADR 0007 delivers, retiring the floor.)
 - **Drain/regen tuning feels punishing or pointless** for a young child. Detected in playtest. Mitigation: config constants; the "never hard-stop" guarantee caps the downside regardless of numbers.
 - **"Idle" detection** (throttle-off *and* effectively stationary) could mis-fire if thresholds are off, letting the tank regen while still coasting. Detected in playtest/observation. Mitigation: a small speed epsilon in config; the `movingIdle` input is computed in one place.
