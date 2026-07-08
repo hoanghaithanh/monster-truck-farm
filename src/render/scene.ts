@@ -1,6 +1,12 @@
 import * as THREE from 'three';
 import type { ObstacleInstance, Vec2 } from '../core/types';
 import type { TerrainBounds } from '../core/terrain';
+import { clampCameraToBounds } from '../core/driving/boundary';
+
+// Chase camera stays this far inset from the ground plane's edge so a
+// corner position never lets the camera see past the ground into the
+// scene background/"void" (issue #17, drive AC4 intent).
+const CAMERA_GROUND_MARGIN = 3;
 
 // Thin rendering adapter (ADR 0001 §4/§7): three.js meshes only, no
 // gameplay rules live here. systems/ tells this module where things are;
@@ -72,9 +78,14 @@ export function createGameScene(container: HTMLElement, bounds: TerrainBounds, o
     truckMesh.position.set(position.x, 0.4, position.z);
     truckMesh.rotation.y = heading;
 
-    // Simple chase camera, offset behind the truck's heading.
+    // Simple chase camera, offset behind the truck's heading. At terrain
+    // corners this offset can extend past the finite ground plane, so the
+    // camera's own (x,z) is pulled back in to stay over the ground — the
+    // camera still looks at the truck, so it stays framed either way.
     const behind = new THREE.Vector3(-Math.sin(heading), 0, -Math.cos(heading)).multiplyScalar(6);
-    camera.position.set(truckMesh.position.x + behind.x, 5, truckMesh.position.z + behind.z);
+    const desiredCameraPos = { x: truckMesh.position.x + behind.x, z: truckMesh.position.z + behind.z };
+    const cameraPos = clampCameraToBounds(desiredCameraPos, bounds, CAMERA_GROUND_MARGIN);
+    camera.position.set(cameraPos.x, 5, cameraPos.z);
     camera.lookAt(truckMesh.position);
   }
 

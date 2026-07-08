@@ -12,3 +12,17 @@ export function clampToBounds(position: Vec2, bounds: TerrainBounds): Vec2 {
     z: Math.min(bounds.maxZ, Math.max(bounds.minZ, position.z)),
   };
 }
+
+// Chase-camera edge fix (issue #17): the truck's own position is clamped by
+// clampToBounds above, but a chase camera offset behind the truck's heading
+// can still extend past the finite ground plane at corners, exposing the
+// scene background ("void") and undercutting AC4's no-void intent even
+// though the truck itself never leaves bounds. Pull the camera's desired
+// (x,z) back in by `margin` so it stays over the ground plane; the camera
+// still looks at the truck, so the truck stays framed.
+export function clampCameraToBounds(position: Vec2, bounds: TerrainBounds, margin: number): Vec2 {
+  return {
+    x: Math.min(bounds.maxX - margin, Math.max(bounds.minX + margin, position.x)),
+    z: Math.min(bounds.maxZ - margin, Math.max(bounds.minZ + margin, position.z)),
+  };
+}
