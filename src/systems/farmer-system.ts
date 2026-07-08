@@ -17,10 +17,9 @@ import {
 } from '../core/farmer/config';
 import { pickSpawnPosition, type Rng } from '../core/spawn/spawn-position';
 import { TERRAIN_BOUNDS, STUB_OBSTACLES } from '../core/terrain';
+import { TRUCK_CONTACT_RADIUS } from '../core/driving/config';
 import type { Vec2 } from '../core/types';
 import type { GameStore } from '../core/game-state';
-
-const TRUCK_CONTACT_RADIUS = 0.9;
 
 export interface FarmerSystemCallbacks {
   onAppear(position: Vec2): void;

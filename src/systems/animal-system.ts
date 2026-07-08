@@ -8,20 +8,23 @@ import { spawnAnimal } from '../core/spawn/spawn-animal';
 import { ANIMAL_SPECIES } from '../core/spawn/species';
 import { SPAWN_INTERVAL_SECONDS, MAX_CONCURRENT_ANIMALS, MIN_SPAWN_DISTANCE_FROM_TRUCK } from '../core/spawn/config';
 import { isBoopContact, resolveBoop } from '../core/boop';
+import { isScatterDone, startScatter, tickScatter, type ScatterState } from '../core/scatter';
 import { TERRAIN_BOUNDS, STUB_OBSTACLES } from '../core/terrain';
+import { TRUCK_CONTACT_RADIUS } from '../core/driving/config';
 import type { AnimalState, Vec2 } from '../core/types';
 import type { GameStore } from '../core/game-state';
 
-const TRUCK_CONTACT_RADIUS = 0.9;
-
 export interface AnimalSystemCallbacks {
   onSpawn(id: string, position: Vec2): void;
+  /** Fired each frame a booped animal is fleeing (animal AC4a), so render/ can move its mesh. */
+  onScatter(id: string, position: Vec2): void;
   onRemove(id: string): void;
 }
 
 export class AnimalSystem {
   private timerState: SpawnTimerState = initialSpawnTimerState;
   private animals: AnimalState[] = [];
+  private scatters = new Map<string, ScatterState>();
   private nextId = 1;
 
   constructor(
@@ -57,7 +60,24 @@ export class AnimalSystem {
         const { animal: booped, coinsAwarded } = resolveBoop(animal);
         this.animals[i] = booped;
         this.store.addCoins(coinsAwarded);
-        callbacks.onRemove(animal.id);
+        // Coins/removal-from-boop-eligibility happen immediately (AC4b), but
+        // the mesh itself keeps fleeing for a beat before despawning (AC4a)
+        // rather than vanishing the same frame -- see scatters loop below.
+        this.scatters.set(animal.id, startScatter(animal.position, truckPosition));
+      }
+    }
+
+    // Advance in-flight scatter reactions and despawn once each finishes
+    // (animal AC4c), decoupled from the contact loop above so a scatter
+    // that just started still gets its first tick next frame.
+    for (const [id, scatterState] of this.scatters) {
+      const next = tickScatter(scatterState, dt);
+      if (isScatterDone(next)) {
+        this.scatters.delete(id);
+        callbacks.onRemove(id);
+      } else {
+        this.scatters.set(id, next);
+        callbacks.onScatter(id, next.position);
       }
     }
 

@@ -21,3 +21,11 @@ export const DEFAULT_DRIVING_CONFIG: DrivingConfig = {
   turnRate: 2.2,
   reverseSpeedFactor: 0.5,
 };
+
+/**
+ * The truck's contact/collision radius, shared by the Rapier collider
+ * (physics/world.ts's TruckController) and every gameplay contact check
+ * (animal boop, farmer bump) so the physical and gameplay collision sizes
+ * can never silently drift apart (issue #15).
+ */
+export const TRUCK_CONTACT_RADIUS = 0.9;

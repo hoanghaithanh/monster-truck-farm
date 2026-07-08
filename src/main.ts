@@ -6,6 +6,7 @@ import { createHud } from './ui/hud';
 import { createBuilderScreen } from './ui/builder';
 import { createGameOverScreen } from './ui/game-over';
 import { DrivingSystem, TRUCK_HALF_HEIGHT } from './systems/driving-system';
+import { TRUCK_CONTACT_RADIUS } from './core/driving/config';
 import { AnimalSystem } from './systems/animal-system';
 import { GasSystem } from './systems/gas-system';
 import { FarmerSystem } from './systems/farmer-system';
@@ -94,7 +95,7 @@ function startDriving(app: HTMLElement, world: RAPIER.World, store: GameStore, s
   const obstacleBodies = createObstacleColliders(world, blocking);
 
   const truckStart = { x: 0, z: 6 };
-  const truckController = new TruckController(world, truckStart, 0.9, TRUCK_HALF_HEIGHT);
+  const truckController = new TruckController(world, truckStart, TRUCK_CONTACT_RADIUS, TRUCK_HALF_HEIGHT);
 
   const scene = createGameScene(app, TERRAIN_BOUNDS, STUB_OBSTACLES);
   scene.setTruckTransform(truckStart, 0);
@@ -124,6 +125,9 @@ function startDriving(app: HTMLElement, world: RAPIER.World, store: GameStore, s
 
     animalSystem.update(dt, position, {
       onSpawn: (id, animalPosition) => scene.upsertAnimal(id, animalPosition),
+      // Booped animal fleeing (animal AC4a): reuse upsertAnimal to move the
+      // existing mesh -- it's already the create-or-reposition primitive.
+      onScatter: (id, animalPosition) => scene.upsertAnimal(id, animalPosition),
       onRemove: (id) => scene.removeAnimal(id),
     });
 
