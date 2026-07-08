@@ -3,6 +3,7 @@
 Status: Proposed (Sprint 1)
 Date: 2026-07-06
 Related: `farmer-minimal-bump.md`; ADR 0001 (screen FSM, GameStore), ADR 0002 (`hitCapacity`)
+Amended by: ADR 0005 (issue #20) — the "always outrunnable" guarantee (§"Farmer speed") must hold against every tier's *minimum effective* top speed, including gas limp mode, not just its nominal top speed.
 
 ## Context
 
@@ -32,13 +33,13 @@ Bump handling is not its own state — it's an **effect** on `CONTACT`: if the t
 
 **Hit accounting & game-over (AC3/AC6).** The bump effect decrements `hitsRemaining` in the `GameStore`. When it reaches 0, the store raises game-over, and the **screen FSM** (ADR 0001) transitions `DRIVING → GAME_OVER → BUILDER`, resetting coins to 0 and clearing run state. Hit accounting is a pure `core` concern (unit-testable: N bumps on a Tier-K body ⇒ game over on hit `3+K`); the screen transition and the friendly game-over presentation (AC7) are the wiring/UI layers.
 
-**Farmer speed (Sprint 1).** The 1/3-of-truck-speed cap is a Sprint 2 item (farmer non-goals). For Sprint 1 the farmer moves toward the player at a **constant tunable speed set safely below the lowest engine tier's top speed**, so a driving child can always outrun it (preserves the forgiving bias and keeps the bump mechanic fair). Movement toward the player is a simple steering vector in a system; the FSM owns *state*, not the kinematics.
+**Farmer speed (Sprint 1).** The 1/3-of-truck-speed cap is a Sprint 2 item (farmer non-goals). For Sprint 1 the farmer moves toward the player at a **constant tunable speed set safely below the lowest engine tier's top speed**, so a driving child can always outrun it (preserves the forgiving bias and keeps the bump mechanic fair). Movement toward the player is a simple steering vector in a system; the FSM owns *state*, not the kinematics. **(Amended by ADR 0005, issue #20:** "below the lowest engine tier's top speed" was too weak — ADR 0004's gas limp mode drops the truck's *effective* top speed below the farmer's constant speed on every tier. The guarantee now reads: the farmer stays below every tier's **minimum effective** top speed, including limp mode, enforced by a `GAS_LIMP_MIN_SPEED` floor in `core/gas` and a cross-system test.**)**
 
 **HUD hit display (AC4/AC5).** `hitsRemaining` / `hitCapacity` renders as a simple icon row in the DOM HUD (no numbers required for a child). A bump triggers a distinct "something happened to me" feedback — a truck shake/flash — clearly different from the reward feel of an animal boop (AC5), and never scary/violent.
 
 ### Sprint 2 extension (documented, not built)
 
-Add `chaseTimer: number` to the farmer state, and states `TIRED`/`LEAVING`. New transitions: `PURSUING --TIMER_EXPIRED--> TIRED --> LEAVING --> ABSENT`, and the 1/3-speed cap becomes a function of the truck's *current* speed. The Sprint 1 `ABSENT`/`PURSUING`/contact logic is unchanged — this is the whole point of choosing an explicit FSM over ad-hoc booleans.
+Add `chaseTimer: number` to the farmer state, and states `TIRED`/`LEAVING`. New transitions: `PURSUING --TIMER_EXPIRED--> TIRED --> LEAVING --> ABSENT`, and the 1/3-speed cap becomes a function of the truck's *current* speed. The Sprint 1 `ABSENT`/`PURSUING`/contact logic is unchanged — this is the whole point of choosing an explicit FSM over ad-hoc booleans. (Per ADR 0005: this dynamic cap is also the proper long-term resolution of issue #20 — when the farmer slows *with* the truck, the `GAS_LIMP_MIN_SPEED` floor can be relaxed back toward the 0.25 factor and limp-mode tier differentiation returns.)
 
 ## Alternatives considered
 
@@ -57,3 +58,4 @@ Add `chaseTimer: number` to the farmer state, and states `TIRED`/`LEAVING`. New 
 - **Farmer feels unfair/inescapable** (no give-up until Sprint 2, so he pursues until game over). Detected in playtest with the child. Mitigation: farmer speed default well below truck speed (always outrunnable) + the i-frame cooldown; if it's still too harsh, spawn cadence is a tunable knob and pulling backlog #15 (give-up) forward is an option.
 - **Cooldown value mistuned** (too long ⇒ farmer feels toothless; too short ⇒ multi-drain feels unfair). Detected in playtest. Mitigation: single config constant.
 - **Speed-cap tension with CLAUDE.md** — the intent doc states a general 1/3 cap while the requirements defer it to Sprint 2. Resolved here by shipping a constant sub-truck speed in Sprint 1 and adopting the dynamic 1/3 cap in Sprint 2; called out so it's a conscious choice, not an inconsistency to trip over later.
+- **Fairness guarantee vs. gas limp mode** (issue #20, resolved by ADR 0005). The original "below the lowest *nominal* top speed" guarantee did not account for ADR 0004's limp mode, which drops effective top speed to 1.5–3.0 (all below `FARMER_SPEED = 4`), making the farmer un-outrunnable when the tank is empty. Fixed by a `GAS_LIMP_MIN_SPEED` floor and a test asserting `FARMER_SPEED < limpTopSpeed(tier)` for every tier.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { updateGas, effectiveTopSpeed, type GasState } from './gas';
-import { GAS_DRAIN_PER_SECOND, GAS_LIMP_FACTOR, GAS_REGEN_PER_SECOND } from './config';
+import { updateGas, effectiveTopSpeed, limpTopSpeed, type GasState } from './gas';
+import { GAS_DRAIN_PER_SECOND, GAS_LIMP_FACTOR, GAS_LIMP_MIN_SPEED, GAS_REGEN_PER_SECOND } from './config';
 
 const CAPACITY = 20;
 
@@ -70,13 +70,13 @@ describe('effectiveTopSpeed — limp mode (drive AC11/AC13)', () => {
     expect(effectiveTopSpeed(TOP_SPEED, 0.01)).toBe(TOP_SPEED);
   });
 
-  it('returns exactly GAS_LIMP_FACTOR (0.25x) of top speed when remaining is exactly 0 — the transition boundary', () => {
-    expect(effectiveTopSpeed(TOP_SPEED, 0)).toBe(TOP_SPEED * GAS_LIMP_FACTOR);
-    expect(effectiveTopSpeed(TOP_SPEED, 0)).toBe(TOP_SPEED * 0.25);
+  it('returns the floored limp speed (GAS_LIMP_MIN_SPEED) when remaining is exactly 0 — the transition boundary (ADR 0005, TOP_SPEED * 0.25 = 3.0 is below the floor of 5)', () => {
+    expect(effectiveTopSpeed(TOP_SPEED, 0)).toBe(limpTopSpeed(TOP_SPEED));
+    expect(effectiveTopSpeed(TOP_SPEED, 0)).toBe(GAS_LIMP_MIN_SPEED);
   });
 
   it('never returns a negative or NaN speed for a negative remaining (defensive: same as 0 case)', () => {
-    expect(effectiveTopSpeed(TOP_SPEED, -1)).toBe(TOP_SPEED * GAS_LIMP_FACTOR);
+    expect(effectiveTopSpeed(TOP_SPEED, -1)).toBe(limpTopSpeed(TOP_SPEED));
   });
 
   it('full top speed is restored the instant regen ticks remaining from 0 to any positive amount (AC13, "immediately")', () => {
@@ -85,9 +85,15 @@ describe('effectiveTopSpeed — limp mode (drive AC11/AC13)', () => {
     expect(effectiveTopSpeed(TOP_SPEED, regenerated.remaining)).toBe(TOP_SPEED);
   });
 
-  it('scales with the truck\'s own engine tier (a higher top speed still limps faster than a lower one, per ADR 0004 interpretation (b))', () => {
-    const lowTierLimp = effectiveTopSpeed(6, 0);
-    const highTierLimp = effectiveTopSpeed(12, 0);
-    expect(highTierLimp).toBeGreaterThan(lowTierLimp);
+  it('floors to GAS_LIMP_MIN_SPEED for every current engine tier (ADR 0005: proportional 0.25x alone falls below FARMER_SPEED on every tier, so the floor dominates and tier differentiation is intentionally lost for now)', () => {
+    expect(limpTopSpeed(6)).toBe(GAS_LIMP_MIN_SPEED);
+    expect(limpTopSpeed(9)).toBe(GAS_LIMP_MIN_SPEED);
+    expect(limpTopSpeed(12)).toBe(GAS_LIMP_MIN_SPEED);
+  });
+
+  it('reverts to proportional (0.25x) scaling once topSpeed is high enough that the proportional term exceeds the floor — documents the formula, not a shipping tier', () => {
+    const hypotheticalTopSpeed = (GAS_LIMP_MIN_SPEED / GAS_LIMP_FACTOR) + 1; // just above the crossover point
+    expect(limpTopSpeed(hypotheticalTopSpeed)).toBe(hypotheticalTopSpeed * GAS_LIMP_FACTOR);
+    expect(limpTopSpeed(hypotheticalTopSpeed)).toBeGreaterThan(GAS_LIMP_MIN_SPEED);
   });
 });

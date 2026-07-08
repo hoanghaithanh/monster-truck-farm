@@ -54,3 +54,20 @@ describe('FARMER_SPEED fairness invariant (ADR 0003 "Farmer speed")', () => {
     expect(FARMER_SPEED).toBeLessThan(lowest);
   });
 });
+
+describe('FARMER_SPEED vs gas limp mode fairness invariant (ADR 0005, fixes issue #20)', () => {
+  // Re-derives the cross-system invariant that #20 found missing: the
+  // nominal-topSpeed check above doesn't cover limp mode, so a truck with an
+  // empty tank could drop below FARMER_SPEED and become genuinely
+  // unescapable. This independently re-checks the real limpTopSpeed formula
+  // against the real tier table so a regression (farmer sped up, or the
+  // limp floor lowered/removed) is caught by the suite.
+  it('the farmer is still outrunnable at every engine tier\'s limp-mode (empty tank) speed', async () => {
+    const { FARMER_SPEED } = await import('./config');
+    const { ENGINE_TIERS } = await import('../stats/tiers');
+    const { limpTopSpeed } = await import('../gas/gas');
+    for (const tier of ENGINE_TIERS) {
+      expect(FARMER_SPEED).toBeLessThan(limpTopSpeed(tier.topSpeed));
+    }
+  });
+});
