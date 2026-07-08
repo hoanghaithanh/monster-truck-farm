@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { FuelSystem } from './fuel-system';
+import { AnimalSystem } from './animal-system';
+import { GameStore } from '../core/game-state';
 import { FUEL_REFILL_AMOUNT, FUEL_SPAWN_INTERVAL_SECONDS, MAX_CONCURRENT_FUEL } from '../core/fuel/config';
-import { MAX_CONCURRENT_ANIMALS } from '../core/spawn/config';
+import { MAX_CONCURRENT_ANIMALS, SPAWN_INTERVAL_SECONDS } from '../core/spawn/config';
 import type { Rng } from '../core/spawn/spawn-position';
 import type { Vec2 } from '../core/types';
 
@@ -55,6 +57,40 @@ describe('FuelSystem — spawn cadence/cap (ADR 0008 §1/§3, fuel AC1-AC4, AC3 
     // constants, not the same value coincidentally reused.
     expect(MAX_CONCURRENT_FUEL).toBeDefined();
     expect(MAX_CONCURRENT_ANIMALS).toBeDefined();
+  });
+
+  // Genuine gap: the test above only checks the two config constants exist
+  // and are separate -- it never actually runs both systems together, so it
+  // wouldn't catch a bug where e.g. FuelSystem accidentally read
+  // MAX_CONCURRENT_ANIMALS, or where the two systems shared a spawn-timer
+  // instance. This test drives AnimalSystem to its own cap (1, so a single
+  // spawn already saturates it) and FuelSystem independently to *its* cap in
+  // the same test, asserting fuel spawning is entirely unaffected by animals
+  // being at capacity -- and vice versa, animal spawning is unaffected by
+  // fuel being at capacity.
+  it('spawns up to its own cap even while AnimalSystem is independently saturated at MAX_CONCURRENT_ANIMALS (AC3, behavioral)', () => {
+    const store = new GameStore();
+    const animalSystem = new AnimalSystem(store, FAR_RNG);
+    const fuelSystem = new FuelSystem(FAR_RNG);
+
+    // Saturate animals at their own (much smaller) cap first.
+    const animalSpawns: string[] = [];
+    for (let i = 0; i < MAX_CONCURRENT_ANIMALS + 2; i++) {
+      animalSystem.update(SPAWN_INTERVAL_SECONDS, TRUCK_POS, {
+        onSpawn: (id) => animalSpawns.push(id),
+        onScatter: noop,
+        onRemove: noop,
+      });
+    }
+    expect(animalSpawns).toHaveLength(MAX_CONCURRENT_ANIMALS);
+
+    // Now drive fuel spawning to its own (independently larger) cap. If fuel
+    // shared a slot budget with animals, it would spawn 0 pickups here.
+    const fuelSpawns: string[] = [];
+    for (let i = 0; i < MAX_CONCURRENT_FUEL + 2; i++) {
+      fuelSystem.update(FUEL_SPAWN_INTERVAL_SECONDS, TRUCK_POS, { onSpawn: (id) => fuelSpawns.push(id), onCollect: noop });
+    }
+    expect(fuelSpawns).toHaveLength(MAX_CONCURRENT_FUEL);
   });
 });
 

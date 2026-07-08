@@ -128,6 +128,32 @@ describe('FarmerSystem — dynamic speed (ADR 0007 §2: farmerSpeed = max(|truck
     farmer.update(1, { x: 0, z: 0 }, 0, NOOP_CALLBACKS);
     expect(farmer.snapshot().state.position.x).toBeCloseTo(-5 + FARMER_CREEP_FLOOR, 5);
   });
+
+  // Genuine gap: only relative (fast > stopped) and the pure-creep (v=0) case
+  // were pinned above. The formula is `max(|v|/3, FARMER_CREEP_FLOOR)`, which
+  // has a real branch switch at v = 3 * FARMER_CREEP_FLOOR = 3.0 -- below it
+  // the floor dominates (speed is constant regardless of v), at/above it the
+  // v/3 term takes over (speed scales with v). Pin exact displacement at
+  // several truck speeds, including the crossover point itself, so a future
+  // change to the formula (e.g. swapping max for a blend, or an off-by-factor
+  // bug) is caught by an exact assertion instead of only an inequality.
+  it.each([
+    { truckSpeed: 0, expectedFarmerSpeed: FARMER_CREEP_FLOOR }, // pure creep floor
+    { truckSpeed: 2, expectedFarmerSpeed: FARMER_CREEP_FLOOR }, // below crossover: v/3=0.667 < floor, floor wins
+    { truckSpeed: 3, expectedFarmerSpeed: 1.0 }, // exact crossover: v/3 === floor === 1.0
+    { truckSpeed: 6, expectedFarmerSpeed: 2.0 }, // Standard top speed: v/3 dominates
+    { truckSpeed: 12, expectedFarmerSpeed: 4.0 }, // Turbo top speed: matches the retired Sprint-1 FARMER_SPEED=4 by design (ADR 0007 §2 continuity note)
+  ])('at truck speed $truckSpeed, farmer covers exactly $expectedFarmerSpeed units in a 1s tick', ({ truckSpeed, expectedFarmerSpeed }) => {
+    const store = new GameStore();
+    const seed = {
+      state: { kind: 'PURSUING' as const, position: { x: -100, z: 0 }, spawnElapsed: 0, phaseElapsed: 0 },
+      invuln: { remainingSeconds: 0 },
+      spawnDelay: 8,
+    };
+    const farmer = new FarmerSystem(store, Math.random, seed);
+    farmer.update(1, { x: 0, z: 0 }, truckSpeed, NOOP_CALLBACKS);
+    expect(farmer.snapshot().state.position.x).toBeCloseTo(-100 + expectedFarmerSpeed, 10);
+  });
 });
 
 describe('FarmerSystem — full FSM cycle via update() (ADR 0007 §1: PURSUING -> TIRED -> LEAVING -> ABSENT)', () => {
@@ -204,6 +230,96 @@ describe('FarmerSystem — full FSM cycle via update() (ADR 0007 §1: PURSUING -
     // spawnDelay was re-rolled (rng(0.25) maps into [MIN,MAX], differs from the seeded 8 in general,
     // but the important structural property is that a fresh pick happened via the injected rng).
     expect(typeof farmer.snapshot().spawnDelay).toBe('number');
+  });
+
+  // Genuine gap: the reducer-level tests in farmer.test.ts pin the exact
+  // phaseElapsed >= CHASE_DURATION boundary for the *state transition*, but
+  // FarmerSystem.update() does its contact check BEFORE calling farmerReduce
+  // for the TICK that may cross that same boundary (see farmer-system.ts:
+  // contact/bump happens first, then the TICK that can flip PURSUING ->
+  // TIRED). This test pins that ordering: a bump landing on the exact frame
+  // that crosses the chase-duration boundary must still register (not
+  // silently dropped because the state flipped to TIRED "at the same time"),
+  // and the transition still fires exactly once (no double-transition).
+  it('registers a bump on the exact tick that crosses the CHASE_DURATION boundary, and still transitions to TIRED that same tick (no missed bump, no double-transition)', () => {
+    const store = new GameStore();
+    store.confirmBuild(); // enters DRIVING and seeds hitsRemaining -- store.bump() is a no-op outside DRIVING/with 0 capacity
+    const seed = {
+      state: { kind: 'PURSUING' as const, position: { x: 0, z: 0 }, spawnElapsed: 0, phaseElapsed: FARMER_CHASE_DURATION - 1 },
+      invuln: { remainingSeconds: 0 },
+      spawnDelay: 8,
+    };
+    const farmer = new FarmerSystem(store, Math.random, seed);
+    let bumpCount = 0;
+    let tiredCount = 0;
+    const hitsBefore = store.hitsRemaining;
+    // Truck sits exactly on top of the farmer (contact range) for this 1s
+    // tick, which also exactly crosses phaseElapsed from CHASE_DURATION-1 to
+    // CHASE_DURATION.
+    farmer.update(1, { x: 0, z: 0 }, 0, { ...NOOP_CALLBACKS, onBump: () => bumpCount++, onTired: () => tiredCount++ });
+    expect(bumpCount).toBe(1);
+    expect(store.hitsRemaining).toBe(hitsBefore - 1);
+    expect(farmer.snapshot().state.kind).toBe('TIRED');
+    expect(tiredCount).toBe(1);
+  });
+
+  // Genuine gap: the ADR 0009 snapshot/seed tests elsewhere in this file (and
+  // in FarmerSystem's own describe block above) only assert *structural*
+  // equality of the snapshot across a round trip -- they don't prove that a
+  // farmer resumed from a TIRED/LEAVING seed *behaves* identically to one
+  // that was never paused. This is the highest-value gap called out for the
+  // #25 cross-feature contract: simulate "pause mid-phase, resume, keep
+  // ticking" against a control that never paused, and assert the two paths
+  // converge on the same subsequent transitions.
+  it('a farmer paused and resumed mid-TIRED reaches LEAVING/ABSENT at the same wall-clock time as one that was never paused', () => {
+    const storeA = new GameStore();
+    const storeB = new GameStore();
+    const seed = {
+      state: { kind: 'TIRED' as const, position: { x: 5, z: 5 }, spawnElapsed: 0, phaseElapsed: 0.4 },
+      invuln: { remainingSeconds: 0 },
+      spawnDelay: 8,
+    };
+
+    // Control: one continuous FarmerSystem, ticked straight through.
+    const control = new FarmerSystem(storeA, Math.random, seed);
+    control.update(FARMER_TIRED_DURATION - 0.4, { x: 0, z: 0 }, 0, NOOP_CALLBACKS); // finishes TIRED -> LEAVING
+    control.update(FARMER_LEAVE_DURATION, { x: 0, z: 0 }, 0, NOOP_CALLBACKS); // finishes LEAVING -> ABSENT
+
+    // "Paused" path: tick partway through TIRED, snapshot (simulating
+    // main.ts's pause-to-builder capture), reconstruct a fresh instance from
+    // that seed (simulating resume), then finish the same total elapsed time.
+    const beforePause = new FarmerSystem(storeB, Math.random, seed);
+    beforePause.update(0.2, { x: 0, z: 0 }, 0, NOOP_CALLBACKS); // still TIRED, partway
+    const midSnap = beforePause.snapshot();
+    expect(midSnap.state.kind).toBe('TIRED');
+
+    const afterResume = new FarmerSystem(storeB, Math.random, midSnap);
+    afterResume.update(FARMER_TIRED_DURATION - 0.4 - 0.2, { x: 0, z: 0 }, 0, NOOP_CALLBACKS); // finishes TIRED -> LEAVING
+    afterResume.update(FARMER_LEAVE_DURATION, { x: 0, z: 0 }, 0, NOOP_CALLBACKS); // finishes LEAVING -> ABSENT
+
+    expect(afterResume.snapshot().state.kind).toBe(control.snapshot().state.kind);
+    expect(afterResume.snapshot().state.kind).toBe('ABSENT');
+  });
+
+  it('a farmer paused and resumed mid-LEAVING keeps retreating from its exact paused position, not reset', () => {
+    const store = new GameStore();
+    const seed = {
+      state: { kind: 'LEAVING' as const, position: { x: 2, z: 0 }, spawnElapsed: 0, phaseElapsed: 0.5 },
+      invuln: { remainingSeconds: 0 },
+      spawnDelay: 8,
+    };
+    const beforePause = new FarmerSystem(store, Math.random, seed);
+    beforePause.update(0.3, { x: 0, z: 0 }, 12, NOOP_CALLBACKS); // retreats further, still LEAVING
+    const snap = beforePause.snapshot();
+    expect(snap.state.kind).toBe('LEAVING');
+    const positionAtPause = snap.state.position.x;
+
+    const afterResume = new FarmerSystem(store, Math.random, snap);
+    afterResume.update(0.1, { x: 0, z: 0 }, 12, NOOP_CALLBACKS);
+    // Resumed retreat continues moving further away from the paused position
+    // (not reset back toward the truck or to the original pre-pause spot).
+    expect(afterResume.snapshot().state.position.x).toBeGreaterThan(positionAtPause);
+    expect(afterResume.snapshot().state.kind).toBe('LEAVING');
   });
 
   it('walks the full cycle end to end with a stationary truck (ADR 0007 §1 durations)', () => {
