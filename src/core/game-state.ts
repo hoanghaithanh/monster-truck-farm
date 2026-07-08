@@ -32,6 +32,8 @@ export class GameStore {
   private _screen: Screen = 'BUILDER';
   private _build: TruckBuild = { ...DEFAULT_TRUCK_BUILD };
   private _spec: TruckSpec | undefined;
+  private _hitsRemaining = 0;
+  private _gas = 0;
   private listeners = new Set<Listener>();
 
   get coins(): number {
@@ -51,9 +53,42 @@ export class GameStore {
     return this._spec;
   }
 
+  /** Remaining farmer-bump hits out of `spec.hitCapacity` (farmer AC3/AC4); 0 until a run starts. */
+  get hitsRemaining(): number {
+    return this._hitsRemaining;
+  }
+
+  /** Remaining gas out of `spec.gasCapacity` (drive AC10/AC12); 0 until a run starts. */
+  get gas(): number {
+    return this._gas;
+  }
+
   addCoins(amount: number): void {
     this._coins += amount;
     this.emit();
+  }
+
+  /** Sets the current gas gauge reading (drive AC10/AC12) — driven each frame by the gas system. */
+  setGas(value: number): void {
+    this._gas = value;
+    this.emit();
+  }
+
+  /**
+   * Resolves a farmer contact into a hit (farmer AC3): drains one hit from
+   * the truck's remaining capacity. When that hit brings capacity to 0, ends
+   * the run via `gameOver()` (farmer AC6) — hit accounting and the fail-state
+   * trigger are both a pure GameStore/core concern (ADR 0003). The i-frame
+   * cooldown that prevents multiple bumps per contact lives in the farmer
+   * system (core/farmer/invuln.ts), not here.
+   */
+  bump(): void {
+    if (this._screen !== 'DRIVING' || this._hitsRemaining <= 0) return;
+    this._hitsRemaining -= 1;
+    this.emit();
+    if (this._hitsRemaining <= 0) {
+      this.gameOver();
+    }
   }
 
   /** Sets one axis's selected tier index (builder AC1-AC6). All tiers are freely selectable this sprint. */
@@ -65,6 +100,11 @@ export class GameStore {
   /** Resolves the current selection into a TruckSpec and moves BUILDER -> DRIVING (builder AC1). */
   confirmBuild(): void {
     this._spec = resolveSpec(this._build);
+    // Fresh run state: full hits and a full tank for the newly resolved spec
+    // (farmer AC3/AC6, drive AC10) — matters on a restart round trip just as
+    // much as the first run, since a prior run may have drained both to 0.
+    this._hitsRemaining = this._spec.hitCapacity;
+    this._gas = this._spec.gasCapacity;
     this._screen = nextScreen(this._screen, 'confirm');
     this.emit();
   }

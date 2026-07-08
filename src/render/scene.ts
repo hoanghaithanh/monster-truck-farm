@@ -8,6 +8,14 @@ import { clampCameraToBounds } from '../core/driving/boundary';
 // scene background/"void" (issue #17, drive AC4 intent).
 const CAMERA_GROUND_MARGIN = 3;
 
+// Farmer bump feedback (farmer AC5): a brief flash on the truck, distinct
+// from the animal-boop reward feel and never scary/violent -- just "something
+// happened to me". Decays back to the truck's base color over this duration.
+const BUMP_FLASH_SECONDS = 0.3;
+const TRUCK_BASE_COLOR = 0xff8c1a;
+const TRUCK_FLASH_COLOR = 0xff3b3b;
+const FARMER_COLOR = 0xd1495b;
+
 // Thin rendering adapter (ADR 0001 §4/§7): three.js meshes only, no
 // gameplay rules live here. systems/ tells this module where things are;
 // this module just draws them.
@@ -65,14 +73,14 @@ export function createGameScene(container: HTMLElement, bounds: TerrainBounds, o
     scene.add(createObstacleMesh(obstacle));
   }
 
-  const truckMesh = new THREE.Mesh(
-    new THREE.BoxGeometry(1.2, 0.8, 2),
-    new THREE.MeshStandardMaterial({ color: 0xff8c1a }),
-  );
+  const truckMaterial = new THREE.MeshStandardMaterial({ color: TRUCK_BASE_COLOR });
+  const truckMesh = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.8, 2), truckMaterial);
   truckMesh.position.y = 0.4;
   scene.add(truckMesh);
+  let bumpFlashRemaining = 0;
 
   const animalMeshes = new Map<string, THREE.Object3D>();
+  let farmerMesh: THREE.Object3D | undefined;
 
   function setTruckTransform(position: Vec2, heading: number): void {
     truckMesh.position.set(position.x, 0.4, position.z);
@@ -109,6 +117,31 @@ export function createGameScene(container: HTMLElement, bounds: TerrainBounds, o
     animalMeshes.delete(id);
   }
 
+  /** Places (creating on first call) the farmer mesh at its current position (farmer AC1/AC2). */
+  function setFarmerTransform(position: Vec2): void {
+    if (!farmerMesh) {
+      farmerMesh = new THREE.Mesh(
+        new THREE.CapsuleGeometry(0.35, 0.8, 4, 8),
+        new THREE.MeshStandardMaterial({ color: FARMER_COLOR }),
+      );
+      scene.add(farmerMesh);
+    }
+    farmerMesh.position.set(position.x, 0.75, position.z);
+  }
+
+  /** Triggers the bump feedback flash (farmer AC5); decayed each frame in tickEffects. */
+  function flashTruck(): void {
+    bumpFlashRemaining = BUMP_FLASH_SECONDS;
+  }
+
+  /** Per-frame visual-effect decay (currently just the bump flash) -- called once per render frame from main.ts. */
+  function tickEffects(dt: number): void {
+    if (bumpFlashRemaining <= 0) return;
+    bumpFlashRemaining = Math.max(0, bumpFlashRemaining - dt);
+    const t = bumpFlashRemaining / BUMP_FLASH_SECONDS;
+    truckMaterial.color.copy(new THREE.Color(TRUCK_FLASH_COLOR)).lerp(new THREE.Color(TRUCK_BASE_COLOR), 1 - t);
+  }
+
   function onResize() {
     camera.aspect = container.clientWidth / container.clientHeight;
     camera.updateProjectionMatrix();
@@ -126,5 +159,5 @@ export function createGameScene(container: HTMLElement, bounds: TerrainBounds, o
     container.removeChild(renderer.domElement);
   }
 
-  return { setTruckTransform, upsertAnimal, removeAnimal, render, dispose };
+  return { setTruckTransform, upsertAnimal, removeAnimal, setFarmerTransform, flashTruck, tickEffects, render, dispose };
 }

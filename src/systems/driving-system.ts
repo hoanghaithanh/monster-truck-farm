@@ -19,6 +19,16 @@ export class DrivingSystem {
     private topSpeed: number,
   ) {}
 
+  /** Current signed forward speed (units/s) from the last update — read by GasSystem to detect idle (drive AC12). */
+  get speed(): number {
+    return this.motionState.speed;
+  }
+
+  /** Overrides the top speed used on the next update (drive AC11/AC13: gas system feeds in limp/full top speed each frame). */
+  setTopSpeed(topSpeed: number): void {
+    this.topSpeed = topSpeed;
+  }
+
   update(intent: DriveIntent, dt: number): { position: Vec2; heading: number } {
     const { state, displacement } = integrateTruckMotion(
       this.motionState,

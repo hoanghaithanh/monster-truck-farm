@@ -4,8 +4,11 @@ import { GameStore } from './core/game-state';
 import { KeyboardInput } from './input/keyboard-input';
 import { createHud } from './ui/hud';
 import { createBuilderScreen } from './ui/builder';
+import { createGameOverScreen } from './ui/game-over';
 import { DrivingSystem, TRUCK_HALF_HEIGHT } from './systems/driving-system';
 import { AnimalSystem } from './systems/animal-system';
+import { GasSystem } from './systems/gas-system';
+import { FarmerSystem } from './systems/farmer-system';
 import { partitionObstacles } from './core/clearance';
 import { STUB_OBSTACLES, TERRAIN_BOUNDS } from './core/terrain';
 import type { TruckSpec } from './core/types';
@@ -30,6 +33,7 @@ async function main() {
   const store = new GameStore();
   const hud = createHud(app, store);
   const builder = createBuilderScreen(app, store);
+  const gameOver = createGameOverScreen(app, store);
 
   // A driving session (rAF loop, input listeners, Rapier obstacle/truck
   // bodies, three.js scene) is started fresh on every BUILDER -> DRIVING
@@ -54,6 +58,7 @@ async function main() {
     unsubscribe();
     hud.dispose();
     builder.dispose();
+    gameOver.dispose();
     driving?.dispose();
   });
 }
@@ -74,6 +79,8 @@ function startDriving(app: HTMLElement, world: RAPIER.World, store: GameStore, s
   const input = new KeyboardInput();
   const drivingSystem = new DrivingSystem(truckController, spec.topSpeed);
   const animalSystem = new AnimalSystem(store);
+  const gasSystem = new GasSystem(store, spec.gasCapacity, spec.topSpeed);
+  const farmerSystem = new FarmerSystem(store);
 
   let last = performance.now();
   let disposed = false;
@@ -82,7 +89,14 @@ function startDriving(app: HTMLElement, world: RAPIER.World, store: GameStore, s
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
 
-    const { position, heading } = drivingSystem.update(input.getIntent(), dt);
+    const intent = input.getIntent();
+    // Gas (drive AC10-AC14) feeds the effective top speed -- full tank ->
+    // full top speed, empty -> ~25% limp mode -- into this frame's driving
+    // update, so limp mode is felt immediately rather than a frame late.
+    const effectiveTopSpeed = gasSystem.update(intent, drivingSystem.speed, dt);
+    drivingSystem.setTopSpeed(effectiveTopSpeed);
+
+    const { position, heading } = drivingSystem.update(intent, dt);
     scene.setTruckTransform(position, heading);
 
     animalSystem.update(dt, position, {
@@ -90,6 +104,22 @@ function startDriving(app: HTMLElement, world: RAPIER.World, store: GameStore, s
       onRemove: (id) => scene.removeAnimal(id),
     });
 
+    // Farmer (farmer AC1-AC6): appear -> chase -> bump. A bump may end the
+    // run via GameStore.gameOver(), which the module-level subscriber above
+    // reacts to by disposing this session (issue #18's dispose/recreate fix).
+    farmerSystem.update(dt, position, {
+      onAppear: (farmerPosition) => scene.setFarmerTransform(farmerPosition),
+      onMove: (farmerPosition) => scene.setFarmerTransform(farmerPosition),
+      onBump: () => scene.flashTruck(),
+    });
+
+    // A bump above may have just driven hits to 0, which synchronously
+    // triggers GameStore.gameOver() -> the module-level subscriber disposes
+    // this very session (sets `disposed`, tears down the scene/renderer) --
+    // bail out immediately rather than touching the now-disposed scene.
+    if (disposed) return;
+
+    scene.tickEffects(dt);
     scene.render();
     requestAnimationFrame(frame);
   }
