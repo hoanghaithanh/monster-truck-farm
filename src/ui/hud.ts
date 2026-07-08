@@ -43,6 +43,27 @@ export function createHud(container: HTMLElement, store: GameStore): { dispose: 
   hitsRow.style.letterSpacing = '2px';
   el.appendChild(hitsRow);
 
+  // Pause/shop button (ADR 0009 §6, human decision 1): top-right, kept apart
+  // from the top-left stat readout above. The HUD root is `pointerEvents:
+  // 'none'` so it doesn't steal canvas input; this button opts back in with
+  // its own `pointerEvents: 'auto'`. Button only -- no keyboard shortcut.
+  const pauseBtn = document.createElement('button');
+  pauseBtn.type = 'button';
+  pauseBtn.textContent = '\u{1F6D2} Shop';
+  pauseBtn.style.position = 'absolute';
+  pauseBtn.style.top = '12px';
+  pauseBtn.style.right = '12px';
+  pauseBtn.style.padding = '8px 14px';
+  pauseBtn.style.borderRadius = '8px';
+  pauseBtn.style.border = 'none';
+  pauseBtn.style.background = '#ffe27a';
+  pauseBtn.style.color = '#222';
+  pauseBtn.style.font = 'bold 16px sans-serif';
+  pauseBtn.style.cursor = 'pointer';
+  pauseBtn.style.pointerEvents = 'auto';
+  pauseBtn.addEventListener('click', () => store.pauseToBuilder());
+  container.appendChild(pauseBtn);
+
   function render() {
     coinsRow.textContent = `\u{1FA99} ${store.coins}`;
 
@@ -50,6 +71,7 @@ export function createHud(container: HTMLElement, store: GameStore): { dispose: 
     const drivingScreen = store.screen === 'DRIVING';
     gasTrack.style.display = drivingScreen && spec ? 'block' : 'none';
     hitsRow.style.display = drivingScreen && spec ? 'block' : 'none';
+    pauseBtn.style.display = drivingScreen ? 'block' : 'none';
     if (drivingScreen && spec) {
       const gasFraction = spec.gasCapacity > 0 ? store.gas / spec.gasCapacity : 0;
       gasFill.style.width = `${Math.max(0, Math.min(100, gasFraction * 100))}%`;
@@ -64,6 +86,7 @@ export function createHud(container: HTMLElement, store: GameStore): { dispose: 
     dispose() {
       unsubscribe();
       container.removeChild(el);
+      container.removeChild(pauseBtn);
     },
   };
 }

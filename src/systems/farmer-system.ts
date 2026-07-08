@@ -28,16 +28,45 @@ export interface FarmerSystemCallbacks {
   onBump(): void;
 }
 
+/**
+ * FarmerSystem's entire mutable field set (ADR 0009 §2c), captured/restored
+ * as one opaque blob by `main.ts` across a voluntary pause. Deliberately the
+ * whole-field-set shape, not an enumerated subset: when ADR 0007 grows
+ * `FarmerState` (`phaseElapsed`, TIRED/LEAVING), the carry picks it up with
+ * zero change here or in main.ts's plumbing.
+ */
+export interface FarmerRunState {
+  state: FarmerState;
+  invuln: InvulnState;
+  spawnDelay: number;
+}
+
 export class FarmerSystem {
-  private state: FarmerState = initialFarmerState;
-  private invuln: InvulnState = initialInvulnState;
+  private state: FarmerState;
+  private invuln: InvulnState;
   private spawnDelay: number;
 
   constructor(
     private store: GameStore,
     private rng: Rng = Math.random,
+    seed?: FarmerRunState,
   ) {
-    this.spawnDelay = pickSpawnDelay(FARMER_SPAWN_MIN_SECONDS, FARMER_SPAWN_MAX_SECONDS, this.rng);
+    if (seed) {
+      // Resume path (ADR 0009 §2c/§3c): reconstitute exactly where the
+      // farmer left off — no re-rolled spawn delay, no reset chase.
+      this.state = seed.state;
+      this.invuln = seed.invuln;
+      this.spawnDelay = seed.spawnDelay;
+    } else {
+      this.state = initialFarmerState;
+      this.invuln = initialInvulnState;
+      this.spawnDelay = pickSpawnDelay(FARMER_SPAWN_MIN_SECONDS, FARMER_SPAWN_MAX_SECONDS, this.rng);
+    }
+  }
+
+  /** Captures the farmer's complete current state (ADR 0009 §2c), for `main.ts` to hold across a pause and pass back in as `seed` on resume. Opaque to callers — they never inspect the fields. */
+  snapshot(): FarmerRunState {
+    return { state: this.state, invuln: this.invuln, spawnDelay: this.spawnDelay };
   }
 
   update(dt: number, truckPosition: Vec2, callbacks: FarmerSystemCallbacks): void {

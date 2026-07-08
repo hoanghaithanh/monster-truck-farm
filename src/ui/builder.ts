@@ -130,7 +130,7 @@ export function createBuilderScreen(container: HTMLElement, store: GameStore): {
   confirmBtn.style.color = '#222';
   confirmBtn.style.font = 'bold 16px sans-serif';
   confirmBtn.style.cursor = 'pointer';
-  confirmBtn.addEventListener('click', () => store.confirmBuild());
+  confirmBtn.addEventListener('click', () => store.beginDrive());
   panel.appendChild(confirmBtn);
 
   overlay.appendChild(panel);
@@ -192,6 +192,11 @@ export function createBuilderScreen(container: HTMLElement, store: GameStore): {
       });
     }
     overlay.style.display = store.screen === 'BUILDER' ? 'flex' : 'none';
+
+    // Contextual label (ADR 0009 §6): a voluntary mid-run pause reads
+    // "Resume driving!" instead of the fresh-build "Confirm — start
+    // driving!" -- the same button, routed by beginDrive() above.
+    confirmBtn.textContent = store.pausedMidRun ? 'Resume driving!' : 'Confirm — start driving!';
   }
   render();
 
@@ -226,7 +231,7 @@ export function createBuilderScreen(container: HTMLElement, store: GameStore): {
         actOnTier(focusedRow, entry.highlighted);
         break;
       case 'Enter':
-        store.confirmBuild();
+        store.beginDrive();
         break;
       default:
         return;

@@ -9,7 +9,7 @@ import { DrivingSystem, TRUCK_HALF_HEIGHT } from './systems/driving-system';
 import { TRUCK_CONTACT_RADIUS } from './core/driving/config';
 import { AnimalSystem } from './systems/animal-system';
 import { GasSystem } from './systems/gas-system';
-import { FarmerSystem } from './systems/farmer-system';
+import { FarmerSystem, type FarmerRunState } from './systems/farmer-system';
 import { partitionObstacles } from './core/clearance';
 import { STUB_OBSTACLES, TERRAIN_BOUNDS } from './core/terrain';
 import type { TruckSpec } from './core/types';
@@ -67,12 +67,29 @@ async function main() {
   // `createObstacleColliders`/Rapier's collider API, which builds a fresh
   // descriptor per obstacle and reproduces cleanly in isolation.
   let startingDriving = false;
+  // Farmer state-carry across a voluntary pause (ADR 0009 §2c): held here,
+  // not on GameStore, because the farmer FSM was never store-owned and its
+  // lifecycle is bound to this module's own session dispose/recreate.
+  // Captured (pause) / consumed (resume) below; stays undefined across a
+  // game-over so a subsequent fresh build gets a fresh farmer.
+  let pausedFarmerState: FarmerRunState | undefined;
   const unsubscribe = store.subscribe(() => {
     if (store.screen === 'DRIVING' && !driving && !startingDriving && store.spec) {
       startingDriving = true;
-      driving = startDriving(app, world, store, store.spec);
+      // resumeDriving() and confirmBuild() both land here through this one
+      // guarded call site (ADR 0009 §4) — resume adds no second
+      // session-construction path, so the #21 re-entrancy guard still
+      // covers both entries.
+      driving = startDriving(app, world, store, store.spec, store.gas, pausedFarmerState);
+      pausedFarmerState = undefined; // consumed
       startingDriving = false;
-    } else if (store.screen === 'GAME_OVER' && driving) {
+    } else if (store.screen !== 'DRIVING' && driving) {
+      // Ordering requirement (ADR 0009 §2c): the farmer snapshot MUST be
+      // captured before dispose() tears the FarmerSystem down, and only on
+      // the *pause* exit (store.pausedMidRun), not a game-over -- on
+      // game-over the blob stays undefined so a fresh build gets a fresh
+      // farmer, matching #18's dispose-ordering fix precisely.
+      pausedFarmerState = store.pausedMidRun ? driving.snapshotFarmer() : undefined;
       driving.dispose();
       driving = undefined;
     }
@@ -87,8 +104,20 @@ async function main() {
   });
 }
 
-/** Sets up and runs the drivable farm scene for the player's confirmed TruckSpec (builder AC1). */
-function startDriving(app: HTMLElement, world: RAPIER.World, store: GameStore, spec: TruckSpec) {
+/**
+ * Sets up and runs the drivable farm scene for the player's confirmed
+ * TruckSpec (builder AC1). `initialGas`/`farmerSeed` (ADR 0009 §5) let a
+ * resume carry state across the dispose/recreate boundary; both default to
+ * the fresh-start behavior so the confirmBuild() path is unchanged.
+ */
+function startDriving(
+  app: HTMLElement,
+  world: RAPIER.World,
+  store: GameStore,
+  spec: TruckSpec,
+  initialGas: number = spec.gasCapacity,
+  farmerSeed?: FarmerRunState,
+) {
   // Obstacle clearance is fixed for the run: partition once against the
   // truck's wheel tier (drive AC6-AC9), only blocking obstacles get colliders.
   const { blocking } = partitionObstacles(STUB_OBSTACLES, spec.clearance);
@@ -103,8 +132,16 @@ function startDriving(app: HTMLElement, world: RAPIER.World, store: GameStore, s
   const input = new KeyboardInput();
   const drivingSystem = new DrivingSystem(truckController, spec.topSpeed);
   const animalSystem = new AnimalSystem(store);
-  const gasSystem = new GasSystem(store, spec.gasCapacity, spec.topSpeed);
-  const farmerSystem = new FarmerSystem(store);
+  const gasSystem = new GasSystem(store, spec.gasCapacity, spec.topSpeed, initialGas);
+  const farmerSystem = new FarmerSystem(store, Math.random, farmerSeed);
+
+  // Render-continuity gap (ADR 0009 §5): a seeded non-ABSENT farmer resumes
+  // already PURSUING, so the ABSENT->PURSUING onAppear callback that would
+  // normally place the mesh never fires. Place it explicitly before frame 1,
+  // mirroring the truck's own setTruckTransform call just above.
+  if (farmerSeed && farmerSeed.state.kind !== 'ABSENT') {
+    scene.setFarmerTransform(farmerSeed.state.position);
+  }
 
   let last = performance.now();
   let disposed = false;
@@ -153,6 +190,10 @@ function startDriving(app: HTMLElement, world: RAPIER.World, store: GameStore, s
   requestAnimationFrame(frame);
 
   return {
+    /** Captures the live FarmerSystem's state (ADR 0009 §2c) — must be called before dispose(). */
+    snapshotFarmer(): FarmerRunState {
+      return farmerSystem.snapshot();
+    },
     dispose() {
       disposed = true;
       input.dispose();

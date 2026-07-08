@@ -13,9 +13,15 @@ export class GasSystem {
     private store: GameStore,
     private capacity: number,
     private topSpeed: number,
+    initialRemaining: number = capacity,
   ) {
-    this.state = { remaining: capacity };
-    this.store.setGas(capacity);
+    // Resume path (ADR 0009 §2b/§5): seeds from the store's gas mirror
+    // (current to within one frame at pause time) instead of a full tank,
+    // clamped in case a smaller-capacity tank got equipped while paused. The
+    // default keeps every existing (fresh-build) caller byte-for-byte
+    // unchanged.
+    this.state = { remaining: Math.min(capacity, initialRemaining) };
+    this.store.setGas(this.state.remaining);
   }
 
   /**
