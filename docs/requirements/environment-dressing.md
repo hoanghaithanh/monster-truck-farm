@@ -1,8 +1,8 @@
 # Environment Dressing — Windmill, Barn, Farmhouse, River, Mountains
 
-Status: Sprint 3 (draft — depends on Open Question 1 in this doc's parent art-direction decision, tracked centrally in `vehicle-and-character-art.md` Open Question 1; do not finalize art sourcing until that's answered).
+Status: Sprint 3 — **finalized.** Art direction resolved 2026-07-08 (see `vehicle-and-character-art.md` "Resolved — Art direction"); ready to hand to the architect.
 
-Related: `docs/backlog.md` row 16; `drive-terrain-and-gas.md` (terrain bounds, soft boundary, existing obstacle-clearance system); `truck-builder-and-upgrades.md` / `docs/architecture/0002-upgrade-tier-data-model.md` (the wheel-tier clearance system this doc must not disturb); `vehicle-and-character-art.md` (shared art-direction and perf/loading NFRs — read that doc's Open Question 1 and Non-functional section first, they apply here too).
+Related: `docs/backlog.md` row 16; `drive-terrain-and-gas.md` (terrain bounds, soft boundary, existing obstacle-clearance system); `truck-builder-and-upgrades.md` / `docs/architecture/0002-upgrade-tier-data-model.md` (the wheel-tier clearance system this doc must not disturb); `vehicle-and-character-art.md` (shared art-direction decision and perf/loading NFRs — read that doc's "Resolved — Art direction" section and Non-functional section first, they apply here too).
 
 ## Problem statement
 
@@ -31,7 +31,7 @@ The farm world currently renders as a bare green plane with three primitive-shap
 
 ## Design decisions made by this doc (not open questions — see rationale)
 
-These are scope calls this doc makes directly, with rationale, rather than escalating — they're reversible/low-stakes relative to the two blocking questions flagged in `vehicle-and-character-art.md`. Architect/developer may revisit if a better approach emerges during design.
+These are scope calls this doc makes directly, with rationale, rather than escalating — they're reversible/low-stakes relative to the two blocking questions that were tracked in `vehicle-and-character-art.md` (now both resolved). Architect/developer may revisit if a better approach emerges during design.
 
 - **Windmill, barn, farmhouse → always-solid scenery, not tier-gated obstacles.** If placed within the drivable bounds, each acts as a simple solid collider that blocks the truck regardless of wheel tier (unlike bush/rock/derelict car, which are tier-gated per `truck-builder-and-upgrades.md`'s wheel table). Rationale: these are large man-made structures — a truck plausibly can't drive through a barn wall no matter how monstrous its wheels are — and folding them into the tiered clearance system would mean either inventing a fourth obstacle class (disproportionate production cost for a purely decorative sprint) or overloading the existing "large" class (which would silently change derelict-car-tier balance tuned in Sprint 1). Being blocked by these structures follows the same no-fail-state pattern as existing obstacle blocking (drive AC9): no damage, no hit, purely a movement constraint.
 - **Mountains → non-collidable backdrop, placed beyond the drivable terrain bounds.** Never reachable, never blocks the truck's path; visible from anywhere in the drivable area as a horizon feature. This is the recommended resolution to `drive-terrain-and-gas.md` Open Question 3 (soft boundary should have a visible edge given the farm setting) — the mountains *are* that visible edge treatment.
@@ -49,10 +49,11 @@ If the human disagrees with any of these three calls (e.g., wants the windmill d
 - **AC6 (spawn-avoidance respects new solid structures):** Given the windmill/barn/farmhouse now occupy space with solid colliders, when the animal spawn system (`animal-chase-and-coins.md` AC1), the farmer spawn system (`farmer-minimal-bump.md` AC1), or the fuel-pickup spawn system (`fuel-pickups.md`) pick a random valid location, then none of them spawn an entity inside/overlapping a new structure's collider — the existing "not inside an obstacle" rule is extended to cover these new solid obstacles, not bypassed.
 - **AC7 (asset load never crashes the game):** Given any of the five structures' art assets fails to load (network error, malformed file, etc.), when the scene initializes, then the game does not crash or hang — it falls back to a simple placeholder (e.g., a primitive-geometry stand-in, or simply omitting that structure) and logs a warning, consistent with the project's forgiving design bias. (Shared NFR — see `vehicle-and-character-art.md` Non-functional section for the full perf/loading budget this sits under.)
 - **AC8 (no required animation):** A static windmill (non-spinning blades) and static river (non-animated water) fully satisfy this doc's acceptance criteria; animated blades/water are an allowed enhancement, not a pass/fail condition.
+- **AC9 (art direction):** All five structures are sourced/authored in the confirmed stylized/low-poly-but-recognizable art direction (see `vehicle-and-character-art.md` "Resolved — Art direction") — silhouette-recognizable as "windmill", "barn", "farmhouse", etc. at a glance, consistent in style with the truck/character art from that same doc, not photorealistic.
 
 ## Open questions
 
-None specific to this doc are blocking beyond the two centrally-tracked in `vehicle-and-character-art.md` (art direction/realism level applies to these assets too — the windmill/barn/farmhouse/river/mountains should be sourced in whatever style that question resolves to). If the human objects to any of the three design decisions above (windmill/barn/farmhouse drivable-through, or river as a real barrier), say so before this doc is handed to the architect — those are reversible defaults, not confirmed-locked decisions like the wheel-tier table was.
+No blocking questions remain — the art-direction question that was tracked centrally in `vehicle-and-character-art.md` is resolved (Option A: stylized/low-poly, see AC9). If the human objects to any of the three design decisions above (windmill/barn/farmhouse drivable-through, or river as a real barrier), say so before this doc is handed to the architect — those are reversible defaults, not confirmed-locked decisions like the wheel-tier table was.
 
 Non-blocking, lower-stakes items the architect can decide at design time:
 1. **Exact placement** of each structure (how many of each, where on/around the terrain) — this doc specifies presence and behavior, not a level layout.
@@ -62,4 +63,4 @@ Non-blocking, lower-stakes items the architect can decide at design time:
 
 - Must not alter or re-tune the existing wheel-tier clearance system (`drive-terrain-and-gas.md` AC5-AC9, `truck-builder-and-upgrades.md` wheel table) — see AC5.
 - Runs in-browser (Three.js + Vite); glTF is the established long-term asset format (`docs/architecture/0001-foundation-stack-and-structure.md` §"module layout", `assets/`). Perf budget and loading behavior are specified centrally in `vehicle-and-character-art.md`'s Non-functional section — this doc's assets count against that shared budget, not a separate one.
-- Target player is a young child: structures should read clearly as "windmill", "barn", "farmhouse" at a glance (silhouette-recognizable), not abstract/ambiguous shapes — ties into the art-direction open question in `vehicle-and-character-art.md`.
+- Target player is a young child: structures should read clearly as "windmill", "barn", "farmhouse" at a glance (silhouette-recognizable), not abstract/ambiguous shapes — matches the confirmed stylized/low-poly art direction (`vehicle-and-character-art.md`).

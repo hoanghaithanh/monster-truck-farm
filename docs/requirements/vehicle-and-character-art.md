@@ -1,8 +1,8 @@
 # Vehicle & Character Art Pass
 
-Status: Draft — **blocked on two human decisions** (Open Questions 1 and 2 below). Do not hand this to the architect until both are answered; the acceptance criteria that depend on them are marked accordingly.
+Status: Sprint 3 — **finalized.** Both blocking open questions resolved by the human on 2026-07-08 (see below); ready to hand to the architect.
 
-Related: `docs/backlog.md` (new row, this doc); `truck-builder-and-upgrades.md` / `docs/architecture/0002-upgrade-tier-data-model.md` (the 4-axis tier system this art sits on top of, without changing); `farmer-minimal-bump.md` / `docs/architecture/0007-farmer-full-chase-timer-and-dynamic-speed.md` (farmer FSM states this doc gives visual form to); `animal-chase-and-coins.md` (animal species); `environment-dressing.md` (shares this doc's Non-functional section).
+Related: `docs/backlog.md` (row 18); `truck-builder-and-upgrades.md` / `docs/architecture/0002-upgrade-tier-data-model.md` (the 4-axis tier system this art sits on top of, without changing); `farmer-minimal-bump.md` / `docs/architecture/0007-farmer-full-chase-timer-and-dynamic-speed.md` (farmer FSM states this doc gives visual form to); `animal-chase-and-coins.md` (animal species); `environment-dressing.md` (shares this doc's art-direction decision and Non-functional section); `truck-cosmetics.md` (shares this doc's cosmetic-scope decision).
 
 ## Problem statement
 
@@ -17,25 +17,24 @@ Every character and vehicle in the game is currently a primitive Three.js shape:
 - Establish a shared perf/loading/fallback budget that this doc, `environment-dressing.md`, and `truck-cosmetics.md` all draw against (glTF assets are additive to an already-flagged ~2.5MB gzipped bundle).
 
 **Non-goals (Sprint 3)**
-- **New animal species.** Only one species (chicken) is actually implemented in code today (`src/core/spawn/species.ts`) — `animal-chase-and-coins.md`'s mention of "cows, chickens, pigs" describes the eventual roster from `CLAUDE.md`'s project intent, but cows and pigs were never built; only the chicken shipped in Sprint 1's reduced end-to-end slice, and nothing since has added the others. **This is a finding, not an assumption to quietly build around:** adding new species is a core-logic change (new spawn-table entries, size/speed tier assignment, coin-formula interaction), not a pure art swap, and doesn't fit "this sprint is about visual assets rather than gameplay logic." This doc's art scope is therefore the chicken only. If the human wants cow/pig actually implemented, that needs its own requirements pass and belongs in a future sprint's backlog, not folded silently into this art pass.
+- **New animal species.** Only one species (chicken) is actually implemented in code today (`src/core/spawn/species.ts`) — `animal-chase-and-coins.md`'s mention of "cows, chickens, pigs" describes the eventual roster from `CLAUDE.md`'s project intent, but cows and pigs were never built; only the chicken shipped in Sprint 1's reduced end-to-end slice, and nothing since has added the others. Adding new species is a core-logic change (new spawn-table entries, size/speed tier assignment, coin-formula interaction), not a pure art swap, and doesn't fit "this sprint is about visual assets rather than gameplay logic." **Confirmed by the human (2026-07-08): cow/pig are explicitly not in scope for Sprint 3.** This doc's art scope is the chicken only. If the human wants cow/pig actually implemented later, that needs its own requirements pass and belongs in a future sprint's backlog (noted as a known gap in `docs/backlog.md`).
 - Truck cosmetic customization (color/design/texture choice) — specified separately in `truck-cosmetics.md`, which depends on this doc's per-axis model decisions below.
 - Sound design, particle VFX beyond what's already specified (bump flash, fuel glow) — out of scope.
 - New animations beyond what's needed to make existing states (driving, farmer PURSUING/TIRED/LEAVING, animal scatter) read clearly — no idle-fidget animations, no cutscenes.
 
-## Open Question 1 — Art direction: how "realistic" is realistic? (BLOCKING)
+## Resolved — Art direction (2026-07-08)
 
-The human's original phrasing when raising this topic was "realistic visual." The project's established design bias (`CLAUDE.md`): **forgiving, colorful, kid-friendly — not realism-first.** Target player is a young child. These two signals are in tension, and this materially changes asset sourcing (stylized/low-poly assets vs. photoreal PBR models are different budgets, different sourcing pipelines, and different licensing/production effort), so it cannot be guessed at.
+**Confirmed: Option A — stylized/low-poly, but reads as real objects.** The human's original phrasing when raising this topic was "realistic visual," which was in tension with the project's established design bias (`CLAUDE.md`: forgiving, colorful, kid-friendly, not realism-first). Surfaced as a blocking question rather than assumed either way; the human has now confirmed Option A, which matches the existing design bias: recognizable, solid-feeling objects (a barn that reads as a barn, a chicken that's clearly a chicken, simplified/rounded forms), colorful and forgiving in tone, no gore/realistic injury detail anywhere — not an abstract-shapes look, but not photoreal either.
 
-Candidate interpretations, for the human to pick from (or state a different one):
-- **(A) Stylized/low-poly, but reads as real objects** — e.g. a recognizable low-poly barn, a chicken that's clearly a chicken but simplified/rounded, no gore/realistic injury detail anywhere. This is what "realistic" most plausibly means in tension with the kid-friendly bias: *recognizable and solid-feeling*, not abstract shapes, but still colorful and forgiving in tone. Closest fit to the existing design bias.
-- **(B) As photorealistic as feasible** — PBR materials, detailed geometry, closer to a "real" farm simulation look. Would be a genuine tonal shift for the project and should be a deliberate choice, not a default.
-- **(C) Something else** — e.g. a specific reference game/art style the human has in mind.
+Rejected alternatives, kept here only for traceability:
+- *(B) As photorealistic as feasible* — rejected as a genuine tonal shift away from the project's established bias, which the human did not intend.
+- *(C) Something else* — no alternative reference style was raised; not applicable.
 
-**This doc's acceptance criteria below are written style-agnostic** (e.g. "recognizable as a chicken," "visually distinguishable," not "photorealistic" or "low-poly") specifically so they don't presuppose an answer. Once resolved, add a one-line addendum here and this doc does not need to be rewritten.
+This applies to every asset in this doc, and to `environment-dressing.md`'s structures — one art direction across the whole world, not per-asset.
 
-## Open Question 2 — Cosmetic customization scope (BLOCKING, shared with `truck-cosmetics.md`)
+## Resolved — Cosmetic customization scope (2026-07-08, shared with `truck-cosmetics.md`)
 
-Is cosmetic choice (color/design/texture) *independent* of the functional tier, or does each functional tier come with its own fixed look? This is fully specified as a decision point in `truck-cosmetics.md` (Open Question 1 there) but is listed here too because it directly determines how many art variants this doc needs to produce per axis (see the per-axis table below, which is written to be correct either way, but the total variant *count* differs sharply). Do not finalize art production scope until both this doc's Q1 and `truck-cosmetics.md`'s Q1 are answered.
+**Confirmed: independent of functional tier.** Cosmetic choice (color/design/texture) can be applied to any owned functional tier, not locked to a fixed per-tier look — the richer, more-variants option, not the cheaper tier-locked alternative. Full specification and acceptance criteria live in `truck-cosmetics.md`; this note exists here because the decision also fixes the total art-variant count this doc's per-axis table (below) needs to support: cosmetic variants multiply *within* an axis via material/color swaps applied to the tier models already scoped below, not via new geometry per combination (see `truck-cosmetics.md` Constraints).
 
 ## Per-axis art scope
 
@@ -48,7 +47,7 @@ This is the concrete answer to "does each tier need a visually distinct model," 
 | **Engine** (3 tiers) | **No — one shared visual per body, differentiated by a small attached cue** (e.g. a hood scoop, exhaust stack, or badge/decal), not a full remodel. | The engine isn't externally visible on a monster truck in any style; a full distinct chassis per engine tier would ~triple body-model production cost for a stat (top speed) that isn't primarily about appearance. A small attached prop is enough to let a player glance-check their engine tier without inflating scope. |
 | **Gas tank** (3 tiers) | **No — one shared visual per body, differentiated by a small visible tank prop** (size/color cue on a fuel-tank attachment), not a full remodel. | Same reasoning as engine: not the primary visual identity axis, doesn't warrant full-body variants. |
 
-Net model count this sprint: **3 body models + 3 wheel models + small engine/gas-tank attachment cue sets**, versus a naive "distinct model per tier per axis" reading which would imply up to 3×3×3×3 = 81 combinations. This scoping is what keeps the art budget sane regardless of how Open Question 2 resolves (cosmetic variants multiply *within* an axis via material/color swaps, not by adding new geometry per combination — see `truck-cosmetics.md`).
+Net model count this sprint: **3 body models + 3 wheel models + small engine/gas-tank attachment cue sets**, each with material/color variants layered on top per the confirmed independent-cosmetics decision above — versus a naive "distinct model per tier per axis per cosmetic combination" reading, which this scoping deliberately avoids (see `truck-cosmetics.md` Constraints for how cosmetic variants stay additive rather than multiplicative in geometry terms).
 
 ## User stories
 
@@ -60,7 +59,7 @@ Net model count this sprint: **3 body models + 3 wheel models + small engine/gas
 
 ## Acceptance criteria
 
-### Truck body & wheels (not blocked on Open Questions — implement regardless of their resolution)
+### Truck body & wheels
 
 - **AC1 (body models):** Given a truck built with body Tier N (0/1/2), when the truck is rendered in the builder preview and the driving scene, then it uses the model corresponding to Tier N, visually distinct from the other two tiers.
 - **AC2 (wheel models):** Given a truck built with wheel Tier N (0/1/2), when the truck is rendered, then its wheels use the model corresponding to Tier N, visually distinct from the other two tiers.
@@ -69,14 +68,14 @@ Net model count this sprint: **3 body models + 3 wheel models + small engine/gas
 
 ### Animal (chicken only — see Non-goals)
 
-- **AC5 (chicken model):** Given the driving scene, when a chicken spawns, then it renders as a recognizable chicken model/texture (style per Open Question 1's resolution) instead of the current placeholder box.
-- **AC6 (non-violent framing preserved):** The chicken's scatter animation (on boop) remains non-violent per `animal-chase-and-coins.md`'s hard constraint — a hop/run-away reaction, no damage/pain animation, no matter what art style is chosen.
+- **AC5 (chicken model):** Given the driving scene, when a chicken spawns, then it renders as a recognizable chicken model/texture in the confirmed stylized/low-poly-but-recognizable style (see "Resolved — Art direction" above) instead of the current placeholder box.
+- **AC6 (non-violent framing preserved):** The chicken's scatter animation (on boop) remains non-violent per `animal-chase-and-coins.md`'s hard constraint — a hop/run-away reaction, no damage/pain animation.
 
 ### Farmer
 
-- **AC7 (farmer model):** Given the driving scene, when the farmer appears (`ABSENT → PURSUING`), then he renders as a recognizable human-farmer character model instead of the current capsule placeholder.
-- **AC8 (state-distinguishable art — blocking on Open Q1 for exact style, not for the requirement itself):** Given the farmer's FSM state (`PURSUING`, `TIRED`, or `LEAVING` per `docs/architecture/0007`), when the player looks at the farmer, then the state is visually distinguishable through pose and/or animation (e.g. a running/chasing pose for PURSUING, a winded/hands-on-knees pose for TIRED, a walking-away pose for LEAVING) — not solely through the current color-tint mechanism, which is a placeholder-era shortcut too subtle to rely on as the only signal for a young child. Color may remain as a *supplementary* cue.
-- **AC9 (tone preserved):** All farmer states remain kid-appropriate per `farmer-minimal-bump.md` AC5/AC7 — TIRED and LEAVING read as friendly/comedic ("giving up," "walking off"), never as pain, injury, or distress, regardless of art style chosen.
+- **AC7 (farmer model):** Given the driving scene, when the farmer appears (`ABSENT → PURSUING`), then he renders as a recognizable human-farmer character model, in the confirmed stylized/low-poly style, instead of the current capsule placeholder.
+- **AC8 (state-distinguishable art):** Given the farmer's FSM state (`PURSUING`, `TIRED`, or `LEAVING` per `docs/architecture/0007`), when the player looks at the farmer, then the state is visually distinguishable through pose and/or animation (e.g. a running/chasing pose for PURSUING, a winded/hands-on-knees pose for TIRED, a walking-away pose for LEAVING) — not solely through the current color-tint mechanism, which is a placeholder-era shortcut too subtle to rely on as the only signal for a young child. Color may remain as a *supplementary* cue.
+- **AC9 (tone preserved):** All farmer states remain kid-appropriate per `farmer-minimal-bump.md` AC5/AC7 — TIRED and LEAVING read as friendly/comedic ("giving up," "walking off"), never as pain, injury, or distress.
 
 ### Non-functional (shared budget — also applies to `environment-dressing.md` and `truck-cosmetics.md`)
 
@@ -87,9 +86,8 @@ Net model count this sprint: **3 body models + 3 wheel models + small engine/gas
 
 ## Open questions
 
-The two blocking questions are stated in full above (Open Question 1: art direction; Open Question 2: cosmetic scope, shared with `truck-cosmetics.md`). Do not proceed to architecture/design for the tier-specific model work (AC1-AC9's exact asset sourcing) until at least Open Question 1 is answered; AC10-AC13 (the NFR budget/fallback behavior) are not blocked by either question and can proceed regardless.
+Both previously-blocking questions are resolved (see "Resolved" sections above, 2026-07-08). Remaining items are non-blocking and can be decided at design time:
 
-Non-blocking:
 1. **Exact perf budget number (AC10)** — 5MB gzipped combined is a starting proposal, not confirmed. Revisit once real asset candidates are sourced.
 2. **Loading-indicator visual design and the exact timeout value (AC12)** — left to the architect/developer; the requirement is only that one exists and that it's bounded, not indefinite.
 
@@ -97,5 +95,6 @@ Non-blocking:
 
 - glTF is the established long-term asset format (`docs/architecture/0001-foundation-stack-and-structure.md` §"module layout" — `render/` already owns "glTF loading" as a named responsibility, `assets/` is an existing top-level module).
 - Must not change any of the four axes' underlying stats (`hitCapacity`, `clearance`, `topSpeed`, `gasCapacity`) — this is a pure rendering/asset pass on top of the existing `TruckSpec` contract (`docs/architecture/0002`), not a rebalance.
-- Must preserve the non-violence framing constraint (`animal-chase-and-coins.md` Constraints) and the farmer's kid-appropriate tone constraint (`farmer-minimal-bump.md` Constraints) regardless of art style chosen.
+- Must preserve the non-violence framing constraint (`animal-chase-and-coins.md` Constraints) and the farmer's kid-appropriate tone constraint (`farmer-minimal-bump.md` Constraints).
+- All assets (this doc and `environment-dressing.md`) must be sourced/authored in the confirmed stylized/low-poly art direction — a consistent world, not a mix of styles.
 - Runs in-browser (Three.js + Vite), static-site deployed — asset hosting/CDN choice is an architect/devops concern, not specified here.
