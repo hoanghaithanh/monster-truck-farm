@@ -557,6 +557,229 @@ describe('GameStore.restart (builder AC7, ADR 0006 §4)', () => {
   });
 });
 
+describe('screen FSM: pause/resume events (ADR 0009 §1)', () => {
+  it('moves DRIVING -> BUILDER on pause', () => {
+    expect(nextScreen('DRIVING', 'pause')).toBe('BUILDER');
+  });
+
+  it('moves BUILDER -> DRIVING on resume', () => {
+    expect(nextScreen('BUILDER', 'resume')).toBe('DRIVING');
+  });
+
+  it('ignores pause/resume events that do not apply to the current screen', () => {
+    expect(nextScreen('BUILDER', 'pause')).toBe('BUILDER');
+    expect(nextScreen('GAME_OVER', 'resume')).toBe('GAME_OVER');
+  });
+});
+
+describe('GameStore.pauseToBuilder (ADR 0009 §1, human decisions 1-2)', () => {
+  it('moves DRIVING -> BUILDER and sets pausedMidRun', () => {
+    const store = new GameStore();
+    store.confirmBuild();
+    store.pauseToBuilder();
+    expect(store.screen).toBe('BUILDER');
+    expect(store.pausedMidRun).toBe(true);
+  });
+
+  it('leaves coins, ownership, build, hits, and gas completely untouched (preserved by omission)', () => {
+    const store = new GameStore();
+    buyUpTo(store, 'wheels', 1);
+    store.confirmBuild();
+    store.addCoins(42);
+    store.bump(); // 1 hit taken
+    store.setGas(5);
+    const { coins, ownership, build, hitsRemaining, gas } = store;
+
+    store.pauseToBuilder();
+
+    expect(store.coins).toBe(coins);
+    expect(store.ownership).toEqual(ownership);
+    expect(store.build).toEqual(build);
+    expect(store.hitsRemaining).toBe(hitsRemaining);
+    expect(store.gas).toBe(gas);
+  });
+
+  it('notifies subscribers', () => {
+    const store = new GameStore();
+    store.confirmBuild();
+    let calls = 0;
+    store.subscribe(() => calls++);
+    store.pauseToBuilder();
+    expect(calls).toBe(1);
+  });
+});
+
+describe('GameStore.resumeDriving (ADR 0009 §3)', () => {
+  it('moves BUILDER -> DRIVING, re-resolves spec, and clears pausedMidRun', () => {
+    const store = new GameStore();
+    store.confirmBuild();
+    store.pauseToBuilder();
+    store.resumeDriving();
+    expect(store.screen).toBe('DRIVING');
+    expect(store.pausedMidRun).toBe(false);
+  });
+
+  it('preserves gas/hits exactly when capacities are unchanged (no refill)', () => {
+    const store = new GameStore();
+    store.confirmBuild();
+    store.bump();
+    store.setGas(6);
+    store.pauseToBuilder();
+    store.resumeDriving();
+    expect(store.hitsRemaining).toBe(BODY_TIERS[DEFAULT_TRUCK_BUILD.body].hitCapacity - 1);
+    expect(store.gas).toBe(6);
+  });
+
+  it('clamps gas to the new (smaller) tank capacity rather than exceeding it', () => {
+    const store = new GameStore();
+    buyUpTo(store, 'gasTank', 2);
+    store.confirmBuild(); // full big tank
+    store.pauseToBuilder();
+    store.selectTier('gasTank', 0); // swap to the smaller owned tank while paused
+    store.resumeDriving();
+    expect(store.gas).toBe(GAS_TIERS[0].capacity);
+  });
+
+  it('does NOT refill gas when a bigger tank is bought while paused (absolute remaining carries over)', () => {
+    const store = new GameStore();
+    store.confirmBuild(); // default (smallest) tank
+    store.setGas(3);
+    store.pauseToBuilder();
+    store.addCoins(10_000);
+    store.purchaseTier('gasTank', 1); // bigger tank, not pre-filled
+    store.resumeDriving();
+    expect(store.gas).toBe(3);
+  });
+});
+
+describe('GameStore.purchaseTier body-upgrade paid heal (ADR 0009 §3b, human decision 4)', () => {
+  it('heals hitsRemaining to the newly-purchased body tier\'s full capacity', () => {
+    const store = new GameStore();
+    store.confirmBuild(); // hitCapacity 3 (tier 0)
+    store.bump();
+    store.bump();
+    expect(store.hitsRemaining).toBe(1);
+    store.pauseToBuilder();
+
+    store.addCoins(10_000);
+    store.purchaseTier('body', 1);
+    expect(store.hitsRemaining).toBe(BODY_TIERS[1].hitCapacity);
+  });
+
+  it('does not heal on a non-body purchase', () => {
+    const store = new GameStore();
+    store.confirmBuild();
+    store.bump();
+    store.bump();
+    store.pauseToBuilder();
+    store.addCoins(10_000);
+    store.purchaseTier('wheels', 1);
+    expect(store.hitsRemaining).toBe(1);
+  });
+
+  it('does not heal on selectTier (re-equipping an already-owned body) -- coin cost is the anti-exploit gate', () => {
+    const store = new GameStore();
+    buyUpTo(store, 'body', 1); // owns body 0, 1; equipped 1
+    store.confirmBuild(); // resolves against body tier 1
+    store.bump(); // 1 hit taken, hitsRemaining = hitCapacity - 1
+    const beforeSwap = store.hitsRemaining;
+    store.pauseToBuilder();
+    store.selectTier('body', 0); // re-equip an already-owned lower tier -- no purchase
+    expect(store.hitsRemaining).toBe(beforeSwap); // unchanged -- no free heal
+  });
+
+  it('last purchase wins when buying tier 1 then tier 2 in the same pause', () => {
+    const store = new GameStore();
+    store.confirmBuild();
+    store.bump();
+    store.pauseToBuilder();
+    store.addCoins(10_000);
+    store.purchaseTier('body', 1);
+    expect(store.hitsRemaining).toBe(BODY_TIERS[1].hitCapacity);
+    store.purchaseTier('body', 2);
+    expect(store.hitsRemaining).toBe(BODY_TIERS[2].hitCapacity);
+  });
+
+  it('chain-purchase before resume: buying tier 1 then tier 2 in the same pause, resumeDriving reflects tier 2\'s capacity, not tier 1\'s (QA gap: developer report did not explicitly test the resume call after a chain purchase)', () => {
+    const store = new GameStore();
+    store.confirmBuild();
+    store.bump();
+    store.bump();
+    store.pauseToBuilder();
+    store.addCoins(10_000);
+    store.purchaseTier('body', 1);
+    store.purchaseTier('body', 2);
+    store.resumeDriving();
+    expect(store.hitsRemaining).toBe(BODY_TIERS[2].hitCapacity);
+    expect(store.hitsRemaining).not.toBe(BODY_TIERS[1].hitCapacity);
+  });
+
+  it('composes with the resume clamp: buying a body then equipping a lower owned body clamps hits to the lower body\'s capacity on resume', () => {
+    const store = new GameStore();
+    buyUpTo(store, 'body', 1); // owns 0, 1; equipped 1
+    store.confirmBuild();
+    store.pauseToBuilder();
+    store.addCoins(10_000);
+    store.purchaseTier('body', 2); // heals to tier 2 capacity, equips tier 2
+    expect(store.hitsRemaining).toBe(BODY_TIERS[2].hitCapacity);
+
+    store.selectTier('body', 0); // swap to a lower owned body before resuming
+    store.resumeDriving();
+    expect(store.hitsRemaining).toBe(BODY_TIERS[0].hitCapacity);
+  });
+
+  it('is a harmless no-op-in-effect on a fresh (pre-first-drive) build purchase -- confirmBuild reseeds hits anyway', () => {
+    const store = new GameStore();
+    store.addCoins(10_000);
+    store.purchaseTier('body', 1); // pre-first-drive purchase; hitsRemaining set early but not observable yet
+    store.confirmBuild();
+    expect(store.hitsRemaining).toBe(BODY_TIERS[1].hitCapacity);
+  });
+});
+
+describe('GameStore.beginDrive (ADR 0009 §6)', () => {
+  it('calls confirmBuild when not paused (fresh build / post-game-over)', () => {
+    const store = new GameStore();
+    store.beginDrive();
+    expect(store.screen).toBe('DRIVING');
+    expect(store.hitsRemaining).toBe(BODY_TIERS[DEFAULT_TRUCK_BUILD.body].hitCapacity);
+  });
+
+  it('calls resumeDriving when paused mid-run', () => {
+    const store = new GameStore();
+    store.confirmBuild();
+    store.bump();
+    store.pauseToBuilder();
+    store.beginDrive();
+    expect(store.screen).toBe('DRIVING');
+    expect(store.pausedMidRun).toBe(false);
+    expect(store.hitsRemaining).toBe(BODY_TIERS[DEFAULT_TRUCK_BUILD.body].hitCapacity - 1); // preserved, not reseeded to full
+  });
+});
+
+describe('confirmBuild/restart clear pausedMidRun (ADR 0009 §5)', () => {
+  it('confirmBuild clears pausedMidRun', () => {
+    const store = new GameStore();
+    store.confirmBuild();
+    store.pauseToBuilder();
+    expect(store.pausedMidRun).toBe(true);
+    store.confirmBuild();
+    expect(store.pausedMidRun).toBe(false);
+  });
+
+  it('restart clears pausedMidRun', () => {
+    const store = new GameStore();
+    store.confirmBuild();
+    store.pauseToBuilder();
+    store.resumeDriving();
+    store.bump();
+    store.bump();
+    store.bump(); // -> gameOver
+    store.restart();
+    expect(store.pausedMidRun).toBe(false);
+  });
+});
+
 describe('driving-session lifecycle across a full DRIVING -> GAME_OVER -> BUILDER -> DRIVING round trip (issue #18)', () => {
   // main.ts wires a rAF/render/physics driving session to the screen FSM via
   // exactly this start/dispose guard shape (start on BUILDER -> DRIVING while
@@ -625,5 +848,81 @@ describe('driving-session lifecycle across a full DRIVING -> GAME_OVER -> BUILDE
     store.addCoins(5);
 
     expect(session.started).toBe(1);
+  });
+});
+
+describe('main.ts dispose-branch farmer-snapshot ordering (ADR 0009 §2c/Risks) — pinned via the same fake-session shape #18 uses', () => {
+  // main.ts's real subscriber can't be unit-tested directly (it imports
+  // three.js/Rapier browser globals), same limitation as the #18 block
+  // above. This mirrors main.ts's *exact* dispose-branch shape --
+  // `pausedFarmerState = store.pausedMidRun ? driving.snapshotFarmer() : undefined; driving.dispose();`
+  // -- against a fake driving session, so a regression that (a) captures
+  // AFTER dispose, or (b) captures on a game-over exit too, trips a fast
+  // unit test instead of only being catchable by the live farmer-continuity
+  // smoke test (which fails *quietly*, per the ADR's own Risks section).
+  function wireFakeDrivingSessionWithFarmer(store: GameStore) {
+    let driving: { snapshotFarmer: () => string; dispose: () => void } | undefined;
+    let pausedFarmerState: string | undefined;
+    const callOrder: string[] = [];
+    store.subscribe(() => {
+      if (store.screen === 'DRIVING' && !driving && store.spec) {
+        driving = {
+          snapshotFarmer: () => {
+            callOrder.push('snapshot');
+            return 'LIVE_FARMER_SNAPSHOT';
+          },
+          dispose: () => callOrder.push('dispose'),
+        };
+      } else if (store.screen !== 'DRIVING' && driving) {
+        // The exact ordering this ADR's Risks section calls out: capture
+        // BEFORE dispose, and only when pausedMidRun.
+        pausedFarmerState = store.pausedMidRun ? driving.snapshotFarmer() : undefined;
+        driving.dispose();
+        driving = undefined;
+      }
+    });
+    return {
+      get pausedFarmerState() {
+        return pausedFarmerState;
+      },
+      get callOrder() {
+        return callOrder;
+      },
+    };
+  }
+
+  it('captures the farmer snapshot BEFORE dispose on a voluntary pause exit', () => {
+    const store = new GameStore();
+    const session = wireFakeDrivingSessionWithFarmer(store);
+    store.confirmBuild();
+    store.pauseToBuilder();
+    expect(session.pausedFarmerState).toBe('LIVE_FARMER_SNAPSHOT');
+    expect(session.callOrder).toEqual(['snapshot', 'dispose']); // snapshot strictly precedes dispose
+  });
+
+  it('does NOT capture a farmer snapshot on a game-over exit (blob stays undefined so a fresh build gets a fresh farmer, per ADR 0009 §2c)', () => {
+    const store = new GameStore();
+    const session = wireFakeDrivingSessionWithFarmer(store);
+    store.confirmBuild();
+    store.bump();
+    store.bump();
+    store.bump(); // hits -> 0 -> gameOver(), NOT a pause
+    expect(store.screen).toBe('GAME_OVER');
+    expect(session.pausedFarmerState).toBeUndefined();
+    expect(session.callOrder).toEqual(['dispose']); // no 'snapshot' entry at all
+  });
+
+  it('a pause followed by a resume-then-gameOver correctly drops the stale farmer blob on the second (game-over) exit', () => {
+    const store = new GameStore();
+    const session = wireFakeDrivingSessionWithFarmer(store);
+    store.confirmBuild();
+    store.pauseToBuilder(); // first exit: captures a snapshot
+    expect(session.pausedFarmerState).toBe('LIVE_FARMER_SNAPSHOT');
+
+    store.resumeDriving();
+    store.bump();
+    store.bump();
+    store.bump(); // second exit: gameOver -- must clear the blob, not keep the stale pause snapshot
+    expect(session.pausedFarmerState).toBeUndefined();
   });
 });
