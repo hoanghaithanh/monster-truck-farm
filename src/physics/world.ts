@@ -41,20 +41,42 @@ export class TruckController {
     this.controller.setSlideEnabled(true);
   }
 
-  /** Attempts to move by `desired` (XZ, world space); returns the actual movement applied after obstacle sliding. */
+  /**
+   * Attempts to move by `desired` (XZ, world space); returns the actual movement applied after obstacle
+   * sliding. Only *queues* the resulting translation via `setNextKinematicTranslation` — it does **not**
+   * step the world. Per Rapier's kinematic-character-controller contract, `world.step()` must run exactly
+   * once per simulation tick (ADR 0001 §5's single `physics(move)` stage); callers must call `step()`
+   * (below) themselves, exactly once, after this tick's `moveBy`/`setPosition` calls are done queuing
+   * their targets. Fixes issues #16/#21: a second, independent `step()` call within the same tick (as the
+   * previous implementation did whenever the boundary clamp fired) corrupts Rapier's internal
+   * wasm-bindgen object graph — the confirmed root cause of the "recursive use of an object" crash
+   * observed during sustained driving.
+   */
   moveBy(desired: Vec2): Vec2 {
     this.controller.computeColliderMovement(this.collider, { x: desired.x, y: 0, z: desired.z });
     const movement = this.controller.computedMovement();
     const current = this.body.translation();
     const next = { x: current.x + movement.x, y: current.y, z: current.z + movement.z };
     this.body.setNextKinematicTranslation(next);
-    this.world.step();
     return { x: movement.x, z: movement.z };
   }
 
-  /** Forces the truck to an absolute position (used to apply the soft-boundary clamp — drive AC4). */
+  /**
+   * Forces the truck to an absolute position (used to apply the soft-boundary clamp — drive AC4). Only
+   * queues the translation, same "does not step" contract as `moveBy` above.
+   */
   setPosition(position: Vec2, height: number): void {
     this.body.setNextKinematicTranslation({ x: position.x, y: height, z: position.z });
+  }
+
+  /**
+   * Advances the physics world by exactly one simulation tick. Must be called exactly once per rendered
+   * frame, after all of that frame's `moveBy`/`setPosition` calls have queued their kinematic targets
+   * (issues #16/#21). Owning "step" as its own explicit method — rather than embedding it inside
+   * `moveBy`/`setPosition` as the previous implementation did — makes double-stepping structurally
+   * impossible for any future caller, instead of merely a convention callers have to remember.
+   */
+  step(): void {
     this.world.step();
   }
 

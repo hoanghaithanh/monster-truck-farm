@@ -41,15 +41,26 @@ export class DrivingSystem {
 
     // Physics resolves the desired displacement against obstacle colliders:
     // slides along / stops, never passes through, never crashes (drive AC6-AC9).
-    this.truckController.moveBy(displacement);
-    let position = this.truckController.position();
+    // `moveBy`/`setPosition` below only *queue* kinematic targets now — neither steps the world itself
+    // (issues #16/#21: a second, independent `world.step()` call within the same tick, previously fired
+    // by `setPosition` whenever the boundary clamp triggered, corrupted Rapier's internal wasm-bindgen
+    // object graph). `before` is read *before* `moveBy` queues anything, so it's still last tick's
+    // committed position; combined with `moveBy`'s returned applied movement, that's enough to compute
+    // this tick's prospective position without needing to step the world before deciding on the boundary
+    // clamp below. Exactly one `step()` call closes out the tick, after any clamp has queued its target.
+    const before = this.truckController.position();
+    const movement = this.truckController.moveBy(displacement);
+    const prospective: Vec2 = { x: before.x + movement.x, z: before.z + movement.z };
 
     // Soft boundary (drive AC4): clamp back inside the playable area.
-    const clamped = clampToBounds(position, TERRAIN_BOUNDS);
-    if (clamped.x !== position.x || clamped.z !== position.z) {
+    const clamped = clampToBounds(prospective, TERRAIN_BOUNDS);
+    let position = prospective;
+    if (clamped.x !== prospective.x || clamped.z !== prospective.z) {
       this.truckController.setPosition(clamped, TRUCK_HALF_HEIGHT);
       position = clamped;
     }
+
+    this.truckController.step();
 
     return { position, heading: this.motionState.heading };
   }
