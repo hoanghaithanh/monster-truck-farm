@@ -71,8 +71,29 @@ describe('buildDesignDecal (cosmetics AC5/AC7 -- body design independent of body
   });
 
   it('shares the same cached material across calls for the same design id (safe to share, never mutated)', () => {
-    const a = buildDesignDecal('flames') as THREE.Mesh;
-    const b = buildDesignDecal('flames') as THREE.Mesh;
+    const a = buildDesignDecal('stripe') as THREE.Mesh;
+    const b = buildDesignDecal('stripe') as THREE.Mesh;
     expect(a.material).toBe(b.material);
+  });
+
+  it('"flames" returns a group of multiple tip meshes (a flame silhouette, not a single flat strip), all sharing one cached material', () => {
+    const a = buildDesignDecal('flames');
+    const b = buildDesignDecal('flames');
+    expect(a).toBeInstanceOf(THREE.Group);
+    expect(a).not.toBe(b);
+
+    const group = a as THREE.Group;
+    expect(group.children.length).toBeGreaterThan(1);
+    const tipMeshes = group.children.filter((child): child is THREE.Mesh => child instanceof THREE.Mesh);
+    expect(tipMeshes.length).toBe(group.children.length);
+
+    const materials = new Set(tipMeshes.map((mesh) => mesh.material));
+    expect(materials.size).toBe(1); // every tip shares the one cached 'flames' material
+
+    // Each call gets its own fresh geometries/group (each rig owns/disposes its own decal instance).
+    const bGroup = b as THREE.Group;
+    const bTipMeshes = bGroup.children.filter((child): child is THREE.Mesh => child instanceof THREE.Mesh);
+    expect(tipMeshes[0].geometry).not.toBe(bTipMeshes[0].geometry);
+    expect(tipMeshes[0].material).toBe(bTipMeshes[0].material);
   });
 });

@@ -120,12 +120,16 @@ export function buildTruckRig(
   group.add(bodyResult.object);
 
   const decal = buildDesignDecal(cosmetics.bodyDesign);
-  if (decal instanceof THREE.Mesh) {
+  if (decal) {
     decal.position.copy(sockets.design);
     group.add(decal);
-    // The decal's geometry is fresh per call (owned); its material is a
-    // shared, cached cosmetic-manifest instance (never owned/disposed here).
-    ownedGeometries.push(decal.geometry);
+    // The decal's geometry (one mesh for 'stripe', several tip meshes for
+    // 'flames' -- see cosmetic-manifest.ts's buildFlameDecal) is fresh per
+    // call (owned); every tip's material is a shared, cached
+    // cosmetic-manifest instance (never owned/disposed here).
+    decal.traverse((child) => {
+      if (child instanceof THREE.Mesh) ownedGeometries.push(child.geometry);
+    });
   }
 
   const wheelKey = wheelAssetKey(build.wheels);

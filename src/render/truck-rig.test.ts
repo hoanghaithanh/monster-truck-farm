@@ -96,8 +96,8 @@ describe('buildTruckRig -- cosmetic material application (ADR 0011 §2, material
   it('different body colors on two rigs never share a material instance, and neither rig\'s material is ever mutated by the other (no cross-truck colour bleed)', () => {
     const rigRed = buildTruckRig(BUILD, { ...COSMETICS, bodyColor: 'red' });
     const rigGreen = buildTruckRig(BUILD, { ...COSMETICS, bodyColor: 'green' });
-    const redMaterial = (rigRed.group.children[0] as THREE.Mesh).material as THREE.MeshStandardMaterial;
-    const greenMaterial = (rigGreen.group.children[0] as THREE.Mesh).material as THREE.MeshStandardMaterial;
+    const redMaterial = (rigRed.group.children[0] as THREE.Mesh).material as THREE.MeshBasicMaterial;
+    const greenMaterial = (rigGreen.group.children[0] as THREE.Mesh).material as THREE.MeshBasicMaterial;
     expect(redMaterial).not.toBe(greenMaterial);
     expect(redMaterial.color.getHex()).not.toBe(greenMaterial.color.getHex());
   });
