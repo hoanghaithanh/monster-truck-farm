@@ -1,0 +1,90 @@
+{
+  "cosmeticLabels": [
+    "🪙 0🛒 Shop🚜 Build your monster truckBody✅ Tier 0 — 3 hits🔒 Tier 1 — 4 hits — 40🪙🔒 Tier 2 — 5 hits — 90🪙Wheels✅ Base — clears small🔒 Off-road — clears medium — 50🪙🔒 Monster — clears large — 120🪙Engine✅ Standard — top speed 6🔒 Tuned — top speed 9 — 60🪙🔒 Turbo — top speed 12 — 140🪙Gas tank✅ Small tank — 20s of drive🔒 Mid tank — 30s of drive — 40🪙🔒 Big tank — 45s of drive — 90🪙🎨 Wheel styleJust for looks -- pick any wheel style, any time. No cost, no stats.Wheel lookStandardRed rimChromeConfirm — start driving!Your truck🚜 Oops! Let’s build a new truck!The farmer caught up with you. Time to try again!Build a new truck!🚜Getting your truck ready…",
+    "🚜 Build your monster truckBody✅ Tier 0 — 3 hits🔒 Tier 1 — 4 hits — 40🪙🔒 Tier 2 — 5 hits — 90🪙Wheels✅ Base — clears small🔒 Off-road — clears medium — 50🪙🔒 Monster — clears large — 120🪙Engine✅ Standard — top speed 6🔒 Tuned — top speed 9 — 60🪙🔒 Turbo — top speed 12 — 140🪙Gas tank✅ Small tank — 20s of drive🔒 Mid tank — 30s of drive — 40🪙🔒 Big tank — 45s of drive — 90🪙🎨 Wheel styleJust for looks -- pick any wheel style, any time. No cost, no stats.Wheel lookStandardRed rimChromeConfirm — start driving!Your truck",
+    "🚜 Build your monster truckBody✅ Tier 0 — 3 hits🔒 Tier 1 — 4 hits — 40🪙🔒 Tier 2 — 5 hits — 90🪙Wheels✅ Base — clears small🔒 Off-road — clears medium — 50🪙🔒 Monster — clears large — 120🪙Engine✅ Standard — top speed 6🔒 Tuned — top speed 9 — 60🪙🔒 Turbo — top speed 12 — 140🪙Gas tank✅ Small tank — 20s of drive🔒 Mid tank — 30s of drive — 40🪙🔒 Big tank — 45s of drive — 90🪙🎨 Wheel styleJust for looks -- pick any wheel style, any time. No cost, no stats.Wheel lookStandardRed rimChromeConfirm — start driving!Your truck",
+    "🚜 Build your monster truckBody✅ Tier 0 — 3 hits🔒 Tier 1 — 4 hits — 40🪙🔒 Tier 2 — 5 hits — 90🪙Wheels✅ Base — clears small🔒 Off-road — clears medium — 50🪙🔒 Monster — clears large — 120🪙Engine✅ Standard — top speed 6🔒 Tuned — top speed 9 — 60🪙🔒 Turbo — top speed 12 — 140🪙Gas tank✅ Small tank — 20s of drive🔒 Mid tank — 30s of drive — 40🪙🔒 Big tank — 45s of drive — 90🪙🎨 Wheel styleJust for looks -- pick any wheel style, any time. No cost, no stats.Wheel lookStandardRed rimChromeConfirm — start driving!",
+    "🎨 Wheel styleJust for looks -- pick any wheel style, any time. No cost, no stats.Wheel lookStandardRed rimChrome",
+    "Wheel lookStandardRed rimChrome",
+    "Wheel look"
+  ],
+  "pauseMethodName": "pauseToBuilder",
+  "tier0Roll": {
+    "before": 0,
+    "after": 17.85714285714285,
+    "delta": 17.85714285714285,
+    "speed": 5,
+    "dt": 0.016666666666666666,
+    "frames": 60
+  },
+  "tier2Roll": {
+    "before": 0,
+    "after": 8.620689655172418,
+    "delta": 8.620689655172418,
+    "speed": 5,
+    "dt": 0.016666666666666666,
+    "frames": 60
+  },
+  "rollRatioTier0OverTier2": 2.0714285714285694,
+  "expectedRatio": 2.071428571428571,
+  "steerDuring": {
+    "frontLeft": {
+      "roll": 7.437647793103436,
+      "steer": 0.5235987755982988
+    },
+    "frontRight": {
+      "roll": 7.437647793103436,
+      "steer": 0.5235987755982988
+    },
+    "rearLeft": {
+      "roll": 7.437647793103436,
+      "steer": 0
+    },
+    "rearRight": {
+      "roll": 7.437647793103436,
+      "steer": 0
+    }
+  },
+  "steerReleased": {
+    "frontLeft": {
+      "roll": 9.593509862068965,
+      "steer": 0
+    },
+    "frontRight": {
+      "roll": 9.593509862068965,
+      "steer": 0
+    },
+    "rearLeft": {
+      "roll": 9.593509862068965,
+      "steer": 0
+    },
+    "rearRight": {
+      "roll": 9.593509862068965,
+      "steer": 0
+    }
+  },
+  "stoppedRollUnchanged": false,
+  "reverseRollDelta": 1.1720009310344874,
+  "rearWhileSteering": {
+    "frontLeft": {
+      "roll": 16.062783862068976,
+      "steer": -0.5235987755982988
+    },
+    "frontRight": {
+      "roll": 16.062783862068976,
+      "steer": -0.5235987755982988
+    },
+    "rearLeft": {
+      "roll": 16.062783862068976,
+      "steer": 0
+    },
+    "rearRight": {
+      "roll": 16.062783862068976,
+      "steer": 0
+    }
+  },
+  "decalMeshCount": "n/a - checked visually via screenshots + no BODY_DESIGN_OPTIONS in UI",
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ]
+}

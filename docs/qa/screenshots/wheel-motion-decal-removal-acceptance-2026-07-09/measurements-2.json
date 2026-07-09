@@ -1,0 +1,16 @@
+{
+  "ac2_trulyStoppedRollUnchanged": true,
+  "ac2_parkedRollValue": {
+    "parkedA": 13.708938857142822,
+    "parkedB": 13.708938857142822
+  },
+  "ac1_reverseRollDeltaOnceActuallyReversing": -1.6733796428571441,
+  "ac1_forwardRollWasPositive": -0.09408600000000256,
+  "churnResult": {
+    "errors": []
+  },
+  "pauseResumeErrors": [],
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ]
+}
