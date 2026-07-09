@@ -1,5 +1,5 @@
 // Per-body-tier socket offset table (ADR 0011 §4): where the wheel/engine/
-// gas-tank/design-decal attachment points sit in body-local space, since the
+// gas-tank attachment points sit in body-local space, since the
 // three body models don't (and don't need to) embed named socket empties --
 // the ADR explicitly sanctions "a small per-body-model offset table ...
 // authored once" as the fallback when a pack doesn't provide them.
@@ -41,11 +41,11 @@
 // not checked in -- reproducible from the glTF JSON directly: `gzip -d`
 // isn't needed, .glb's JSON chunk is readable via any glTF inspector), then
 // confirmed against a live render (docs/qa/screenshots/adr-0011-sourced-art/).
-// Engine/gas-tank/design sockets are placed fractionally against each body's
+// Engine/gas-tank sockets are placed fractionally against each body's
 // final (post-bodyScale) bounding box -- front/top for the engine cue,
-// low/rear/side for the gas-tank cue, roof-centerline for the design decal --
-// the same fractional layout the old hand-authored table used, since the
-// real body models don't expose named attachment points either.
+// low/rear/side for the gas-tank cue -- the same fractional layout the old
+// hand-authored table used, since the real body models don't expose named
+// attachment points either.
 //
 // Tier-2 front/rear-wheel-socket fix (issue #38, 2026-07-09): the tier-2
 // body ("Truck_Armored") ships its own built-in (later-removed, see
@@ -63,8 +63,8 @@
 // camera. Tiers 0/1 share a *different* (and much closer to symmetric)
 // built-in wheel-well anchor, which is why only tier 2 showed the defect.
 // Re-derived *both* `wheelZFront` and `wheelZRear` for tier 2 against the
-// real built-in-node anchors (same "sample actual mesh data" technique as
-// the `design` socket fix below) rather than just the front -- code review
+// real built-in-node anchors (same "sample actual mesh data" technique used
+// elsewhere in this pass) rather than just the front -- code review
 // on the first pass of this fix flagged that changing only the front would
 // introduce a new, unexplained front/rear asymmetry (0.479 vs the old
 // 0.713) with no evidence the rear needed to stay put; since both numbers
@@ -77,23 +77,6 @@
 // change had pulled the wheelbase in enough to make front/rear visually
 // merge into one wheel blob from this camera, which the rear correction
 // also fixes).
-//
-// Sourced-art-fixes pass (issue #33 follow-up, 2026-07-09, see
-// docs/qa/screenshots/adr-0011-sourced-art-fixes/): the *first* sourced-art
-// pass's `design` socket Y was wrong -- it used each body mesh's *global*
-// bounding-box top (`rawMaxY`), which on these models is a thin roll-bar/
-// antenna strut poking well above the actual cab roof deck, with a real gap
-// (no geometry at all) between the roof and the strut tip. Placing the
-// decal at that Y put it floating in that empty gap -- the "flame accent
-// reads as a bare arrow detached above the roof" / "racing stripe invisible"
-// defects (the stripe is a thin 0.02-unit box, easy to lose entirely against
-// the sky at the wrong height). Fixed by sampling each body's actual mesh
-// vertices (not just min/max) binned by Y, and using the top of the last
-// bin that still has solid, wide (not strut-thin) cross-section -- empirically
-// ~66.6% up each tier's raw [minY, maxY] mesh span, which lands on the real
-// roof deck below the strut/roll-bar gap for all 3 tiers (re-confirmed live,
-// see the fixes screenshots) instead of the old ~100-103% (above everything,
-// including the strut).
 import * as THREE from 'three';
 
 export interface TruckSockets {
@@ -109,8 +92,6 @@ export interface TruckSockets {
   engine: THREE.Vector3;
   /** Gas-tank-cue attach point. */
   gasTank: THREE.Vector3;
-  /** Body paint-design decal attach point (ADR 0011 §2's shared-palette decal, e.g. a racing stripe). */
-  design: THREE.Vector3;
 }
 
 function sockets(
@@ -123,7 +104,6 @@ function sockets(
   wheelZRear: number,
   engine: [number, number, number],
   gasTank: [number, number, number],
-  design: [number, number, number],
 ): TruckSockets {
   return {
     body: new THREE.Vector3(0, bodyCenterY, 0),
@@ -137,7 +117,6 @@ function sockets(
     wheelScale,
     engine: new THREE.Vector3(...engine),
     gasTank: new THREE.Vector3(...gasTank),
-    design: new THREE.Vector3(...design),
   };
 }
 
@@ -151,9 +130,9 @@ function sockets(
  * instead of a hand-authored box.
  */
 export const BODY_TIER_SOCKETS: Record<number, TruckSockets> = {
-  0: sockets(0.1001, 0.3475, 0.5557, 0.28, 0.5207, 0.558, -0.558, [0, 0.6851, 0.648], [0.3615, 0.4089, -0.612], [0, 0.5866, 0]),
-  1: sockets(0.3111, 0.3724, 0.7134, 0.4, 0.7166, 0.6355, -0.6355, [0, 0.9743, 0.738], [0.444, 0.5827, -0.697], [0, 0.8348, 0]),
-  2: sockets(0.5059, 0.4125, 0.9328, 0.58, 1.039, 0.479, -0.885, [0, 1.569, 0.828], [0.5524, 0.8947, -0.782], [0, 1.3286, 0]),
+  0: sockets(0.1001, 0.3475, 0.5557, 0.28, 0.5207, 0.558, -0.558, [0, 0.6851, 0.648], [0.3615, 0.4089, -0.612]),
+  1: sockets(0.3111, 0.3724, 0.7134, 0.4, 0.7166, 0.6355, -0.6355, [0, 0.9743, 0.738], [0.444, 0.5827, -0.697]),
+  2: sockets(0.5059, 0.4125, 0.9328, 0.58, 1.039, 0.479, -0.885, [0, 1.569, 0.828], [0.5524, 0.8947, -0.782]),
 };
 
 /** Fallback socket table for an out-of-range tier index -- never crash on an unexpected build value (ADR 0010 §7's forgiving-fallback spirit). */
