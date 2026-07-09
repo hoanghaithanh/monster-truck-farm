@@ -25,6 +25,20 @@ export interface TruckBuild {
   gasTank: number;
 }
 
+/**
+ * The player's cosmetic (appearance-only) selection (ADR 0011 §3, cosmetics
+ * AC1). Ids only, never `THREE` objects — `core/` stays pure per ADR 0001
+ * §4; the id -> `THREE.Material`/texture mapping lives in `render/`.
+ * Structurally separate from `TruckBuild`/`TruckSpec`: `resolveSpec()` and
+ * every gameplay system must never read this type. That omission (not a
+ * runtime check) is what makes cosmetics AC1 a structural guarantee.
+ */
+export interface TruckCosmetics {
+  bodyColor: string;
+  bodyDesign: string;
+  wheelLook: string;
+}
+
 export type ObstacleKind = 'bush' | 'rock' | 'derelictCar';
 
 /** A placed, functional obstacle instance on the stub terrain (drive AC5). */

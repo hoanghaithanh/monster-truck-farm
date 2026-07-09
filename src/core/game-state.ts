@@ -2,8 +2,9 @@
 // player's builder selection, and the TruckSpec resolved from it) all live
 // here so main.ts (and later the farmer/game-over pass) drive the whole run
 // through one store rather than inventing a parallel mechanism.
-import type { TruckBuild, TruckSpec } from './types';
+import type { TruckBuild, TruckCosmetics, TruckSpec } from './types';
 import { DEFAULT_TRUCK_BUILD } from './stats/default-truck';
+import { DEFAULT_TRUCK_COSMETICS } from './cosmetics/default-cosmetics';
 import { resolveSpec } from './stats/resolve-spec';
 import { initialOwnership, purchasable, selectable, tierCost, type Ownership } from './stats/ownership';
 
@@ -31,11 +32,17 @@ type Listener = () => void;
  * must be owned (`_ownership`) before they can be equipped via `selectTier`;
  * `purchaseTier` spends coins to unlock (and auto-equip) the next tier in an
  * axis's sequential ladder.
+ *
+ * `cosmetics` (ADR 0011 §3, cosmetics AC1) is a wholly separate selection
+ * next to `build` — appearance only, never read by `resolveSpec()`/`spec`.
+ * Freely selectable (no ownership gate), so unlike `selectTier` its mutator
+ * never checks `_ownership`.
  */
 export class GameStore {
   private _coins = 0;
   private _screen: Screen = 'BUILDER';
   private _build: TruckBuild = { ...DEFAULT_TRUCK_BUILD };
+  private _cosmetics: TruckCosmetics = { ...DEFAULT_TRUCK_COSMETICS };
   private _ownership: Ownership = { ...initialOwnership };
   private _spec: TruckSpec | undefined;
   private _hitsRemaining = 0;
@@ -54,6 +61,11 @@ export class GameStore {
 
   get build(): TruckBuild {
     return this._build;
+  }
+
+  /** The player's current cosmetic selection (ADR 0011 §3) — appearance only, structurally separate from `build`/`spec`. */
+  get cosmetics(): TruckCosmetics {
+    return this._cosmetics;
   }
 
   /** Owned tier indices per axis (ADR 0006 §1) — tier 0 is pre-owned on every axis. */
@@ -137,6 +149,23 @@ export class GameStore {
   selectTier(axis: keyof TruckBuild, tierIndex: number): void {
     if (!selectable(this._ownership, axis, tierIndex)) return;
     this._build = { ...this._build, [axis]: tierIndex };
+    this.emit();
+  }
+
+  /**
+   * Sets one cosmetic part's selected id (cosmetics AC1/AC5/AC6) — always
+   * applies, no ownership/coin gate (ADR 0011 §6, freely selectable by
+   * default). Never touches `_build`/`_spec`: this is the whole structural
+   * guarantee behind "cosmetic choice never reads into or mutates TruckSpec"
+   * (cosmetics AC1) -- there is simply no code path from here to resolveSpec.
+   * Carry-over across a tier change on the same axis (cosmetics AC7) falls
+   * out for free: the cosmetic manifest (render/) keys its shared paint/look
+   * materials by id alone, independent of body/wheel tier, so a chosen id
+   * stays valid (and visually applies) no matter which tier is equipped —
+   * nothing here needs to react to `selectTier`/`purchaseTier` calls.
+   */
+  selectCosmetic(part: keyof TruckCosmetics, id: string): void {
+    this._cosmetics = { ...this._cosmetics, [part]: id };
     this.emit();
   }
 

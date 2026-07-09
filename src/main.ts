@@ -13,10 +13,10 @@ import { FarmerSystem, type FarmerRunState } from './systems/farmer-system';
 import { FuelSystem } from './systems/fuel-system';
 import { partitionObstacles } from './core/clearance';
 import { STUB_OBSTACLES, TERRAIN_BOUNDS } from './core/terrain';
-import type { TruckSpec } from './core/types';
+import type { TruckBuild, TruckCosmetics, TruckSpec } from './core/types';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { AssetRegistry } from './render/assets/asset-registry';
-import { ASSET_MANIFEST, TRUCK_GATE_ASSET_KEYS } from './render/assets/manifest';
+import { ASSET_MANIFEST, truckAssetKeysForBuild } from './render/assets/manifest';
 import { createLoadingIndicator } from './ui/loading-indicator';
 import { createDrivingSessionController } from './core/driving-session-controller';
 
@@ -44,22 +44,24 @@ async function main() {
   createGroundCollider(world);
 
   const store = new GameStore();
-  const hud = createHud(app, store);
-  const builder = createBuilderScreen(app, store);
-  const gameOver = createGameOverScreen(app, store);
-  const loadingIndicator = createLoadingIndicator(app);
 
   // AssetRegistry is app-lived, not session-lived (ADR 0010 §6/Consequences):
   // created once here and prefetched once, so a restart round-trip
-  // (BUILDER -> DRIVING -> GAME_OVER -> BUILDER) never re-downloads. The
-  // builder screen is itself only ever mounted once (toggled via display,
-  // not recreated per ADR 0009's pause/resume flow), so kicking prefetch off
-  // right after it mounts satisfies "prefetch on entering the builder"
-  // (ADR 0010 §4.1) without needing a second prefetch trigger later.
+  // (BUILDER -> DRIVING -> GAME_OVER -> BUILDER) never re-downloads. Created
+  // before the builder screen (which now needs it for its ADR 0011 §5 live
+  // 3D preview) and prefetched immediately, so "prefetch on entering the
+  // builder" (ADR 0010 §4.1) holds without a second prefetch trigger later
+  // -- the builder screen is itself only ever mounted once (toggled via
+  // display, not recreated per ADR 0009's pause/resume flow).
   const assetRegistry = new AssetRegistry();
   assetRegistry.prefetch(
     Object.entries(ASSET_MANIFEST).map(([key, entry]) => ({ key, url: entry.url.toString() })),
   );
+
+  const hud = createHud(app, store);
+  const builder = createBuilderScreen(app, store, assetRegistry);
+  const gameOver = createGameOverScreen(app, store);
+  const loadingIndicator = createLoadingIndicator(app);
 
   // A driving session (rAF loop, input listeners, Rapier obstacle/truck
   // bodies, three.js scene) is started fresh on every BUILDER -> DRIVING
@@ -74,11 +76,15 @@ async function main() {
   // gate/store independent of this module's DOM/Rapier/three.js wiring.
   const sessionController = createDrivingSessionController<FarmerRunState>({
     store,
-    waitForGate: () => assetRegistry.waitFor(TRUCK_GATE_ASSET_KEYS, TRUCK_GATE_TIMEOUT_MS),
+    // ADR 0011 pass: gate on exactly the current build's body/wheel/engine-cue/
+    // gas-cue asset keys (read fresh each call, so a re-shop mid-pause before
+    // resuming is reflected) instead of the PASS-1 static test-fixture list.
+    waitForGate: () => assetRegistry.waitFor(truckAssetKeysForBuild(store.build), TRUCK_GATE_TIMEOUT_MS),
     onGateStart: () => loadingIndicator.show(),
     onGateEnd: () => loadingIndicator.hide(),
     onSessionActiveChange: (active) => store.setSessionActive(active), // issue #32
-    startSession: (spec, gas, farmerSeed) => startDriving(app, world, store, assetRegistry, spec, gas, farmerSeed),
+    startSession: (spec, gas, farmerSeed) =>
+      startDriving(app, world, store, assetRegistry, spec, store.build, store.cosmetics, gas, farmerSeed),
   });
 
   window.addEventListener('unload', () => {
@@ -102,6 +108,8 @@ function startDriving(
   store: GameStore,
   assetRegistry: AssetRegistry,
   spec: TruckSpec,
+  build: TruckBuild,
+  cosmetics: TruckCosmetics,
   initialGas: number = spec.gasCapacity,
   farmerSeed?: FarmerRunState,
 ) {
@@ -113,7 +121,11 @@ function startDriving(
   const truckStart = { x: 0, z: 6 };
   const truckController = new TruckController(world, truckStart, TRUCK_CONTACT_RADIUS, TRUCK_HALF_HEIGHT);
 
-  const scene = createGameScene(app, TERRAIN_BOUNDS, STUB_OBSTACLES, assetRegistry);
+  // Truck rig (ADR 0011 §4/§5): the build/cosmetics the player actually
+  // confirmed, assembled via buildTruckRig -- the same assembly path the
+  // builder's live preview uses, so what's driven here can never mismatch
+  // what was shown there (AC4, cosmetics AC8).
+  const scene = createGameScene(app, TERRAIN_BOUNDS, STUB_OBSTACLES, build, cosmetics, assetRegistry);
   scene.setTruckTransform(truckStart, 0);
 
   const input = new KeyboardInput();

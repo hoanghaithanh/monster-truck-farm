@@ -1,10 +1,10 @@
 import * as THREE from 'three';
-import type { ObstacleInstance, Vec2 } from '../core/types';
+import type { ObstacleInstance, TruckBuild, TruckCosmetics, Vec2 } from '../core/types';
 import type { TerrainBounds } from '../core/terrain';
 import { clampCameraToBounds } from '../core/driving/boundary';
 import type { AssetRegistry } from './assets/asset-registry';
-import { createUpgradableObject, disposeObject3D } from './assets/upgradable-object';
-import { TRUCK_GATE_ASSET_KEYS } from './assets/manifest';
+import { truckAssetKeysForBuild } from './assets/manifest';
+import { buildTruckRig } from './truck-rig';
 
 // Chase camera stays this far inset from the ground plane's edge so a
 // corner position never lets the camera see past the ground into the
@@ -13,9 +13,15 @@ const CAMERA_GROUND_MARGIN = 3;
 
 // Farmer bump feedback (farmer AC5): a brief flash on the truck, distinct
 // from the animal-boop reward feel and never scary/violent -- just "something
-// happened to me". Decays back to the truck's base color over this duration.
+// happened to me". Decays back to fully transparent over this duration.
+// ADR 0011: the truck body's own material is now one of the shared,
+// never-mutated cosmetic paint materials (render/cosmetics/cosmetic-manifest.ts)
+// -- mutating its .color per-bump would bleed into every other truck sharing
+// that colour (including the builder preview). So this flash is a separate
+// translucent overlay mesh, following the same disposable-burst-effect
+// pattern already used for the fuel-collect glow below, rather than a
+// mutation of the truck's own paint.
 const BUMP_FLASH_SECONDS = 0.3;
-const TRUCK_BASE_COLOR = 0xff8c1a;
 const TRUCK_FLASH_COLOR = 0xff3b3b;
 const FARMER_COLOR = 0xd1495b;
 // TIRED give-up beat (ADR 0007 §1, farmer AC7 tone): a friendly amber tint,
@@ -56,21 +62,12 @@ function createObstacleMesh(obstacle: ObstacleInstance): THREE.Object3D {
   return mesh;
 }
 
-// PASS-1 INFRASTRUCTURE DEMO (ADR 0010): a small marker cube that proves the
-// AssetRegistry + createUpgradableObject pipeline works end-to-end against a
-// real loaded .glb in the running game -- primitive on frame 1, swapped in
-// place for the ADR 0010 test-fixture model the moment it's ready, with no
-// pop (see upgradable-object.ts). It is NOT a real gameplay object and has
-// no consumer meaning yet; ADR 0011 replaces it with the actual truck
-// body/wheel upgrade wiring once real truck models exist, at which point
-// this demo can be deleted.
-const DEMO_UPGRADE_PROBE_POSITION: Vec2 = { x: 4, z: 4 };
-const DEMO_UPGRADE_PROBE_ASSET_KEY = TRUCK_GATE_ASSET_KEYS[0];
-
 export function createGameScene(
   container: HTMLElement,
   bounds: TerrainBounds,
   obstacles: ObstacleInstance[],
+  build: TruckBuild,
+  cosmetics: TruckCosmetics,
   assetRegistry?: AssetRegistry,
 ) {
   const scene = new THREE.Scene();
@@ -102,24 +99,19 @@ export function createGameScene(
     scene.add(createObstacleMesh(obstacle));
   }
 
-  const truckMaterial = new THREE.MeshStandardMaterial({ color: TRUCK_BASE_COLOR });
-  const truckMesh = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.8, 2), truckMaterial);
-  truckMesh.position.y = 0.4;
-  scene.add(truckMesh);
-  let bumpFlashRemaining = 0;
-
-  // PASS-1 INFRASTRUCTURE DEMO (see comment above createGameScene): starts
-  // as a small primitive and upgrades in place once the fixture loads.
-  const demoUpgradeProbe = (() => {
-    if (!assetRegistry || !DEMO_UPGRADE_PROBE_ASSET_KEY) return undefined;
-    const primitive = new THREE.Mesh(
-      new THREE.BoxGeometry(0.6, 0.6, 0.6),
-      new THREE.MeshStandardMaterial({ color: 0x9b59b6 }),
-    );
-    primitive.position.set(DEMO_UPGRADE_PROBE_POSITION.x, 0.3, DEMO_UPGRADE_PROBE_POSITION.z);
-    scene.add(primitive);
-    return createUpgradableObject(scene, primitive);
-  })();
+  // Truck rig (ADR 0011 §4/§5): the single buildTruckRig assembly path also
+  // used by the builder's live 3D preview (ui/builder.ts) -- so a mismatch
+  // between what the player picked and what they drive (AC4, cosmetics AC8)
+  // is structurally impossible, not just tested for. Starts from whatever
+  // the AssetRegistry has ready right now (primitive fallback per part if
+  // not, per ADR 0010 §7/vehicle-art AC13); `currentBuild`/`currentCosmetics`
+  // let tickEffects retry the assembly if any part was still loading when
+  // driving started (e.g. the bounded gate in main.ts timed out first).
+  const currentBuild = build;
+  const currentCosmetics = cosmetics;
+  let truckRig = buildTruckRig(currentBuild, currentCosmetics, assetRegistry);
+  scene.add(truckRig.group);
+  const bumpFlashes: { mesh: THREE.Mesh; material: THREE.MeshBasicMaterial; remaining: number }[] = [];
 
   const animalMeshes = new Map<string, THREE.Object3D>();
   let farmerMesh: THREE.Mesh | undefined;
@@ -128,18 +120,18 @@ export function createGameScene(
   const fuelGlows: { mesh: THREE.Mesh; material: THREE.MeshBasicMaterial; remaining: number }[] = [];
 
   function setTruckTransform(position: Vec2, heading: number): void {
-    truckMesh.position.set(position.x, 0.4, position.z);
-    truckMesh.rotation.y = heading;
+    truckRig.group.position.set(position.x, 0, position.z);
+    truckRig.group.rotation.y = heading;
 
     // Simple chase camera, offset behind the truck's heading. At terrain
     // corners this offset can extend past the finite ground plane, so the
     // camera's own (x,z) is pulled back in to stay over the ground — the
     // camera still looks at the truck, so it stays framed either way.
     const behind = new THREE.Vector3(-Math.sin(heading), 0, -Math.cos(heading)).multiplyScalar(6);
-    const desiredCameraPos = { x: truckMesh.position.x + behind.x, z: truckMesh.position.z + behind.z };
+    const desiredCameraPos = { x: truckRig.group.position.x + behind.x, z: truckRig.group.position.z + behind.z };
     const cameraPos = clampCameraToBounds(desiredCameraPos, bounds, CAMERA_GROUND_MARGIN);
     camera.position.set(cameraPos.x, 5, cameraPos.z);
-    camera.lookAt(truckMesh.position);
+    camera.lookAt(truckRig.group.position.x, 0.5, truckRig.group.position.z);
   }
 
   function upsertAnimal(id: string, position: Vec2): void {
@@ -185,9 +177,14 @@ export function createGameScene(
     farmerMaterial = undefined;
   }
 
-  /** Triggers the bump feedback flash (farmer AC5); decayed each frame in tickEffects. */
+  /** Triggers the bump feedback flash (farmer AC5) as a translucent overlay burst at the truck's current position, decayed in tickEffects -- see the module header note on why this can't mutate the shared paint material. */
   function flashTruck(): void {
-    bumpFlashRemaining = BUMP_FLASH_SECONDS;
+    const flashMaterial = new THREE.MeshBasicMaterial({ color: TRUCK_FLASH_COLOR, transparent: true, opacity: 0.85 });
+    const flashMesh = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.2, 2.6), flashMaterial);
+    flashMesh.position.copy(truckRig.group.position);
+    flashMesh.position.y += 0.5;
+    scene.add(flashMesh);
+    bumpFlashes.push({ mesh: flashMesh, material: flashMaterial, remaining: BUMP_FLASH_SECONDS });
   }
 
   /** Places (creating on first call) a fuel pickup mesh (ADR 0008 §3, fuel AC1-AC4). */
@@ -218,20 +215,43 @@ export function createGameScene(
     fuelMeshes.delete(id);
   }
 
+  // Truck-rig upgrade-in-place (ADR 0010 §4/§7): if any part fell back to a
+  // primitive when the rig was (re)built -- e.g. the bounded gate in
+  // main.ts timed out before this build's assets settled -- keep checking
+  // cheaply (status() only, no clone) each frame and rebuild the whole rig
+  // in place the moment everything needed is ready. Stops checking once
+  // true, since a rig never needs a *second* rebuild within one session
+  // (build/cosmetics are fixed for the session; see truck-rig.ts).
+  let rigNeedsRecheck = !truckRig.allAssetsReady;
+
   /** Per-frame visual-effect decay (bump flash + fuel glow bursts) -- called once per render frame from main.ts. */
   function tickEffects(dt: number): void {
-    // PASS-1 INFRASTRUCTURE DEMO: upgrade the probe the moment its asset is
-    // ready (ADR 0010 §4 "upgrade in place" -- checked, not pushed, so it
-    // naturally fires on whichever frame the load settles, no matter when).
-    if (demoUpgradeProbe && !demoUpgradeProbe.upgraded && assetRegistry && DEMO_UPGRADE_PROBE_ASSET_KEY) {
-      const model = assetRegistry.get(DEMO_UPGRADE_PROBE_ASSET_KEY);
-      if (model) demoUpgradeProbe.upgrade(model);
+    if (rigNeedsRecheck && assetRegistry) {
+      const keys = truckAssetKeysForBuild(currentBuild);
+      const nowReady = keys.every((key) => assetRegistry.status(key) === 'ready' || assetRegistry.status(key) === 'failed');
+      if (nowReady) {
+        const rebuilt = buildTruckRig(currentBuild, currentCosmetics, assetRegistry);
+        rebuilt.group.position.copy(truckRig.group.position);
+        rebuilt.group.rotation.copy(truckRig.group.rotation);
+        scene.add(rebuilt.group);
+        scene.remove(truckRig.group);
+        truckRig.dispose();
+        truckRig = rebuilt;
+        rigNeedsRecheck = false;
+      }
     }
 
-    if (bumpFlashRemaining > 0) {
-      bumpFlashRemaining = Math.max(0, bumpFlashRemaining - dt);
-      const t = bumpFlashRemaining / BUMP_FLASH_SECONDS;
-      truckMaterial.color.copy(new THREE.Color(TRUCK_FLASH_COLOR)).lerp(new THREE.Color(TRUCK_BASE_COLOR), 1 - t);
+    for (let i = bumpFlashes.length - 1; i >= 0; i--) {
+      const flash = bumpFlashes[i];
+      flash.remaining -= dt;
+      if (flash.remaining <= 0) {
+        scene.remove(flash.mesh);
+        flash.material.dispose();
+        flash.mesh.geometry.dispose();
+        bumpFlashes.splice(i, 1);
+        continue;
+      }
+      flash.material.opacity = 0.85 * (flash.remaining / BUMP_FLASH_SECONDS);
     }
 
     for (let i = fuelGlows.length - 1; i >= 0; i--) {
@@ -262,12 +282,15 @@ export function createGameScene(
 
   function dispose() {
     window.removeEventListener('resize', onResize);
-    // Per-session model clones are disposed with the scene (ADR 0010 §6) --
-    // the shared cached source in AssetRegistry is left untouched, only this
-    // session's clone. Existing primitive meshes elsewhere in this module
-    // aren't individually disposed (a pre-existing gap, not introduced
-    // here); this only covers what upgrade-in-place newly adds.
-    if (demoUpgradeProbe?.upgraded) disposeObject3D(demoUpgradeProbe.current);
+    // Per-session rig clones are disposed with the scene (ADR 0010 §6 /
+    // 0011 Consequences) -- only the resources truckRig.dispose() actually
+    // owns (fallback primitives + decal geometry); the shared cached source
+    // geometry/materials in AssetRegistry and the cosmetic-manifest paint
+    // materials are left untouched, exactly as intended (see truck-rig.ts's
+    // TruckRigResult.dispose doc comment). Other primitive meshes elsewhere
+    // in this module aren't individually disposed (a pre-existing gap, not
+    // introduced here).
+    truckRig.dispose();
     renderer.dispose();
     container.removeChild(renderer.domElement);
   }

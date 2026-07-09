@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { GameStore, nextScreen } from './game-state';
 import { DEFAULT_TRUCK_BUILD } from './stats/default-truck';
+import { DEFAULT_TRUCK_COSMETICS } from './cosmetics/default-cosmetics';
 import { BODY_TIERS, ENGINE_TIERS, GAS_TIERS, WHEEL_TIERS } from './stats/tiers';
 import type { TruckBuild } from './types';
 
@@ -124,6 +125,76 @@ describe('GameStore.selectTier (builder AC1-AC6, gated by ownership per ADR 0006
     store.subscribe(() => calls++);
     store.selectTier('body', 0);
     expect(calls).toBe(1);
+  });
+});
+
+describe('GameStore.selectCosmetic (ADR 0011 §3, cosmetics AC1/AC5/AC6/AC7)', () => {
+  it('starts with the default cosmetics seeded from DEFAULT_TRUCK_COSMETICS', () => {
+    const store = new GameStore();
+    expect(store.cosmetics).toEqual(DEFAULT_TRUCK_COSMETICS);
+  });
+
+  it('sets one cosmetic part independently of the others', () => {
+    const store = new GameStore();
+    store.selectCosmetic('bodyColor', 'blue');
+    expect(store.cosmetics).toEqual({ ...DEFAULT_TRUCK_COSMETICS, bodyColor: 'blue' });
+    store.selectCosmetic('wheelLook', 'chrome');
+    expect(store.cosmetics).toEqual({ ...DEFAULT_TRUCK_COSMETICS, bodyColor: 'blue', wheelLook: 'chrome' });
+  });
+
+  it('is freely selectable with no ownership/coin gate -- unlike selectTier, works before any coins are earned or spent (cosmetics AC5/AC6)', () => {
+    const store = new GameStore();
+    expect(store.coins).toBe(0);
+    store.selectCosmetic('bodyDesign', 'flames');
+    expect(store.cosmetics.bodyDesign).toBe('flames');
+  });
+
+  it('notifies subscribers on a cosmetic change', () => {
+    const store = new GameStore();
+    let calls = 0;
+    store.subscribe(() => calls++);
+    store.selectCosmetic('bodyColor', 'green');
+    expect(calls).toBe(1);
+  });
+
+  it('a cosmetic selection survives an unrelated functional tier purchase/equip on a different axis (structurally separate state)', () => {
+    const store = new GameStore();
+    store.selectCosmetic('bodyColor', 'purple');
+    buyUpTo(store, 'wheels', 2);
+    store.selectTier('wheels', 0);
+    expect(store.cosmetics.bodyColor).toBe('purple');
+  });
+
+  it('a cosmetic selection carries over unchanged when the equipped tier on the same axis changes (cosmetics AC7: this project keeps a shared palette so carry-over is always valid, ADR 0011 §2)', () => {
+    const store = new GameStore();
+    store.selectCosmetic('bodyColor', 'red');
+    buyUpTo(store, 'body', 2);
+    expect(store.cosmetics.bodyColor).toBe('red');
+    store.selectTier('body', 0);
+    expect(store.cosmetics.bodyColor).toBe('red');
+  });
+});
+
+describe('cosmetics AC1 structural invariant: cosmetic selection never reaches resolveSpec()/TruckSpec', () => {
+  it('confirmBuild resolves an identical TruckSpec for two stores with the same build but different cosmetics', () => {
+    const plain = new GameStore();
+    const painted = new GameStore();
+    painted.selectCosmetic('bodyColor', 'blue');
+    painted.selectCosmetic('bodyDesign', 'flames');
+    painted.selectCosmetic('wheelLook', 'chrome');
+
+    plain.confirmBuild();
+    painted.confirmBuild();
+
+    expect(painted.spec).toEqual(plain.spec);
+  });
+
+  it('changing a cosmetic after confirmBuild does not change the already-resolved spec', () => {
+    const store = new GameStore();
+    store.confirmBuild();
+    const specBefore = store.spec;
+    store.selectCosmetic('bodyColor', 'green');
+    expect(store.spec).toEqual(specBefore);
   });
 });
 
