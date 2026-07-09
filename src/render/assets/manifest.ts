@@ -10,6 +10,13 @@
 // approxGzipBytes below is the real measured gzip size of the procedurally
 // authored .glb (see scripts/generate-truck-art.mjs) -- re-measure and
 // update here if that script is re-run with different geometry.
+//
+// Sourced-art pass (issue #33 follow-up, 2026-07-09): body-tier-{0,1,2} and
+// wheel-tier-{0,1,2} were replaced with real sourced CC0/CC-BY low-poly
+// models (see repo-root CREDITS.md) -- their approxGzipBytes below are
+// measured directly (`gzip -9`) against the committed files, not estimated.
+// engine-cue-*/gas-cue-* are unchanged (still scripts/generate-truck-art.mjs
+// procedural props -- this pass didn't touch them).
 import type { TruckBuild } from '../../core/types';
 
 export interface AssetManifestEntry {
@@ -41,9 +48,26 @@ const GAS_CUE_URLS = [
   new URL('./models/gas-cue-tier-2.glb', import.meta.url),
 ];
 
-// Real measured gzip sizes (scripts/generate-truck-art.mjs output, 2026-07-08).
-const BODY_GZIP_BYTES = [752, 937, 1821];
-const WHEEL_GZIP_BYTES = [1395, 3756, 5041];
+// Real measured gzip sizes. body-tier-*/wheel-tier-* are the sourced-art
+// models (`gzip -9` against the committed files, 2026-07-09 -- see repo-root
+// CREDITS.md's budget table); engine-cue-*/gas-cue-* are still the
+// scripts/generate-truck-art.mjs procedural props (2026-07-08, unchanged).
+//
+// wheel-tier-1 and wheel-tier-2 are two committed copies of the exact same
+// source file ("Truck Tire" by Jarlan Perez, scaled differently at runtime
+// via each tier's own `wheelScale` in truck-sockets.ts -- see CREDITS.md's
+// "only 2 distinct tire meshes across 3 tiers" design call). Deliberately
+// left as two separate manifest entries/URLs rather than pointing both keys
+// at one cache entry (AssetRegistry's cache is keyed 1:1 by asset key today,
+// and ~11KB gzip is noise against the 1.5MB budget -- not worth adding
+// key-aliasing complexity for). In practice this doesn't even cost a real
+// duplicate download: since the two files are byte-identical, Vite's
+// content-hashed asset filenames (confirmed via `npm run build`) resolve
+// both `new URL(...)` entries to the *same* emitted file/URL, so the browser
+// only ever fetches it once regardless of how many wheel tiers a session
+// equips.
+const BODY_GZIP_BYTES = [111372, 225331, 263091];
+const WHEEL_GZIP_BYTES = [10408, 10833, 10833];
 const ENGINE_CUE_GZIP_BYTES = [740, 789, 1371];
 const GAS_CUE_GZIP_BYTES = [1233, 1398, 3366];
 

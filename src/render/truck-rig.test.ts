@@ -25,6 +25,76 @@ async function readyRegistry(): Promise<AssetRegistry> {
   return registry;
 }
 
+// -- Sourced-art-shaped fixtures (issue #33 follow-up): the real .glb files
+// have a multi-material, multi-node structure (repo-root CREDITS.md) that
+// fakeGltfScene's single anonymous-material box doesn't exercise at all --
+// fakeGltfScene still covers the pre-existing "asset has no target-named
+// material" fallback path (paintAll), see the describe blocks above. These
+// fixtures instead mimic the real shape closely enough to exercise the
+// selective-tint/built-in-wheel-hiding logic truck-rig.ts added for it.
+function fakeSourcedBodyScene(): THREE.Object3D {
+  const root = new THREE.Group();
+  root.name = 'RootNode';
+
+  const atlasMaterial = new THREE.MeshStandardMaterial();
+  atlasMaterial.name = 'Atlas';
+  const headlightsMaterial = new THREE.MeshStandardMaterial();
+  headlightsMaterial.name = 'Headlights';
+
+  const pickup = new THREE.Group();
+  pickup.name = 'Pickup';
+  const chassisMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), atlasMaterial);
+  chassisMesh.name = 'Pickup_Atlas';
+  const headlightMesh = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1), headlightsMaterial);
+  headlightMesh.name = 'Pickup_Headlights';
+  pickup.add(chassisMesh, headlightMesh);
+
+  // Built-in wheel nodes (also textured with "Atlas", same as the real
+  // files) -- must be removed/hidden by buildTruckRig, never doubled-up
+  // alongside the rig's own wheel-tier models.
+  const backWheels = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), atlasMaterial);
+  backWheels.name = 'BackWheels';
+  const frontWheelL = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1), atlasMaterial);
+  frontWheelL.name = 'FrontWheel_L';
+  const frontWheelR = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1), atlasMaterial);
+  frontWheelR.name = 'FrontWheel_R';
+
+  root.add(pickup, backWheels, frontWheelL, frontWheelR);
+  return root;
+}
+
+function fakeSourcedWheelScene(): THREE.Object3D {
+  const rimMaterial = new THREE.MeshStandardMaterial({ color: 0x595959 });
+  rimMaterial.name = 'mat22';
+  const tireMaterial = new THREE.MeshStandardMaterial({ color: 0x030303 });
+  tireMaterial.name = 'mat23';
+
+  const node = new THREE.Group();
+  node.name = 'Node';
+  const rimMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.1, 8), rimMaterial);
+  rimMesh.name = 'rim';
+  const tireMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.2, 8), tireMaterial);
+  tireMesh.name = 'tire';
+  node.add(rimMesh, tireMesh);
+  return node;
+}
+
+/** A registry whose body-tier-N / wheel-tier-N entries resolve to the sourced-art-shaped fixtures above; engine/gas cues fall back to the plain fakeGltfScene (irrelevant to these tests). */
+async function sourcedArtRegistry(): Promise<AssetRegistry> {
+  const loader: GltfLoaderLike = {
+    loadAsync: async (url: string) => {
+      if (url.startsWith('body-tier')) return { scene: fakeSourcedBodyScene() };
+      if (url.startsWith('wheel-tier')) return { scene: fakeSourcedWheelScene() };
+      return { scene: fakeGltfScene(url) };
+    },
+  };
+  const registry = new AssetRegistry(loader);
+  const keys = ['body-tier-0', 'body-tier-1', 'body-tier-2', 'wheel-tier-0', 'wheel-tier-1', 'wheel-tier-2', 'engine-cue-tier-0', 'engine-cue-tier-1', 'engine-cue-tier-2', 'gas-cue-tier-0', 'gas-cue-tier-1', 'gas-cue-tier-2'];
+  registry.prefetch(keys.map((key) => ({ key, url: key })));
+  await registry.waitFor(keys, 1000);
+  return registry;
+}
+
 describe('buildTruckRig (ADR 0011 §4) -- no registry / never-loaded assets', () => {
   it('falls back to primitives for every part and reports allAssetsReady=false (vehicle-art AC13)', () => {
     const rig = buildTruckRig(BUILD, COSMETICS);
@@ -120,5 +190,93 @@ describe('buildTruckRig -- cosmetic material application (ADR 0011 §2, material
     const rigAfter = buildTruckRig(BUILD, { ...COSMETICS, bodyColor: 'purple' });
     const materialAfter = (rigAfter.group.children[0] as THREE.Mesh).material;
     expect(materialAfter).toBe(material);
+  });
+});
+
+describe('buildTruckRig -- sourced-art selective paint & built-in-wheel hiding (issue #33 follow-up)', () => {
+  function findByMaterialName(root: THREE.Object3D, name: string): THREE.Mesh[] {
+    const found: THREE.Mesh[] = [];
+    root.traverse((child) => {
+      if (child instanceof THREE.Mesh && !Array.isArray(child.material) && child.material.name === name) {
+        found.push(child);
+      }
+    });
+    return found;
+  }
+
+  it('tints the loaded body\'s "Atlas" material without touching "Headlights" (texture-preserving paint, not a flat replacement)', async () => {
+    const registry = await sourcedArtRegistry();
+    const rig = buildTruckRig(BUILD, { ...COSMETICS, bodyColor: 'blue' }, registry);
+    const bodyObject = rig.group.children[0];
+
+    const atlasMeshes = findByMaterialName(bodyObject, 'Atlas');
+    expect(atlasMeshes.length).toBeGreaterThan(0);
+    // Painted with a distinct (tinted-clone) instance, not the untouched shared source.
+    const atlasMaterial = atlasMeshes[0].material as THREE.MeshStandardMaterial;
+    expect(atlasMaterial.color.getHexString()).not.toBe('ffffff');
+
+    const headlightMeshes = findByMaterialName(bodyObject, 'Headlights');
+    expect(headlightMeshes).toHaveLength(1);
+    // Headlights material untouched -- still its original default (white) color.
+    expect((headlightMeshes[0].material as THREE.MeshStandardMaterial).color.getHexString()).toBe('ffffff');
+  });
+
+  it('reuses the same tinted "Atlas" material instance across separate rigs built with the same body color (cached, never re-cloned per build)', async () => {
+    const registry = await sourcedArtRegistry();
+    const rigA = buildTruckRig(BUILD, { ...COSMETICS, bodyColor: 'green' }, registry);
+    const rigB = buildTruckRig(BUILD, { ...COSMETICS, bodyColor: 'green' }, registry);
+    const [atlasA] = findByMaterialName(rigA.group.children[0], 'Atlas');
+    const [atlasB] = findByMaterialName(rigB.group.children[0], 'Atlas');
+    expect(atlasA.material).toBe(atlasB.material);
+  });
+
+  it('removes the loaded body\'s built-in wheel nodes (BackWheels/FrontWheel_L/FrontWheel_R) so they never render doubled-up with the rig\'s own wheel-tier models', async () => {
+    const registry = await sourcedArtRegistry();
+    const rig = buildTruckRig(BUILD, COSMETICS, registry);
+    const bodyObject = rig.group.children[0];
+    const builtinWheelNames = ['BackWheels', 'FrontWheel_L', 'FrontWheel_R'];
+    for (const name of builtinWheelNames) {
+      expect(bodyObject.getObjectByName(name)).toBeUndefined();
+    }
+  });
+
+  it('scales a loaded body by its socket table\'s bodyScale (correcting the sourced model\'s baked-in 100x FBX scale)', async () => {
+    const registry = await sourcedArtRegistry();
+    const rig = buildTruckRig({ ...BUILD, body: 2 }, COSMETICS, registry);
+    const bodyObject = rig.group.children[0];
+    expect(bodyObject.scale.x).toBeCloseTo(BODY_TIER_SOCKETS[2].bodyScale);
+    expect(bodyObject.scale.y).toBeCloseTo(BODY_TIER_SOCKETS[2].bodyScale);
+    expect(bodyObject.scale.z).toBeCloseTo(BODY_TIER_SOCKETS[2].bodyScale);
+  });
+
+  it('tints only the loaded wheel\'s rim material ("mat22"), leaving the tire-rubber material ("mat23") untouched/black', async () => {
+    const registry = await sourcedArtRegistry();
+    const rig = buildTruckRig(BUILD, { ...COSMETICS, wheelLook: 'chrome' }, registry);
+    const wheelObjects = rig.group.children.slice(1, 5);
+    for (const wheelObject of wheelObjects) {
+      const [rimMesh] = findByMaterialName(wheelObject, 'mat22');
+      const [tireMesh] = findByMaterialName(wheelObject, 'mat23');
+      expect(rimMesh).toBeDefined();
+      expect(tireMesh).toBeDefined();
+      const rimMaterial = rimMesh.material as THREE.MeshStandardMaterial;
+      const tireMaterial = tireMesh.material as THREE.MeshStandardMaterial;
+      expect(rimMaterial.color.getHexString()).not.toBe('595959'); // recolored off the fixture's original rim grey
+      expect(tireMaterial.color.getHexString()).toBe('030303'); // untouched -- still the fixture's original near-black tire
+    }
+  });
+
+  it('scales a loaded wheel by the (body-tier-keyed) socket table\'s wheelScale (correcting the sourced tire\'s real-world raw radius to WHEEL_RADIUS_BY_TIER)', async () => {
+    // NOTE: wheelScale is looked up from the *body* tier's socket entry
+    // (socketsForBodyTier(build.body) -- see buildTruckRig), same as the
+    // pre-existing wheel-Y-placement convention this table already used.
+    // That's only exactly right when build.wheels === build.body; a truck
+    // with independently-chosen body/wheel tiers gets whatever wheel scale
+    // the *body* tier's row specifies, same pre-existing limitation as the
+    // ground-clearance Y placement below it in the same row -- not something
+    // this pass introduced, flagged here rather than silently relied on.
+    const registry = await sourcedArtRegistry();
+    const rig = buildTruckRig(BUILD, COSMETICS, registry); // body: 0, wheels: 0
+    const wheelObject = rig.group.children[1];
+    expect(wheelObject.scale.x).toBeCloseTo(BODY_TIER_SOCKETS[0].wheelScale, 5);
   });
 });

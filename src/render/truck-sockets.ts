@@ -2,21 +2,61 @@
 // gas-tank/design-decal attachment points sit in body-local space, since the
 // three body models don't (and don't need to) embed named socket empties --
 // the ADR explicitly sanctions "a small per-body-model offset table ...
-// authored once" as the fallback when a pack doesn't provide them, and these
-// procedurally authored bodies (scripts/generate-truck-art.mjs) don't.
+// authored once" as the fallback when a pack doesn't provide them.
 //
-// Authored once, by hand, against the exact dimensions used in
-// generate-truck-art.mjs's bodyTierN() functions -- keep the two in sync if
-// either changes (this is the mitigation for the ADR's named "socket
-// mismatch across the 3 body models" risk: a single authored table per
-// tier, not a formula that could silently drift from the geometry).
+// Sourced-art pass (issue #33 follow-up, 2026-07-09): re-authored against
+// the real sourced body/wheel models (see repo-root CREDITS.md), replacing
+// the numbers hand-tuned for scripts/generate-truck-art.mjs's procedural
+// boxes. Two things changed that the old table didn't need to account for:
+//
+// 1. **Body scale.** The sourced bodies are FBX-origin exports baked at a
+//    100x node scale (see each body-tier-N.glb's glTF JSON: the "Pickup" /
+//    "Pickup_Armored" / "Truck_Armored" node's own `scale` is [100,100,100],
+//    plus a -90deg-about-X node rotation that's *also* already baked in --
+//    both are intrinsic to the loaded asset and untouched here). Applying
+//    that scale directly would render a truck ~5 world-units long (checked
+//    by transforming the glTF POSITION accessor min/max through the node's
+//    own rotation+scale) against this game's existing ~1.8-2.6-unit scale
+//    (TRUCK_CONTACT_RADIUS=0.9 in core/driving/config.ts, scene.ts's
+//    truck-bump-flash box is 1.6x1.2x2.6). `bodyScale` below is the
+//    *additional* corrective scale `buildTruckRig` applies on top of that
+//    baked-in transform (via `bodyResult.object.scale.setScalar(...)`) so
+//    each tier's final length lands at a hand-picked target (1.8/2.05/2.3 --
+//    a size progression, same spirit as the old table's 1.8/2.0/2.2) instead
+//    of the raw 5.18/5.51/5.58 the asset ships at. Never applied to the
+//    primitive fallback body (scripts/generate-truck-art.mjs's box is
+//    already authored at final scale -- see truck-rig.ts's fallbackBody()).
+// 2. **Wheel scale.** The two sourced wheel models ("Vehicle Tire" for tier
+//    0, "Truck Tire" for tiers 1 and 2 at different scales -- CREDITS.md's
+//    disclosed "only 2 distinct tire meshes across 3 tiers" call) are
+//    authored at a real-world-ish scale (~0.53-0.56 unit outer tire radius),
+//    unlike the old procedural cylinders which were already sized to their
+//    final tier radius. `wheelScale` is the multiplier `buildTruckRig`
+//    applies (only to loaded parts, never the primitive fallback wheel,
+//    same reasoning as body) to land each tier at its
+//    `WHEEL_RADIUS_BY_TIER` target.
+//
+// Every number below was derived by transforming the glTF POSITION accessor
+// min/max through the known node transform (see the script this pass used,
+// not checked in -- reproducible from the glTF JSON directly: `gzip -d`
+// isn't needed, .glb's JSON chunk is readable via any glTF inspector), then
+// confirmed against a live render (docs/qa/screenshots/adr-0011-sourced-art/).
+// Engine/gas-tank/design sockets are placed fractionally against each body's
+// final (post-bodyScale) bounding box -- front/top for the engine cue,
+// low/rear/side for the gas-tank cue, roof-centerline for the design decal --
+// the same fractional layout the old hand-authored table used, since the
+// real body models don't expose named attachment points either.
 import * as THREE from 'three';
 
 export interface TruckSockets {
-  /** Where the body model itself is placed, rig-group-local -- the body's own geometry is authored centered on its local origin (see scripts/generate-truck-art.mjs), so it must be translated up to rest on top of the wheels rather than half-buried at ground level. */
+  /** Where the body model itself is placed, rig-group-local -- translated up so the body's own baked-in origin (its underside, once the node's built-in 100x scale + rotation and this table's `bodyScale` are both applied) lands with its underside resting at wheel-center height (this tier's `WHEEL_RADIUS_BY_TIER`), same convention the old procedural table used. */
   body: THREE.Vector3;
+  /** Uniform corrective scale `buildTruckRig` applies to a *loaded* body model on top of its own baked-in 100x node scale (see module header §1) -- never applied to the primitive fallback body, which is already authored at final scale. */
+  bodyScale: number;
   /** Front-left, front-right, rear-left, rear-right wheel-center positions, rig-group-local (ground-relative -- wheel Y is that tier's wheel radius, so the wheel bottom touches the ground plane at Y=0). */
   wheels: [THREE.Vector3, THREE.Vector3, THREE.Vector3, THREE.Vector3];
+  /** Uniform corrective scale `buildTruckRig` applies to a *loaded* wheel model so its real ~0.53-0.56-unit raw tire radius lands at this tier's `WHEEL_RADIUS_BY_TIER` -- never applied to the primitive fallback wheel (module header §2). */
+  wheelScale: number;
   /** Hood/engine-cue attach point. */
   engine: THREE.Vector3;
   /** Gas-tank-cue attach point. */
@@ -27,8 +67,10 @@ export interface TruckSockets {
 
 function sockets(
   bodyCenterY: number,
+  bodyScale: number,
   wheelX: number,
   wheelY: number,
+  wheelScale: number,
   wheelZFront: number,
   wheelZRear: number,
   engine: [number, number, number],
@@ -37,12 +79,14 @@ function sockets(
 ): TruckSockets {
   return {
     body: new THREE.Vector3(0, bodyCenterY, 0),
+    bodyScale,
     wheels: [
       new THREE.Vector3(wheelX, wheelY, wheelZFront),
       new THREE.Vector3(-wheelX, wheelY, wheelZFront),
       new THREE.Vector3(wheelX, wheelY, wheelZRear),
       new THREE.Vector3(-wheelX, wheelY, wheelZRear),
     ],
+    wheelScale,
     engine: new THREE.Vector3(...engine),
     gasTank: new THREE.Vector3(...gasTank),
     design: new THREE.Vector3(...design),
@@ -50,16 +94,18 @@ function sockets(
 }
 
 /**
- * Body-tier index (0/1/2) -> its socket table. Authored once, by hand,
- * against the exact dimensions used in generate-truck-art.mjs's
- * bodyTierN()/wheelTierN() functions:
- *   bodyCenterY = wheelRadius + bodyHeight/2 (body rests directly on the
- *   wheels); wheel Y = wheelRadius (wheel bottom touches the ground plane).
+ * Body-tier index (0/1/2) -> its socket table. Re-authored (2026-07-09) for
+ * the sourced body/wheel models -- see module header for how `bodyScale`/
+ * `wheelScale` and every position number were derived. `body`'s Y is
+ * `WHEEL_RADIUS_BY_TIER[tier] - (bodyScale * that tier's raw underside Y)`,
+ * i.e. the same "underside rests at wheel-center height" rule the old table
+ * used, just solved against the sourced models' actual (scaled) geometry
+ * instead of a hand-authored box.
  */
 export const BODY_TIER_SOCKETS: Record<number, TruckSockets> = {
-  0: sockets(0.6, 0.6, 0.3, 0.6, -0.6, [0, 0.84, 0.495], [0.4675, 0.55, -0.54], [0, 0.92, 0]),
-  1: sockets(0.75, 0.65, 0.4, 0.7, -0.7, [0, 1.03, 0.55], [0.51, 0.7, -0.6], [0, 1.12, 0]),
-  2: sockets(0.925, 0.7, 0.5, 0.8, -0.8, [0, 1.265, 0.605], [0.5525, 0.875, -0.66], [0, 1.37, 0]),
+  0: sockets(0.1001, 0.3475, 0.5557, 0.28, 0.5207, 0.558, -0.558, [0, 0.6851, 0.648], [0.3615, 0.4089, -0.612], [0, 0.7541, 0]),
+  1: sockets(0.3111, 0.3724, 0.7134, 0.4, 0.7166, 0.6355, -0.6355, [0, 0.9743, 0.738], [0.444, 0.5827, -0.697], [0, 1.0721, 0]),
+  2: sockets(0.5059, 0.4125, 0.9328, 0.58, 1.039, 0.713, -0.713, [0, 1.569, 0.828], [0.5524, 0.8947, -0.782], [0, 1.7376, 0]),
 };
 
 /** Fallback socket table for an out-of-range tier index -- never crash on an unexpected build value (ADR 0010 §7's forgiving-fallback spirit). */
@@ -69,5 +115,13 @@ export function socketsForBodyTier(tier: number): TruckSockets {
   return BODY_TIER_SOCKETS[tier] ?? DEFAULT_SOCKETS;
 }
 
-/** Ground-clearance reference per body tier -- the wheel radius baked into that tier's socket table, so callers (fallback geometry, camera framing) can match it without duplicating the numbers. */
-export const WHEEL_RADIUS_BY_TIER: Record<number, number> = { 0: 0.3, 1: 0.4, 2: 0.5 };
+/**
+ * Ground-clearance reference per body tier -- the wheel radius baked into
+ * that tier's socket table, so callers (fallback geometry, camera framing)
+ * can match it without duplicating the numbers. Re-tuned (2026-07-09) for
+ * the sourced wheel models -- a clear Base/Off-road/Monster progression
+ * (0.28 / 0.4 / 0.58), same relative growth shape as the old
+ * procedurally-authored 0.3/0.4/0.5 but re-based against the real tire
+ * models' own raw radius.
+ */
+export const WHEEL_RADIUS_BY_TIER: Record<number, number> = { 0: 0.28, 1: 0.4, 2: 0.58 };

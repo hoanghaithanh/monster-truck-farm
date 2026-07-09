@@ -6,7 +6,9 @@ import {
   WHEEL_LOOK_OPTIONS,
   buildDesignDecal,
   getBodyColorMaterial,
+  getBodyColorTintMaterial,
   getWheelLookMaterial,
+  getWheelRimTintMaterial,
 } from './cosmetic-manifest';
 
 describe('cosmetic manifest id -> material caching (ADR 0011 §2/Consequences, material-mutation-bleed risk)', () => {
@@ -50,6 +52,80 @@ describe('cosmetic manifest id -> material caching (ADR 0011 §2/Consequences, m
     for (const option of WHEEL_LOOK_OPTIONS) {
       expect(() => getWheelLookMaterial(option.id)).not.toThrow();
     }
+  });
+});
+
+describe('getBodyColorTintMaterial (issue #33 follow-up: tint the loaded body\'s real "Atlas" material, preserving its texture)', () => {
+  function sourceMaterial(): THREE.MeshStandardMaterial {
+    const material = new THREE.MeshStandardMaterial({ map: new THREE.Texture() });
+    material.name = 'Atlas';
+    return material;
+  }
+
+  it('returns a clone, never the source instance -- the loaded asset\'s own material is never mutated', () => {
+    const source = sourceMaterial();
+    const tinted = getBodyColorTintMaterial(source, 'blue');
+    expect(tinted).not.toBe(source);
+  });
+
+  it('preserves the source\'s .map (the baked window/grille/panel-line texture) on the tinted clone', () => {
+    const source = sourceMaterial();
+    const tinted = getBodyColorTintMaterial(source, 'blue') as THREE.MeshStandardMaterial;
+    expect(tinted.map).toBe(source.map);
+  });
+
+  it('sets .color to the cosmetic hex, distinct per color id, without touching the source\'s .color', () => {
+    const source = sourceMaterial();
+    const originalHex = source.color.getHex();
+    const blue = getBodyColorTintMaterial(source, 'blue') as THREE.MeshStandardMaterial;
+    const red = getBodyColorTintMaterial(source, 'red') as THREE.MeshStandardMaterial;
+    expect(blue.color.getHex()).not.toBe(originalHex);
+    expect(blue.color.getHex()).not.toBe(red.color.getHex());
+    expect(source.color.getHex()).toBe(originalHex);
+  });
+
+  it('caches the tinted clone per (source instance, color id) -- repeated calls reuse the same instance', () => {
+    const source = sourceMaterial();
+    const a = getBodyColorTintMaterial(source, 'green');
+    const b = getBodyColorTintMaterial(source, 'green');
+    expect(a).toBe(b);
+  });
+
+  it('never shares a tinted clone across two distinct source materials, even for the same color id (e.g. each body tier\'s own Atlas material)', () => {
+    const sourceA = sourceMaterial();
+    const sourceB = sourceMaterial();
+    const tintedA = getBodyColorTintMaterial(sourceA, 'purple');
+    const tintedB = getBodyColorTintMaterial(sourceB, 'purple');
+    expect(tintedA).not.toBe(tintedB);
+  });
+});
+
+describe('getWheelRimTintMaterial (issue #33 follow-up: tint only the loaded wheel\'s rim material, "mat22")', () => {
+  function rimSourceMaterial(): THREE.MeshStandardMaterial {
+    const material = new THREE.MeshStandardMaterial({ color: 0x595959 });
+    material.name = 'mat22';
+    return material;
+  }
+
+  it('returns a clone, never the source instance', () => {
+    const source = rimSourceMaterial();
+    const tinted = getWheelRimTintMaterial(source, 'chrome');
+    expect(tinted).not.toBe(source);
+  });
+
+  it('sets .color to the cosmetic hex without touching the source', () => {
+    const source = rimSourceMaterial();
+    const originalHex = source.color.getHex();
+    const tinted = getWheelRimTintMaterial(source, 'redRim') as THREE.MeshStandardMaterial;
+    expect(tinted.color.getHex()).not.toBe(originalHex);
+    expect(source.color.getHex()).toBe(originalHex);
+  });
+
+  it('caches per (source instance, look id)', () => {
+    const source = rimSourceMaterial();
+    const a = getWheelRimTintMaterial(source, 'chrome');
+    const b = getWheelRimTintMaterial(source, 'chrome');
+    expect(a).toBe(b);
   });
 });
 
