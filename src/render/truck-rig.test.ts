@@ -3,11 +3,11 @@ import * as THREE from 'three';
 import { buildTruckRig } from './truck-rig';
 import { AssetRegistry, type GltfLoaderLike } from './assets/asset-registry';
 import { BODY_TIER_SOCKETS } from './truck-sockets';
-import { getBodyColorMaterial, getWheelLookMaterial } from './cosmetics/cosmetic-manifest';
+import { getWheelLookMaterial } from './cosmetics/cosmetic-manifest';
 import type { TruckBuild, TruckCosmetics } from '../core/types';
 
 const BUILD: TruckBuild = { body: 0, wheels: 0, engine: 0, gasTank: 0 };
-const COSMETICS: TruckCosmetics = { bodyColor: 'orange', bodyDesign: 'plain', wheelLook: 'standard' };
+const COSMETICS: TruckCosmetics = { bodyDesign: 'plain', wheelLook: 'standard' };
 
 function fakeGltfScene(name: string): THREE.Object3D {
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial());
@@ -154,24 +154,6 @@ describe('buildTruckRig -- with a fully-ready AssetRegistry', () => {
 });
 
 describe('buildTruckRig -- cosmetic material application (ADR 0011 §2, material-mutation-bleed risk)', () => {
-  it('assigns the shared, cached cosmetic-manifest material instance to the body mesh -- same id -> same material reference across separate rigs (safe sharing, never mutated)', () => {
-    const rigA = buildTruckRig(BUILD, { ...COSMETICS, bodyColor: 'blue' });
-    const rigB = buildTruckRig({ ...BUILD, body: 2 }, { ...COSMETICS, bodyColor: 'blue' });
-    const bodyMeshA = rigA.group.children[0] as THREE.Mesh;
-    const bodyMeshB = rigB.group.children[0] as THREE.Mesh;
-    expect(bodyMeshA.material).toBe(getBodyColorMaterial('blue'));
-    expect(bodyMeshA.material).toBe(bodyMeshB.material);
-  });
-
-  it('different body colors on two rigs never share a material instance, and neither rig\'s material is ever mutated by the other (no cross-truck colour bleed)', () => {
-    const rigRed = buildTruckRig(BUILD, { ...COSMETICS, bodyColor: 'red' });
-    const rigGreen = buildTruckRig(BUILD, { ...COSMETICS, bodyColor: 'green' });
-    const redMaterial = (rigRed.group.children[0] as THREE.Mesh).material as THREE.MeshBasicMaterial;
-    const greenMaterial = (rigGreen.group.children[0] as THREE.Mesh).material as THREE.MeshBasicMaterial;
-    expect(redMaterial).not.toBe(greenMaterial);
-    expect(redMaterial.color.getHex()).not.toBe(greenMaterial.color.getHex());
-  });
-
   it('assigns the shared wheel-look material to every wheel, matching getWheelLookMaterial', () => {
     const rig = buildTruckRig(BUILD, { ...COSMETICS, wheelLook: 'chrome' });
     const wheelMeshes = rig.group.children.slice(1, 5) as THREE.Mesh[];
@@ -181,15 +163,40 @@ describe('buildTruckRig -- cosmetic material application (ADR 0011 §2, material
   });
 
   it('rig.dispose() never disposes a shared cosmetic-manifest material (it would stay usable by other rigs/the preview)', () => {
-    const rig = buildTruckRig(BUILD, { ...COSMETICS, bodyColor: 'purple' });
-    const material = getBodyColorMaterial('purple');
+    const rig = buildTruckRig(BUILD, { ...COSMETICS, wheelLook: 'chrome' });
+    const material = getWheelLookMaterial('chrome');
     rig.dispose();
     // THREE.Material doesn't expose a public "disposed" flag; the contract
     // under test is behavioural -- a second rig using the same id must still
     // get a *usable* (same-reference, still-correct-colour) material.
-    const rigAfter = buildTruckRig(BUILD, { ...COSMETICS, bodyColor: 'purple' });
-    const materialAfter = (rigAfter.group.children[0] as THREE.Mesh).material;
+    const rigAfter = buildTruckRig(BUILD, { ...COSMETICS, wheelLook: 'chrome' });
+    const materialAfter = (rigAfter.group.children[1] as THREE.Mesh).material;
     expect(materialAfter).toBe(material);
+  });
+});
+
+describe('buildTruckRig -- body color removed (direct human decision, post-ship): body always renders its native/untinted material', () => {
+  it('leaves the primitive fallback body\'s own flat grey material untouched -- no color override applied', () => {
+    const rig = buildTruckRig(BUILD, COSMETICS); // no registry -- fallback body
+    const bodyMesh = rig.group.children[0] as THREE.Mesh;
+    const material = bodyMesh.material as THREE.MeshStandardMaterial;
+    expect(material.color.getHexString()).toBe('888888');
+  });
+
+  it('two rigs built from the same registry share the exact same loaded "Atlas" material instance -- never cloned/tinted per rig', async () => {
+    const registry = await sourcedArtRegistry();
+    const rigA = buildTruckRig(BUILD, COSMETICS, registry);
+    const rigB = buildTruckRig(BUILD, COSMETICS, registry);
+    const findAtlas = (root: THREE.Object3D) => {
+      let found: THREE.Mesh | undefined;
+      root.traverse((child) => {
+        if (child instanceof THREE.Mesh && !Array.isArray(child.material) && child.material.name === 'Atlas') found = child;
+      });
+      return found;
+    };
+    const atlasA = findAtlas(rigA.group.children[0]);
+    const atlasB = findAtlas(rigB.group.children[0]);
+    expect(atlasA?.material).toBe(atlasB?.material);
   });
 });
 
@@ -204,30 +211,19 @@ describe('buildTruckRig -- sourced-art selective paint & built-in-wheel hiding (
     return found;
   }
 
-  it('tints the loaded body\'s "Atlas" material without touching "Headlights" (texture-preserving paint, not a flat replacement)', async () => {
+  it('leaves the loaded body\'s "Atlas" and "Headlights" materials both at their untouched original color (body color removed, direct human decision post-ship)', async () => {
     const registry = await sourcedArtRegistry();
-    const rig = buildTruckRig(BUILD, { ...COSMETICS, bodyColor: 'blue' }, registry);
+    const rig = buildTruckRig(BUILD, COSMETICS, registry);
     const bodyObject = rig.group.children[0];
 
     const atlasMeshes = findByMaterialName(bodyObject, 'Atlas');
     expect(atlasMeshes.length).toBeGreaterThan(0);
-    // Painted with a distinct (tinted-clone) instance, not the untouched shared source.
-    const atlasMaterial = atlasMeshes[0].material as THREE.MeshStandardMaterial;
-    expect(atlasMaterial.color.getHexString()).not.toBe('ffffff');
+    // Never tinted -- still the fixture's original default (white) color.
+    expect((atlasMeshes[0].material as THREE.MeshStandardMaterial).color.getHexString()).toBe('ffffff');
 
     const headlightMeshes = findByMaterialName(bodyObject, 'Headlights');
     expect(headlightMeshes).toHaveLength(1);
-    // Headlights material untouched -- still its original default (white) color.
     expect((headlightMeshes[0].material as THREE.MeshStandardMaterial).color.getHexString()).toBe('ffffff');
-  });
-
-  it('reuses the same tinted "Atlas" material instance across separate rigs built with the same body color (cached, never re-cloned per build)', async () => {
-    const registry = await sourcedArtRegistry();
-    const rigA = buildTruckRig(BUILD, { ...COSMETICS, bodyColor: 'green' }, registry);
-    const rigB = buildTruckRig(BUILD, { ...COSMETICS, bodyColor: 'green' }, registry);
-    const [atlasA] = findByMaterialName(rigA.group.children[0], 'Atlas');
-    const [atlasB] = findByMaterialName(rigB.group.children[0], 'Atlas');
-    expect(atlasA.material).toBe(atlasB.material);
   });
 
   it('removes the loaded body\'s built-in wheel nodes (BackWheels/FrontWheel_L/FrontWheel_R) so they never render doubled-up with the rig\'s own wheel-tier models', async () => {
@@ -278,5 +274,24 @@ describe('buildTruckRig -- sourced-art selective paint & built-in-wheel hiding (
     const rig = buildTruckRig(BUILD, COSMETICS, registry); // body: 0, wheels: 0
     const wheelObject = rig.group.children[1];
     expect(wheelObject.scale.x).toBeCloseTo(BODY_TIER_SOCKETS[0].wheelScale, 5);
+  });
+
+  it('sets both the rim ("mat22") and tire-rubber ("mat23") materials to THREE.DoubleSide on every loaded wheel at all 4 sockets (hollow-wheel fix, direct human report: the sourced tire model has a genuine open/uncapped hole, confirmed by inspecting the raw glTF geometry -- see truck-rig.ts\'s fixHollowWheelGeometry)', async () => {
+    const registry = await sourcedArtRegistry();
+    const rig = buildTruckRig(BUILD, COSMETICS, registry);
+    const wheelObjects = rig.group.children.slice(1, 5);
+    expect(wheelObjects).toHaveLength(4);
+    for (const wheelObject of wheelObjects) {
+      const [rimMesh] = findByMaterialName(wheelObject, 'mat22');
+      const [tireMesh] = findByMaterialName(wheelObject, 'mat23');
+      expect((rimMesh.material as THREE.MeshStandardMaterial).side).toBe(THREE.DoubleSide);
+      expect((tireMesh.material as THREE.MeshStandardMaterial).side).toBe(THREE.DoubleSide);
+    }
+  });
+
+  it('leaves the primitive fallback wheel (no registry) alone -- default FrontSide, nothing to fix on an already-closed cylinder', () => {
+    const rig = buildTruckRig(BUILD, COSMETICS); // no registry -- fallback wheels
+    const wheelMesh = rig.group.children[1] as THREE.Mesh;
+    expect((wheelMesh.material as THREE.MeshStandardMaterial).side).toBe(THREE.FrontSide);
   });
 });

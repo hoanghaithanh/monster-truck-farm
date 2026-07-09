@@ -9,13 +9,7 @@ import type { TruckBuild, TruckCosmetics } from '../core/types';
 import type { AssetRegistry } from './assets/asset-registry';
 import { bodyAssetKey, engineCueAssetKey, gasCueAssetKey, wheelAssetKey } from './assets/manifest';
 import { socketsForBodyTier } from './truck-sockets';
-import {
-  buildDesignDecal,
-  getBodyColorMaterial,
-  getBodyColorTintMaterial,
-  getWheelLookMaterial,
-  getWheelRimTintMaterial,
-} from './cosmetics/cosmetic-manifest';
+import { buildDesignDecal, getWheelLookMaterial, getWheelRimTintMaterial } from './cosmetics/cosmetic-manifest';
 
 export interface TruckRigResult {
   /** The assembled truck -- add this to a scene/preview and position/rotate it as a unit. */
@@ -72,18 +66,20 @@ function fallbackCue(): THREE.Mesh {
   return new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.15, 0.2), new THREE.MeshStandardMaterial({ color: 0x888888 }));
 }
 
-/** Assigns `material` to every Mesh in `object`'s hierarchy -- used to paint a whole part uniformly. Only meaningful for the primitive fallback parts now (single-material low-poly shapes; see scripts/generate-truck-art.mjs) -- the loaded sourced-art parts are painted selectively by material name instead (see paintBody/paintWheel below). Only replaces the reference; never disposes the material it's replacing (that material may be the shared source's, still needed by other clones). */
+/** Assigns `material` to every Mesh in `object`'s hierarchy -- used to paint a whole part uniformly. Only meaningful for the primitive fallback wheel now (a single-material low-poly shape; see scripts/generate-truck-art.mjs) -- the loaded sourced-art wheel is painted selectively by material name instead (see paintWheel below). Only replaces the reference; never disposes the material it's replacing (that material may be the shared source's, still needed by other clones). */
 function paintAll(object: THREE.Object3D, material: THREE.Material): void {
   object.traverse((child) => {
     if (child instanceof THREE.Mesh) child.material = material;
   });
 }
 
-// The loaded body's textured body-paint material (see repo-root CREDITS.md
-// -- baked window/grille/panel-line detail) and the loaded wheel's rim
-// material, by name, as they come out of the sourced .glb files.
-const BODY_PAINT_MATERIAL_NAME = 'Atlas';
+// The loaded wheel's rim and tire-rubber materials, by name, as they come
+// out of the sourced "Truck Tire"/"Vehicle Tire" .glb files (see repo-root
+// CREDITS.md). The body's own "Atlas" material is rendered as-is (no cosmetic
+// tint -- body color was removed post-ship, see cosmetic-manifest.ts's
+// header) so it has no equivalent named constant here.
 const WHEEL_RIM_MATERIAL_NAME = 'mat22';
+const WHEEL_TIRE_MATERIAL_NAME = 'mat23';
 
 // The loaded body models' own built-in wheel nodes (see CREDITS.md) --
 // excluded/removed at assembly time so they never render doubled-up
@@ -93,19 +89,18 @@ const BODY_BUILTIN_WHEEL_NODE_NAMES = new Set(['BackWheels', 'FrontWheel_L', 'Fr
 
 /**
  * Tints every Mesh in `object`'s hierarchy whose *current* material is named
- * `targetName` -- e.g. the loaded body's "Atlas" material, or the loaded
- * wheel's "mat22" rim material -- via `getTint(currentMaterial, cosmeticId)`,
- * leaving every other material (Headlights/BrakeLight on the body, mat23/
- * tire-rubber on the wheel) completely untouched. `getTint` receives each
- * matched mesh's *own current* material as its source (not a single shared
- * source) because that differs per loaded asset -- body-tier-0/1/2 each ship
- * their own "Atlas" material instance, for example (cosmetic-manifest.ts's
- * getBodyColorTintMaterial/getWheelRimTintMaterial key their tint cache by
+ * `targetName` -- e.g. the loaded wheel's "mat22" rim material -- via
+ * `getTint(currentMaterial, cosmeticId)`, leaving every other material
+ * (mat23/tire-rubber on the wheel) completely untouched. `getTint` receives
+ * each matched mesh's *own current* material as its source (not a single
+ * shared source) because that differs per loaded asset -- wheel-tier-0/1/2
+ * each ship their own "mat22" material instance, for example
+ * (cosmetic-manifest.ts's getWheelRimTintMaterial keys its tint cache by
  * that source instance for exactly this reason). Returns whether anything
- * matched, so callers (paintBody/paintWheel) can tell "this part has no
- * target-named material" (the primitive fallback parts, whose one material
- * has no name) apart from "this part matched and is now painted," and fall
- * back to paintAll for the former.
+ * matched, so callers (paintWheel) can tell "this part has no target-named
+ * material" (the primitive fallback wheel, whose one material has no name)
+ * apart from "this part matched and is now painted," and fall back to
+ * paintAll for the former.
  */
 function tintByMaterialName(
   object: THREE.Object3D,
@@ -141,18 +136,6 @@ function removeBuiltinWheelNodes(object: THREE.Object3D): void {
 }
 
 /**
- * Paints `bodyObject` for cosmetic body-color `colorId`: tints the loaded
- * body's real "Atlas" material in place (preserving its baked texture
- * detail -- see cosmetic-manifest.ts's getBodyColorTintMaterial) if one is
- * present, else falls back to whole-object flat-colour replacement (the
- * primitive fallback body, which has no Atlas material to tint).
- */
-function paintBody(bodyObject: THREE.Object3D, colorId: string): void {
-  const matched = tintByMaterialName(bodyObject, BODY_PAINT_MATERIAL_NAME, colorId, getBodyColorTintMaterial);
-  if (!matched) paintAll(bodyObject, getBodyColorMaterial(colorId));
-}
-
-/**
  * Paints `wheelObject` for cosmetic wheel-look `lookId`: tints only the
  * loaded wheel's rim material ("mat22"), leaving the tire-rubber material
  * ("mat23") untouched/black, if a rim material is present, else falls back
@@ -162,6 +145,61 @@ function paintBody(bodyObject: THREE.Object3D, colorId: string): void {
 function paintWheel(wheelObject: THREE.Object3D, lookId: string): void {
   const matched = tintByMaterialName(wheelObject, WHEEL_RIM_MATERIAL_NAME, lookId, getWheelRimTintMaterial);
   if (!matched) paintAll(wheelObject, getWheelLookMaterial(lookId));
+}
+
+/**
+ * Hollow-wheel fix (2026-07-09, direct human report -- "you can see inner
+ * parts through the wheels"). Root cause, confirmed by inspecting the raw
+ * glTF geometry of both sourced tire models (`wheel-tier-{0,1,2}.glb`,
+ * "Vehicle Tire"/"Truck Tire" by Jarlan Perez -- see repo-root CREDITS.md),
+ * NOT a mirrored-scale winding bug: this rig never mirrors the wheel mesh
+ * (no per-side `scale.x = -1` or equivalent anywhere in this file -- all 4
+ * wheel sockets place the *same* unflipped object, see truck-sockets.ts), so
+ * a negative-scale winding flip can't be what's happening here, and indeed
+ * every socket showed the identical defect rather than only the mirrored
+ * side. Rebuilding each submesh's true topology (welding vertices by
+ * position, since the source file duplicates a vertex per triangle for flat
+ * shading -- raw indices alone look "open" everywhere and are not a useful
+ * manifold signal) found genuine open boundary edges on both the rim
+ * ("mat22") and tire-rubber ("mat23") submeshes of every wheel tier -- an
+ * uncapped hole (most likely the hub/axle bore) baked into the source
+ * asset, present identically on every copy since there is only one asset,
+ * reused unflipped at all 4 sockets. With the default `THREE.FrontSide`,
+ * that hole is a literal gap in the shell, and backface culling then hides
+ * the inner/back faces you'd otherwise see through it -- exactly the
+ * "hollow, see-through" symptom reported.
+ *
+ * Because the hole is baked into the committed .glb (not something this
+ * rig's assembly code introduces or could re-weld/cap without re-authoring
+ * the source mesh, which is out of scope here), the pragmatic fix is
+ * `THREE.DoubleSide` on both wheel submesh materials -- rendering the
+ * inside of the shell too, so the hole reads as "solid tire" rather than
+ * "see-through," at a real but small perf cost (2 extra low-poly wheel
+ * submeshes per truck, not the whole scene). This is deliberately NOT
+ * applied blindly everywhere else (e.g. the body's "Atlas" material is left
+ * on the default FrontSide) -- DoubleSide is reserved for this specific,
+ * verified-open geometry rather than used as a generic culling workaround.
+ *
+ * Mutates the *source* materials in place (idempotent, safe to call every
+ * build): `.side` is a fixed rendering correction, not a per-truck cosmetic
+ * value like `.color`/`.emissive`, so -- unlike the cosmetic tint caches in
+ * cosmetic-manifest.ts, which deliberately never mutate a shared source --
+ * there is nothing to "bleed" between trucks by setting it once on the one
+ * shared material instance each wheel tier's clones all reference (see
+ * asset-registry.ts's Mesh.copy() sharing materials by reference). Any
+ * later tint clone (getWheelRimTintMaterial) inherits `.side` automatically
+ * since `Material.clone()` copies it along with every other property, so
+ * this only needs to run once per resolved wheel object, before painting.
+ * A no-op for the primitive fallback wheel (a real, already-closed
+ * cylinder -- see fallbackWheel() -- with no hole to fix).
+ */
+function fixHollowWheelGeometry(wheelObject: THREE.Object3D): void {
+  wheelObject.traverse((child) => {
+    if (!(child instanceof THREE.Mesh) || Array.isArray(child.material)) return;
+    if (child.material.name === WHEEL_RIM_MATERIAL_NAME || child.material.name === WHEEL_TIRE_MATERIAL_NAME) {
+      child.material.side = THREE.DoubleSide;
+    }
+  });
 }
 
 interface ResolvedPart {
@@ -215,7 +253,10 @@ export function buildTruckRig(
     removeBuiltinWheelNodes(bodyResult.object);
     bodyResult.object.scale.setScalar(sockets.bodyScale);
   }
-  paintBody(bodyResult.object, cosmetics.bodyColor);
+  // Body color was removed post-ship (direct human decision -- see
+  // cosmetic-manifest.ts's header): the body always renders its native,
+  // untinted loaded material (or the primitive fallback's own flat grey) --
+  // no `.color`/`.emissive` override of any kind.
   bodyResult.object.position.copy(sockets.body);
   group.add(bodyResult.object);
 
@@ -240,7 +281,10 @@ export function buildTruckRig(
     // truck-sockets.ts derived so this tier's real ~0.53-0.56-unit raw tire
     // radius lands at WHEEL_RADIUS_BY_TIER. The primitive fallback wheel is
     // already authored at final scale.
-    if (!wheelResult.usedFallback) wheelResult.object.scale.setScalar(sockets.wheelScale);
+    if (!wheelResult.usedFallback) {
+      wheelResult.object.scale.setScalar(sockets.wheelScale);
+      fixHollowWheelGeometry(wheelResult.object);
+    }
     paintWheel(wheelResult.object, cosmetics.wheelLook);
     wheelResult.object.position.copy(socket);
     group.add(wheelResult.object);

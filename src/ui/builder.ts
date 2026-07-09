@@ -5,7 +5,7 @@ import { BODY_TIERS, ENGINE_TIERS, GAS_TIERS, WHEEL_TIERS } from '../core/stats/
 import { owned, purchasable } from '../core/stats/ownership';
 import type { AssetRegistry } from '../render/assets/asset-registry';
 import { buildTruckRig, type TruckRigResult } from '../render/truck-rig';
-import { BODY_COLOR_OPTIONS, BODY_DESIGN_OPTIONS, WHEEL_LOOK_OPTIONS, type CosmeticOption } from '../render/cosmetics/cosmetic-manifest';
+import { BODY_DESIGN_OPTIONS, WHEEL_LOOK_OPTIONS, type CosmeticOption } from '../render/cosmetics/cosmetic-manifest';
 
 // DOM truck builder screen (issues #1-4, builder AC1/AC6; purchase flow
 // backlog #14 / ADR 0006; live 3D preview + cosmetics section, ADR 0011
@@ -72,7 +72,6 @@ interface CosmeticRow {
 }
 
 const COSMETIC_ROWS: CosmeticRow[] = [
-  { part: 'bodyColor', label: 'Body color', options: BODY_COLOR_OPTIONS },
   { part: 'bodyDesign', label: 'Body design', options: BODY_DESIGN_OPTIONS },
   { part: 'wheelLook', label: 'Wheel look', options: WHEEL_LOOK_OPTIONS },
 ];

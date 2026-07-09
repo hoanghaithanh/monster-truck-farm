@@ -14,139 +14,47 @@
 // with.)
 //
 // Cosmetic-visibility fix (2026-07-09, ADR 0011 follow-up -- see
-// docs/qa/screenshots/adr-0011-cosmetic-visibility-fix/): every *fallback*
-// material here (the ones keyed only by cosmetic id, used on the primitive
-// fallback body/wheel while assets are still loading -- see truck-rig.ts's
-// fallbackBody()/fallbackWheel()) is a `MeshBasicMaterial` (flat, unlit), NOT
+// docs/qa/screenshots/adr-0011-cosmetic-visibility-fix/): the *fallback*
+// wheel-look material here (keyed only by cosmetic id, used on the primitive
+// fallback wheel while assets are still loading -- see truck-rig.ts's
+// fallbackWheel()) is a `MeshBasicMaterial` (flat, unlit), NOT
 // `MeshStandardMaterial`. This was the actual bug behind "chrome and
 // standard wheels look nearly identical" -- with a lit material, scene.ts's
 // single directional sun + modest ambient produced large per-face shading
-// swings on the low-poly wheel/body geometry (deep-shadow faces vs.
+// swings on the low-poly wheel geometry (deep-shadow faces vs.
 // sun-facing faces), and that shading range overlapped between a near-black
 // and a near-white *lit* material enough to wash out the intended hex
 // contrast, especially at the builder's small 220x220 preview size. An unlit
 // flat-colour material always renders exactly its authored hex, everywhere,
 // regardless of light direction or geometry facet count.
 //
-// Sourced-art pass (issue #33 follow-up, 2026-07-09): the *loaded* body/
-// wheel models (real sourced CC0/CC-BY low-poly meshes -- see repo-root
-// CREDITS.md) are no longer single-material shapes, so they're no longer
-// painted by whole-object material replacement. The body's real "Atlas"
-// material is a UV-textured MeshStandardMaterial baking in window/grille/
-// panel-line detail; replacing it with a flat MeshBasicMaterial would erase
-// that texture entirely. Instead, `getBodyColorTintMaterial`/
-// `getWheelRimTintMaterial` below clone the *loaded asset's own* material
-// and only overwrite `.color` -- Three.js multiplies `.map` x `.color`
-// per-pixel, so this recolors the body/rim while the baked texture detail
-// (or, for the wheel rim, the untouched black tire-rubber submesh) survives.
-// truck-rig.ts's paintBody()/paintWheel() decide, per part, whether a
-// target-named material (`Atlas` on the body, `mat22` on the wheel) exists
-// to tint -- if not (the primitive fallback case), they fall back to whole-
-// object replacement with this file's flat `getBodyColorMaterial`/
-// `getWheelLookMaterial`, which are otherwise unchanged from the pre-sourced-
-// art behaviour described above.
+// Sourced-art pass (issue #33 follow-up, 2026-07-09): the *loaded* wheel
+// model (real sourced CC0/CC-BY low-poly mesh -- see repo-root CREDITS.md)
+// is no longer a single-material shape, so it's no longer painted by
+// whole-object material replacement. `getWheelRimTintMaterial` below clones
+// the *loaded asset's own* rim material and only overwrites `.color` --
+// truck-rig.ts's paintWheel() decides, per part, whether a target-named
+// material (`mat22` on the wheel) exists to tint -- if not (the primitive
+// fallback case), it falls back to whole-object replacement with this
+// file's flat `getWheelLookMaterial`, which is otherwise unchanged from the
+// pre-sourced-art behaviour described above.
+//
+// Body-color removal (2026-07-09, direct human decision post-ship -- see
+// docs/requirements/truck-cosmetics.md's dated note): the body used to carry
+// an equivalent "body color" cosmetic (flat-material fallback + an
+// Atlas-material tint clone for the loaded body, both keyed the same way as
+// the wheel-look machinery above). The human found the tinted body looked
+// bad and asked for it to be removed outright, always rendering the body's
+// native/untinted loaded material. That machinery (BODY_COLOR_HEX,
+// getBodyColorMaterial, getBodyColorTintMaterial, and the emissive-tint fix
+// for issue #35) was deleted rather than disabled -- no dead code/feature
+// flag left behind. Body *design* (the decal below) and wheel *look* (the
+// rim tint further down) are unrelated cosmetic axes and are unaffected.
 import * as THREE from 'three';
 
 export interface CosmeticOption {
   id: string;
   label: string;
-}
-
-// -- Body paint color: flat/plain-colour materials (ADR 0011 §2: "prefer
-// flat vertex-colour / plain-colour materials for paint -- near-zero
-// download, on-brand for low-poly"). Applied uniformly to every Mesh in the
-// loaded body model (see truck-rig.ts) regardless of body tier -- a shared
-// palette, which is what makes tier-change carry-over (cosmetics AC7) a
-// non-issue: the same material id is valid on any body model.
-const BODY_COLOR_HEX: Record<string, number> = {
-  orange: 0xff8c1a,
-  blue: 0x3f88ff,
-  green: 0x4bd15c,
-  purple: 0x9b59d6,
-  red: 0xe64b4b,
-};
-export const DEFAULT_BODY_COLOR = 'orange';
-export const BODY_COLOR_OPTIONS: CosmeticOption[] = Object.keys(BODY_COLOR_HEX).map((id) => ({
-  id,
-  label: id[0].toUpperCase() + id.slice(1),
-}));
-
-const bodyColorMaterials = new Map<string, THREE.MeshBasicMaterial>();
-/** Flat plain-colour body-paint material -- only used on the primitive fallback body (truck-rig.ts's fallbackBody()), which has no textured "Atlas" material to tint. See getBodyColorTintMaterial for the loaded-asset path. */
-export function getBodyColorMaterial(id: string): THREE.MeshBasicMaterial {
-  const hex = BODY_COLOR_HEX[id] ?? BODY_COLOR_HEX[DEFAULT_BODY_COLOR];
-  let material = bodyColorMaterials.get(id);
-  if (!material) {
-    material = new THREE.MeshBasicMaterial({ color: hex });
-    bodyColorMaterials.set(id, material);
-  }
-  return material;
-}
-
-// Tint cache for the loaded body model's real "Atlas" material, keyed two
-// levels deep: source material instance (each body tier's own Atlas
-// material -- AssetRegistry.get() clones the scene graph but shares
-// material *references* across every clone, see asset-registry.ts's Mesh.
-// copy() behaviour) -> cosmetic body-color id -> the tinted clone. Keying by
-// the source instance (rather than a flat id -> material map, like every
-// other cache in this file) is necessary here because "Atlas" isn't one
-// shared material -- body-tier-0/1/2 each ship their own -- so the same
-// color id needs a different tinted clone per body tier. Every tint is
-// created once, cached, and NEVER mutated after creation, same discipline as
-// the rest of this file; the *source* Atlas material is also never mutated
-// (only cloned from).
-const bodyColorTintMaterials = new WeakMap<THREE.Material, Map<string, THREE.Material>>();
-
-// Muddy-tint fix (issue #35, 2026-07-09, see
-// docs/qa/screenshots/adr-0011-sourced-art-fixes/): a pure `.map` x `.color`
-// multiply can only ever make a pixel *darker* than the texture's own
-// baked luminance at that pixel, never brighter -- so on tier-0's bright
-// "Pickup" Atlas texture every cosmetic hue read clearly, but on tier-1/2's
-// much darker "Pickup Armored"/"Truck Armored" Atlas (a dark brown/wood-crate
-// bake), every cosmetic color multiplied down toward that same dark brown,
-// regardless of hue, and read as muddy/indistinguishable (worst on "purple",
-// nearly black in the driving scene's steep lighting). No amount of
-// brightening the multiplied-in `.color` fixes this: `map * color` is
-// bounded above by `map` itself when `color` stays within its own hue (and
-// pushing `color` toward white just fades the tint out, it doesn't rescue
-// saturation). The fix adds a flat, lighting-independent `.emissive`
-// contribution in the same hue at a modest intensity, alongside the
-// unchanged multiplicative `.color` tint -- `map * color + emissive` per
-// Three.js's standard lighting model. The additive term guarantees a real
-// colored floor under dark texture regions (so the cosmetic hue always
-// reads, even where the bake is near-black), while the multiplicative term
-// still carries the baked window/grille/panel-line shading on top, so the
-// texture detail isn't flattened away.
-const BODY_TINT_EMISSIVE_STRENGTH = 0.35;
-
-/**
- * A tinted clone of `source` (the loaded body model's real "Atlas" material)
- * for cosmetic body-color `id`: identical to `source` in every respect
- * (including its `.map` texture) except `.color` (set to the cosmetic hex,
- * for the multiplicative tint that preserves baked texture detail -- see
- * this file's header) and `.emissive` (set to the same hex at
- * `BODY_TINT_EMISSIVE_STRENGTH`, the additive floor that keeps the tint
- * visible on tiers with a dark-baked Atlas texture -- see the muddy-tint-fix
- * comment above). Falls back to DEFAULT_BODY_COLOR's hex for an unknown id,
- * same forgiving-fallback behaviour as getBodyColorMaterial.
- */
-export function getBodyColorTintMaterial(source: THREE.Material, id: string): THREE.Material {
-  const hex = BODY_COLOR_HEX[id] ?? BODY_COLOR_HEX[DEFAULT_BODY_COLOR];
-  let byColor = bodyColorTintMaterials.get(source);
-  if (!byColor) {
-    byColor = new Map();
-    bodyColorTintMaterials.set(source, byColor);
-  }
-  let tinted = byColor.get(id);
-  if (!tinted) {
-    tinted = source.clone();
-    if ('color' in tinted && tinted.color instanceof THREE.Color) tinted.color.setHex(hex);
-    if ('emissive' in tinted && tinted.emissive instanceof THREE.Color) {
-      tinted.emissive.setHex(hex).multiplyScalar(BODY_TINT_EMISSIVE_STRENGTH);
-    }
-    byColor.set(id, tinted);
-  }
-  return tinted;
 }
 
 // -- Body design: a shared decal mesh (a thin racing-stripe/flame-accent

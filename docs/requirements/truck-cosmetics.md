@@ -2,6 +2,8 @@
 
 Status: Sprint 3 — **finalized.** Open Question 1 (cosmetic scope) resolved by the human on 2026-07-08: independent-of-tier confirmed (see below). Ready to hand to the architect.
 
+**Post-ship update (2026-07-09):** the human reviewed the shipped feature running in-game and found the body-color tinting made the truck look bad. Direct human decision: body color was removed entirely (the picker and its tinting logic) — the body always renders its native/untinted loaded appearance now. This doc's body-color-related ACs (part of AC5) are no longer implemented; body *design* (decals) and wheel *look* are unaffected and remain as specified below. See `src/render/cosmetics/cosmetic-manifest.ts`'s header for the implementation-side removal note.
+
 Related: `docs/backlog.md` (row 19); `truck-builder-and-upgrades.md` / `docs/architecture/0002-upgrade-tier-data-model.md` (the existing 4-axis functional tier system this feature sits alongside); `vehicle-and-character-art.md` (this doc piggybacks on the same asset pipeline — read that doc's per-axis art scope table and "Resolved — Art direction" section first, since they determine what's available to skin); `docs/architecture/0006-coin-spend-and-tier-unlock.md` (the existing builder purchase-flow UI this doc's new section sits next to).
 
 ## Problem statement
