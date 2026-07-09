@@ -159,6 +159,10 @@ function startDriving(
 
     const { position, heading } = drivingSystem.update(intent, dt);
     scene.setTruckTransform(position, heading);
+    // Wheel roll + front-wheel steer-yaw (issue #40): purely visual, reads
+    // this frame's already-computed speed/steer intent rather than a second
+    // source of truth -- see scene.ts's setTruckWheelMotion doc comment.
+    scene.setTruckWheelMotion(drivingSystem.speed, intent.steer, dt);
 
     animalSystem.update(dt, position, {
       onSpawn: (id, animalPosition) => scene.upsertAnimal(id, animalPosition),

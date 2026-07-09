@@ -9,6 +9,5 @@
 import type { TruckCosmetics } from '../types';
 
 export const DEFAULT_TRUCK_COSMETICS: TruckCosmetics = {
-  bodyDesign: 'plain',
   wheelLook: 'standard',
 };

@@ -48,86 +48,23 @@
 // native/untinted loaded material. That machinery (BODY_COLOR_HEX,
 // getBodyColorMaterial, getBodyColorTintMaterial, and the emissive-tint fix
 // for issue #35) was deleted rather than disabled -- no dead code/feature
-// flag left behind. Body *design* (the decal below) and wheel *look* (the
-// rim tint further down) are unrelated cosmetic axes and are unaffected.
+// flag left behind.
+//
+// Body-design removal (2026-07-09, direct human decision post-ship, issue
+// #41 -- see docs/requirements/truck-cosmetics.md's second dated note): the
+// "Racing stripe"/"Flame accent" decal cosmetic (a shared decal mesh
+// attached at the body's `design` socket, truck-sockets.ts) "looked weird"
+// in-game per direct playtest feedback and was removed outright, same
+// pattern as the body-color removal above. That machinery
+// (buildDesignDecal/buildStripeDecal/buildFlameDecal, BODY_DESIGN_OPTIONS,
+// DEFAULT_BODY_DESIGN, DESIGN_DECAL_HEX, getDesignDecalMaterial) was deleted
+// rather than disabled. Wheel *look* (the rim tint below) is the only
+// surviving cosmetic axis now that body color and body design are both gone.
 import * as THREE from 'three';
 
 export interface CosmeticOption {
   id: string;
   label: string;
-}
-
-// -- Body design: a shared decal mesh (a thin racing-stripe/flame-accent
-// strip), attached at the body's `design` socket (truck-sockets.ts) --
-// independent of body tier, same shared-across-tiers reasoning as color.
-// 'plain' renders no decal at all.
-export const DEFAULT_BODY_DESIGN = 'plain';
-export const BODY_DESIGN_OPTIONS: CosmeticOption[] = [
-  { id: 'plain', label: 'Plain' },
-  { id: 'stripe', label: 'Racing stripe' },
-  { id: 'flames', label: 'Flame accent' },
-];
-
-const DESIGN_DECAL_HEX: Record<string, number> = {
-  stripe: 0xffffff,
-  flames: 0xff6f1a,
-};
-
-const designDecalMaterials = new Map<string, THREE.MeshBasicMaterial>();
-function getDesignDecalMaterial(id: string): THREE.MeshBasicMaterial {
-  let material = designDecalMaterials.get(id);
-  if (!material) {
-    material = new THREE.MeshBasicMaterial({ color: DESIGN_DECAL_HEX[id] ?? 0xffffff });
-    designDecalMaterials.set(id, material);
-  }
-  return material;
-}
-
-/** Builds a fresh decal/ornament object for `designId`, or `undefined` for 'plain' (no decal) / an unknown id. Callers position the returned object at the body's `design` socket. */
-export function buildDesignDecal(designId: string): THREE.Object3D | undefined {
-  if (designId === 'stripe') return buildStripeDecal();
-  if (designId === 'flames') return buildFlameDecal();
-  return undefined;
-}
-
-/** A flat racing-stripe strip laid along the roof's centerline. A fresh mesh per call (cheap primitive geometry) since each truck rig owns and disposes its own decal instance; only the *material* is shared/cached (see module header). */
-function buildStripeDecal(): THREE.Mesh {
-  const geometry = new THREE.BoxGeometry(0.18, 0.02, 1.6);
-  return new THREE.Mesh(geometry, getDesignDecalMaterial('stripe'));
-}
-
-/**
- * "Flame accent" (cosmetic-visibility fix, 2026-07-09 -- see
- * docs/qa/screenshots/adr-0011-cosmetic-visibility-fix/): originally shared
- * `buildStripeDecal`'s flat-strip-on-the-roof shape, which read as an
- * ambiguous small vertical bar rather than a flame, because the game's
- * cameras (chase cam in scene.ts, the builder's 3/4 preview) both view the
- * truck mostly from behind/above -- a strip lying flat and long *along the
- * truck's length* foreshortens hard from that angle into a short sliver.
- * Built instead as a small cluster of tapered boxes that stand *up* off the
- * roof (their extent is in Y, not laid flat) -- a central tongue plus two
- * shorter, outward-canted tips -- so the flame silhouette reads against the
- * sky from any horizontal viewing angle, not just a lucky one. Still cheap
- * low-poly primitive geometry, no texture maps (ADR 0011 §2). A fresh group
- * per call (each truck rig owns and disposes its own decal instance); only
- * the *material* is shared/cached across every tip and every rig (see module
- * header).
- */
-function buildFlameDecal(): THREE.Group {
-  const material = getDesignDecalMaterial('flames');
-  const tips: { size: [number, number, number]; position: [number, number, number]; rotationZ: number; rotationX: number }[] = [
-    { size: [0.09, 0.34, 0.16], position: [0, 0.17, 0], rotationZ: 0, rotationX: 0 },
-    { size: [0.07, 0.22, 0.12], position: [0.1, 0.11, -0.06], rotationZ: -0.55, rotationX: 0.2 },
-    { size: [0.07, 0.22, 0.12], position: [-0.1, 0.11, 0.06], rotationZ: 0.55, rotationX: -0.2 },
-  ];
-  const group = new THREE.Group();
-  for (const tip of tips) {
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(...tip.size), material);
-    mesh.position.set(...tip.position);
-    mesh.rotation.set(tip.rotationX, 0, tip.rotationZ);
-    group.add(mesh);
-  }
-  return group;
 }
 
 // -- Wheel look: flat-colour materials, same shared-palette/carry-over

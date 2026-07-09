@@ -5,7 +5,7 @@ import { BODY_TIERS, ENGINE_TIERS, GAS_TIERS, WHEEL_TIERS } from '../core/stats/
 import { owned, purchasable } from '../core/stats/ownership';
 import type { AssetRegistry } from '../render/assets/asset-registry';
 import { buildTruckRig, type TruckRigResult } from '../render/truck-rig';
-import { BODY_DESIGN_OPTIONS, WHEEL_LOOK_OPTIONS, type CosmeticOption } from '../render/cosmetics/cosmetic-manifest';
+import { WHEEL_LOOK_OPTIONS, type CosmeticOption } from '../render/cosmetics/cosmetic-manifest';
 
 // DOM truck builder screen (issues #1-4, builder AC1/AC6; purchase flow
 // backlog #14 / ADR 0006; live 3D preview + cosmetics section, ADR 0011
@@ -71,8 +71,10 @@ interface CosmeticRow {
   options: CosmeticOption[];
 }
 
+// Body design was removed post-ship (issue #41, direct human decision -- see
+// cosmetic-manifest.ts's header): "Wheel look" is now the only surviving
+// cosmetic axis.
 const COSMETIC_ROWS: CosmeticRow[] = [
-  { part: 'bodyDesign', label: 'Body design', options: BODY_DESIGN_OPTIONS },
   { part: 'wheelLook', label: 'Wheel look', options: WHEEL_LOOK_OPTIONS },
 ];
 
@@ -264,14 +266,18 @@ export function createBuilderScreen(
   cosmeticsSection.style.background = 'rgba(255, 226, 122, 0.12)';
   cosmeticsSection.style.border = '1px solid rgba(255, 226, 122, 0.35)';
 
+  // Body color and body design were both removed post-ship (direct human
+  // decisions), leaving "Wheel look" as the only surviving cosmetic axis --
+  // heading/copy simplified to match a single picker (issue #41, not gated,
+  // just a UX pass while we're here).
   const cosmeticsTitle = document.createElement('h2');
-  cosmeticsTitle.textContent = '\u{1F3A8} Paint & style';
+  cosmeticsTitle.textContent = '\u{1F3A8} Wheel style';
   cosmeticsTitle.style.font = 'bold 18px sans-serif';
   cosmeticsTitle.style.margin = '0 0 4px 0';
   cosmeticsSection.appendChild(cosmeticsTitle);
 
   const cosmeticsSubtitle = document.createElement('div');
-  cosmeticsSubtitle.textContent = 'Just for looks -- pick any style, any time. No cost, no stats.';
+  cosmeticsSubtitle.textContent = 'Just for looks -- pick any wheel style, any time. No cost, no stats.';
   cosmeticsSubtitle.style.font = '13px sans-serif';
   cosmeticsSubtitle.style.opacity = '0.75';
   cosmeticsSubtitle.style.marginBottom = '10px';

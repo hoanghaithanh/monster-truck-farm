@@ -134,44 +134,42 @@ describe('GameStore.selectCosmetic (ADR 0011 §3, cosmetics AC1/AC5/AC6/AC7)', (
     expect(store.cosmetics).toEqual(DEFAULT_TRUCK_COSMETICS);
   });
 
-  it('sets one cosmetic part independently of the others', () => {
+  it('sets the wheelLook cosmetic (the only surviving cosmetic axis -- body color and body design were both removed post-ship)', () => {
     const store = new GameStore();
-    store.selectCosmetic('bodyDesign', 'stripe');
-    expect(store.cosmetics).toEqual({ ...DEFAULT_TRUCK_COSMETICS, bodyDesign: 'stripe' });
     store.selectCosmetic('wheelLook', 'chrome');
-    expect(store.cosmetics).toEqual({ ...DEFAULT_TRUCK_COSMETICS, bodyDesign: 'stripe', wheelLook: 'chrome' });
+    expect(store.cosmetics).toEqual({ ...DEFAULT_TRUCK_COSMETICS, wheelLook: 'chrome' });
   });
 
   it('is freely selectable with no ownership/coin gate -- unlike selectTier, works before any coins are earned or spent (cosmetics AC5/AC6)', () => {
     const store = new GameStore();
     expect(store.coins).toBe(0);
-    store.selectCosmetic('bodyDesign', 'flames');
-    expect(store.cosmetics.bodyDesign).toBe('flames');
+    store.selectCosmetic('wheelLook', 'redRim');
+    expect(store.cosmetics.wheelLook).toBe('redRim');
   });
 
   it('notifies subscribers on a cosmetic change', () => {
     const store = new GameStore();
     let calls = 0;
     store.subscribe(() => calls++);
-    store.selectCosmetic('bodyDesign', 'flames');
+    store.selectCosmetic('wheelLook', 'redRim');
     expect(calls).toBe(1);
   });
 
   it('a cosmetic selection survives an unrelated functional tier purchase/equip on a different axis (structurally separate state)', () => {
     const store = new GameStore();
-    store.selectCosmetic('bodyDesign', 'flames');
-    buyUpTo(store, 'wheels', 2);
-    store.selectTier('wheels', 0);
-    expect(store.cosmetics.bodyDesign).toBe('flames');
+    store.selectCosmetic('wheelLook', 'redRim');
+    buyUpTo(store, 'body', 2);
+    store.selectTier('body', 0);
+    expect(store.cosmetics.wheelLook).toBe('redRim');
   });
 
   it('a cosmetic selection carries over unchanged when the equipped tier on the same axis changes (cosmetics AC7: this project keeps a shared palette so carry-over is always valid, ADR 0011 §2)', () => {
     const store = new GameStore();
-    store.selectCosmetic('bodyDesign', 'stripe');
-    buyUpTo(store, 'body', 2);
-    expect(store.cosmetics.bodyDesign).toBe('stripe');
-    store.selectTier('body', 0);
-    expect(store.cosmetics.bodyDesign).toBe('stripe');
+    store.selectCosmetic('wheelLook', 'chrome');
+    buyUpTo(store, 'wheels', 2);
+    expect(store.cosmetics.wheelLook).toBe('chrome');
+    store.selectTier('wheels', 0);
+    expect(store.cosmetics.wheelLook).toBe('chrome');
   });
 });
 
@@ -179,7 +177,6 @@ describe('cosmetics AC1 structural invariant: cosmetic selection never reaches r
   it('confirmBuild resolves an identical TruckSpec for two stores with the same build but different cosmetics', () => {
     const plain = new GameStore();
     const painted = new GameStore();
-    painted.selectCosmetic('bodyDesign', 'flames');
     painted.selectCosmetic('wheelLook', 'chrome');
 
     plain.confirmBuild();
@@ -192,7 +189,7 @@ describe('cosmetics AC1 structural invariant: cosmetic selection never reaches r
     const store = new GameStore();
     store.confirmBuild();
     const specBefore = store.spec;
-    store.selectCosmetic('bodyDesign', 'flames');
+    store.selectCosmetic('wheelLook', 'chrome');
     expect(store.spec).toEqual(specBefore);
   });
 });

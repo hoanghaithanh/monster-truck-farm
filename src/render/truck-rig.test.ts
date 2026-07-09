@@ -4,10 +4,21 @@ import { buildTruckRig } from './truck-rig';
 import { AssetRegistry, type GltfLoaderLike } from './assets/asset-registry';
 import { BODY_TIER_SOCKETS } from './truck-sockets';
 import { getWheelLookMaterial } from './cosmetics/cosmetic-manifest';
+import type { TruckRigResult } from './truck-rig';
 import type { TruckBuild, TruckCosmetics } from '../core/types';
 
 const BUILD: TruckBuild = { body: 0, wheels: 0, engine: 0, gasTank: 0 };
-const COSMETICS: TruckCosmetics = { bodyDesign: 'plain', wheelLook: 'standard' };
+const COSMETICS: TruckCosmetics = { wheelLook: 'standard' };
+
+/** All 4 wheel pivots, in the same [FL, FR, RL, RR] order sockets.wheels uses. */
+function allWheelPivots(rig: TruckRigResult) {
+  return [rig.wheels.frontLeft, rig.wheels.frontRight, rig.wheels.rearLeft, rig.wheels.rearRight];
+}
+
+/** The resolved wheel part object nested inside a wheel's roll pivot (see truck-rig.ts's WheelPivots doc comment). */
+function wheelObjectOf(rig: TruckRigResult, key: keyof TruckRigResult['wheels']): THREE.Object3D {
+  return rig.wheels[key].roll.children[0];
+}
 
 function fakeGltfScene(name: string): THREE.Object3D {
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial());
@@ -108,15 +119,8 @@ describe('buildTruckRig (ADR 0011 §4) -- no registry / never-loaded assets', ()
     expect(() => rig.dispose()).not.toThrow();
   });
 
-  it('adds a design decal only when bodyDesign is not "plain"', () => {
-    const plain = buildTruckRig(BUILD, { ...COSMETICS, bodyDesign: 'plain' });
-    const striped = buildTruckRig(BUILD, { ...COSMETICS, bodyDesign: 'stripe' });
-    expect(plain.group.children).toHaveLength(7);
-    expect(striped.group.children).toHaveLength(8);
-  });
-
-  it('places the body and 4 wheels at exactly the body tier\'s socket positions (children order: body, [decal], 4 wheels, engine cue, gas cue)', () => {
-    const rig = buildTruckRig({ ...BUILD, body: 1 }, COSMETICS); // 'plain' design -- no decal
+  it('places the body and 4 wheels at exactly the body tier\'s socket positions (children order: body, 4 wheels, engine cue, gas cue)', () => {
+    const rig = buildTruckRig({ ...BUILD, body: 1 }, COSMETICS);
     const [bodyMesh, ...wheelMeshes] = rig.group.children.slice(0, 5);
     const sockets = BODY_TIER_SOCKETS[1];
     expect([bodyMesh.position.x, bodyMesh.position.y, bodyMesh.position.z]).toEqual([
@@ -156,8 +160,8 @@ describe('buildTruckRig -- with a fully-ready AssetRegistry', () => {
 describe('buildTruckRig -- cosmetic material application (ADR 0011 §2, material-mutation-bleed risk)', () => {
   it('assigns the shared wheel-look material to every wheel, matching getWheelLookMaterial', () => {
     const rig = buildTruckRig(BUILD, { ...COSMETICS, wheelLook: 'chrome' });
-    const wheelMeshes = rig.group.children.slice(1, 5) as THREE.Mesh[];
-    for (const wheel of wheelMeshes) {
+    for (const pivots of allWheelPivots(rig)) {
+      const wheel = pivots.roll.children[0] as THREE.Mesh;
       expect(wheel.material).toBe(getWheelLookMaterial('chrome'));
     }
   });
@@ -170,7 +174,7 @@ describe('buildTruckRig -- cosmetic material application (ADR 0011 §2, material
     // under test is behavioural -- a second rig using the same id must still
     // get a *usable* (same-reference, still-correct-colour) material.
     const rigAfter = buildTruckRig(BUILD, { ...COSMETICS, wheelLook: 'chrome' });
-    const materialAfter = (rigAfter.group.children[1] as THREE.Mesh).material;
+    const materialAfter = (wheelObjectOf(rigAfter, 'frontLeft') as THREE.Mesh).material;
     expect(materialAfter).toBe(material);
   });
 });
@@ -272,7 +276,7 @@ describe('buildTruckRig -- sourced-art selective paint & built-in-wheel hiding (
     // this pass introduced, flagged here rather than silently relied on.
     const registry = await sourcedArtRegistry();
     const rig = buildTruckRig(BUILD, COSMETICS, registry); // body: 0, wheels: 0
-    const wheelObject = rig.group.children[1];
+    const wheelObject = wheelObjectOf(rig, 'frontLeft');
     expect(wheelObject.scale.x).toBeCloseTo(BODY_TIER_SOCKETS[0].wheelScale, 5);
   });
 
@@ -291,7 +295,36 @@ describe('buildTruckRig -- sourced-art selective paint & built-in-wheel hiding (
 
   it('leaves the primitive fallback wheel (no registry) alone -- default FrontSide, nothing to fix on an already-closed cylinder', () => {
     const rig = buildTruckRig(BUILD, COSMETICS); // no registry -- fallback wheels
-    const wheelMesh = rig.group.children[1] as THREE.Mesh;
+    const wheelMesh = wheelObjectOf(rig, 'frontLeft') as THREE.Mesh;
     expect((wheelMesh.material as THREE.MeshStandardMaterial).side).toBe(THREE.FrontSide);
+  });
+});
+
+describe('buildTruckRig -- wheel motion pivots (issue #40, truck-wheel-motion AC1/AC3/AC4/AC6)', () => {
+  it('exposes frontLeft/frontRight/rearLeft/rearRight wheel pivots, each positioned at that wheel\'s socket', () => {
+    const rig = buildTruckRig({ ...BUILD, body: 1 }, COSMETICS);
+    const sockets = BODY_TIER_SOCKETS[1];
+    const [flSocket, frSocket, rlSocket, rrSocket] = sockets.wheels;
+    expect(rig.wheels.frontLeft.steer.position.toArray()).toEqual(flSocket.toArray());
+    expect(rig.wheels.frontRight.steer.position.toArray()).toEqual(frSocket.toArray());
+    expect(rig.wheels.rearLeft.steer.position.toArray()).toEqual(rlSocket.toArray());
+    expect(rig.wheels.rearRight.steer.position.toArray()).toEqual(rrSocket.toArray());
+  });
+
+  it('nests roll inside steer, and the resolved wheel part inside roll, so rotating either pivot never touches the wheel part\'s own transform', () => {
+    const rig = buildTruckRig(BUILD, COSMETICS);
+    for (const pivots of allWheelPivots(rig)) {
+      expect(pivots.steer.children).toContain(pivots.roll);
+      expect(pivots.roll.children).toHaveLength(1);
+    }
+  });
+
+  it('setting roll.rotation.x / steer.rotation.y does not move the wheel off its socket (position lives on steer, unaffected by rotation)', () => {
+    const rig = buildTruckRig({ ...BUILD, body: 1 }, COSMETICS);
+    const { steer, roll } = rig.wheels.frontLeft;
+    const before = steer.position.clone();
+    roll.rotation.x = 1.23;
+    steer.rotation.y = 0.4;
+    expect(steer.position.toArray()).toEqual(before.toArray());
   });
 });

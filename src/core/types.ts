@@ -34,7 +34,6 @@ export interface TruckBuild {
  * runtime check) is what makes cosmetics AC1 a structural guarantee.
  */
 export interface TruckCosmetics {
-  bodyDesign: string;
   wheelLook: string;
 }
 

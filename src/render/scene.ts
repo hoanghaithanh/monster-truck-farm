@@ -5,11 +5,21 @@ import { clampCameraToBounds } from '../core/driving/boundary';
 import type { AssetRegistry } from './assets/asset-registry';
 import { truckAssetKeysForBuild } from './assets/manifest';
 import { buildTruckRig } from './truck-rig';
+import { WHEEL_RADIUS_BY_TIER } from './truck-sockets';
 
 // Chase camera stays this far inset from the ground plane's edge so a
 // corner position never lets the camera see past the ground into the
 // scene background/"void" (issue #17, drive AC4 intent).
 const CAMERA_GROUND_MARGIN = 3;
+
+// Wheel roll/steer (issue #40, truck-wheel-motion AC1-AC7): purely visual,
+// render-only motion layered on top of the truck rig's wheel pivots
+// (truck-rig.ts's WheelPivots) -- zero effect on the kinematic controller,
+// obstacle resolution, or any driving math (AC8). Front-wheel max steer-yaw
+// (truck-wheel-motion doc's Open Question 2, non-blocking, tuning value
+// left to the developer): 30 degrees reads as "clearly turning" without
+// looking cartoonish at the truck's actual turn rate.
+const MAX_FRONT_WHEEL_STEER_YAW = THREE.MathUtils.degToRad(30);
 
 // Farmer bump feedback (farmer AC5): a brief flash on the truck, distinct
 // from the animal-boop reward feel and never scary/violent -- just "something
@@ -132,6 +142,54 @@ export function createGameScene(
     const cameraPos = clampCameraToBounds(desiredCameraPos, bounds, CAMERA_GROUND_MARGIN);
     camera.position.set(cameraPos.x, 5, cameraPos.z);
     camera.lookAt(truckRig.group.position.x, 0.5, truckRig.group.position.z);
+  }
+
+  /**
+   * Per-frame wheel roll + front-wheel steer-yaw (issue #40, truck-wheel-
+   * motion AC1/AC3-AC6): a purely visual sibling to setTruckTransform,
+   * called from the same call site (main.ts) once both `drivingSystem.speed`
+   * and `input.getIntent().steer` are known for the frame -- reads that
+   * existing per-frame data rather than introducing a second, independent
+   * source of truth for speed/steer (the requirements doc's Constraints).
+   *
+   * Roll (AC1/AC3, Open Question 1 resolved -- physically accurate): angle
+   * delta = distance traveled this frame (`speed * dt`, signed so reverse
+   * spins the wheels the other way, AC1) / this build's actual wheel-tier
+   * circumference (`2 * PI * WHEEL_RADIUS_BY_TIER[build.wheels]`) * 2*PI
+   * radians per full turn -- applied to every wheel's `roll` pivot (AC1),
+   * regardless of cosmetic wheel-look (AC7, this never touches materials).
+   * Zero speed -> zero delta -> AC2's "reads as parked" falls out for free,
+   * no special-casing needed.
+   *
+   * Steer (AC4-AC6): front-left/front-right wheels' `steer` pivot yaws
+   * toward `steerIntent` (-1..1), capped at MAX_FRONT_WHEEL_STEER_YAW;
+   * rear wheels' `steer` pivot is never touched here, so they never yaw
+   * (AC6) even though the rig gives them a pivot too (structural symmetry
+   * only, see truck-rig.ts's WheelPivots doc comment). An instant "snap" to
+   * the target angle each frame, not a smoothed return -- AC5 explicitly
+   * allows either, and instant is simplest / needs no extra per-frame state.
+   *
+   * Roll direction while blocked against an obstacle (Open Question 3,
+   * non-blocking): this reads `drivingSystem.speed` (the truck's internal
+   * motion state), not actual displacement applied, so a truck stalled
+   * against an obstacle with the throttle still held keeps its wheels
+   * spinning -- a real stuck vehicle's wheels can spin too, and the doc
+   * explicitly leaves this either way.
+   */
+  function setTruckWheelMotion(speed: number, steerIntent: number, dt: number): void {
+    const wheelRadius = WHEEL_RADIUS_BY_TIER[currentBuild.wheels] ?? WHEEL_RADIUS_BY_TIER[0];
+    const circumference = 2 * Math.PI * wheelRadius;
+    const rollDelta = (speed * dt) / circumference * (2 * Math.PI);
+
+    const { frontLeft, frontRight, rearLeft, rearRight } = truckRig.wheels;
+    frontLeft.roll.rotation.x += rollDelta;
+    frontRight.roll.rotation.x += rollDelta;
+    rearLeft.roll.rotation.x += rollDelta;
+    rearRight.roll.rotation.x += rollDelta;
+
+    const steerAngle = THREE.MathUtils.clamp(steerIntent, -1, 1) * MAX_FRONT_WHEEL_STEER_YAW;
+    frontLeft.steer.rotation.y = steerAngle;
+    frontRight.steer.rotation.y = steerAngle;
   }
 
   function upsertAnimal(id: string, position: Vec2): void {
@@ -297,6 +355,7 @@ export function createGameScene(
 
   return {
     setTruckTransform,
+    setTruckWheelMotion,
     upsertAnimal,
     removeAnimal,
     setFarmerTransform,

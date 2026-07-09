@@ -9,11 +9,44 @@ import type { TruckBuild, TruckCosmetics } from '../core/types';
 import type { AssetRegistry } from './assets/asset-registry';
 import { bodyAssetKey, engineCueAssetKey, gasCueAssetKey, wheelAssetKey } from './assets/manifest';
 import { socketsForBodyTier } from './truck-sockets';
-import { buildDesignDecal, getWheelLookMaterial, getWheelRimTintMaterial } from './cosmetics/cosmetic-manifest';
+import { getWheelLookMaterial, getWheelRimTintMaterial } from './cosmetics/cosmetic-manifest';
+
+/**
+ * Per-wheel motion pivots (issue #40, truck-wheel-motion AC1/AC3/AC4/AC6):
+ * two nested `THREE.Group`s wrapping the resolved wheel part, so a caller
+ * (scene.ts, once per frame) can rotate rolling and steering independently
+ * of each other and of the wheel part's own baked-in transforms
+ * (fallbackWheel's `rotation.z`, a loaded part's `wheelScale`) -- setting
+ * `.rotation.x`/`.rotation.y` directly on the wheel part itself would
+ * compose incorrectly with those baked transforms (Three.js's default
+ * Euler order means a later `.rotation.z` reorients an earlier `.rotation.x`
+ * spin axis, visibly "wobbling" a non-symmetric loaded wheel model instead
+ * of rolling cleanly about a fixed axle). `steer` sits at the wheel's socket
+ * position and is the one to rotate (`.rotation.y`) for steering yaw --
+ * front wheels only (AC4); rear wheels get one too, for structural
+ * symmetry, but callers must never set an angle on it (AC6). `roll` is
+ * nested inside `steer` (so rolling composes correctly under any current
+ * steer angle) and is the one to rotate (`.rotation.x`) for AC1/AC3 --
+ * every wheel, always.
+ */
+export interface WheelPivots {
+  steer: THREE.Group;
+  roll: THREE.Group;
+}
+
+/** One `WheelPivots` per wheel, keyed by position -- matches `sockets.wheels`' [FL, FR, RL, RR] order (truck-sockets.ts). */
+export interface TruckWheelPivots {
+  frontLeft: WheelPivots;
+  frontRight: WheelPivots;
+  rearLeft: WheelPivots;
+  rearRight: WheelPivots;
+}
 
 export interface TruckRigResult {
   /** The assembled truck -- add this to a scene/preview and position/rotate it as a unit. */
   group: THREE.Group;
+  /** Per-wheel roll/steer pivots (issue #40) -- see `WheelPivots`/`TruckWheelPivots` above. */
+  wheels: TruckWheelPivots;
   /**
    * True once every geometry asset this rig needed (body/wheels/engine
    * cue/gas cue for this exact build) was loaded from the AssetRegistry --
@@ -34,12 +67,12 @@ export interface TruckRigResult {
    * instance (all 4 wheels on this truck, every other truck, and the
    * builder preview). Disposing a loaded part's geometry/material here would
    * free GPU resources still in use elsewhere. Only the primitive-fallback
-   * geometries/materials (created fresh per call, never shared) and the
-   * cosmetic design-decal's geometry (also fresh per call; its *material* is
-   * a shared cosmetic-manifest instance and is deliberately left alone) are
-   * tracked and disposed. Loaded parts' geometry, and every cosmetic paint
-   * material (shared, read-only, cached in cosmetic-manifest.ts), are never
-   * touched -- they persist for the app's lifetime by design (ADR 0010 §6).
+   * geometries/materials (created fresh per call, never shared) are tracked
+   * and disposed (the cosmetic design-decal this comment used to mention was
+   * removed outright, issue #41 -- see cosmetic-manifest.ts's header). Loaded
+   * parts' geometry, and every cosmetic paint material (shared, read-only,
+   * cached in cosmetic-manifest.ts), are never touched -- they persist for
+   * the app's lifetime by design (ADR 0010 §6).
    */
   dispose(): void;
 }
@@ -260,20 +293,11 @@ export function buildTruckRig(
   bodyResult.object.position.copy(sockets.body);
   group.add(bodyResult.object);
 
-  const decal = buildDesignDecal(cosmetics.bodyDesign);
-  if (decal) {
-    decal.position.copy(sockets.design);
-    group.add(decal);
-    // The decal's geometry (one mesh for 'stripe', several tip meshes for
-    // 'flames' -- see cosmetic-manifest.ts's buildFlameDecal) is fresh per
-    // call (owned); every tip's material is a shared, cached
-    // cosmetic-manifest instance (never owned/disposed here).
-    decal.traverse((child) => {
-      if (child instanceof THREE.Mesh) ownedGeometries.push(child.geometry);
-    });
-  }
-
   const wheelKey = wheelAssetKey(build.wheels);
+  // sockets.wheels is [FL, FR, RL, RR] (truck-sockets.ts) -- the pivots
+  // built here are collected in that same order and assigned to the named
+  // TruckWheelPivots slots below.
+  const wheelPivots: WheelPivots[] = [];
   for (const socket of sockets.wheels) {
     const wheelResult = resolvePart(registry, wheelKey, fallbackWheel);
     trackFallback(wheelResult);
@@ -286,9 +310,23 @@ export function buildTruckRig(
       fixHollowWheelGeometry(wheelResult.object);
     }
     paintWheel(wheelResult.object, cosmetics.wheelLook);
-    wheelResult.object.position.copy(socket);
-    group.add(wheelResult.object);
+
+    // Wheel motion rig (issue #40) -- see WheelPivots' doc comment above for
+    // why this needs two nested pivots rather than rotating wheelResult.object
+    // directly. The socket position lives on `steer` (the outer pivot); the
+    // wheel part itself and `roll` (the inner pivot) both stay at the
+    // pivot-local origin.
+    const rollPivot = new THREE.Group();
+    rollPivot.name = 'WheelRollPivot';
+    rollPivot.add(wheelResult.object);
+    const steerPivot = new THREE.Group();
+    steerPivot.name = 'WheelSteerPivot';
+    steerPivot.position.copy(socket);
+    steerPivot.add(rollPivot);
+    group.add(steerPivot);
+    wheelPivots.push({ steer: steerPivot, roll: rollPivot });
   }
+  const [frontLeft, frontRight, rearLeft, rearRight] = wheelPivots;
 
   const engineResult = resolvePart(registry, engineCueAssetKey(build.engine), fallbackCue);
   trackFallback(engineResult);
@@ -302,6 +340,7 @@ export function buildTruckRig(
 
   return {
     group,
+    wheels: { frontLeft, frontRight, rearLeft, rearRight },
     allAssetsReady,
     dispose() {
       for (const geometry of ownedGeometries) geometry.dispose();
