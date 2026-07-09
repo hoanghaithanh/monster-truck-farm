@@ -15,6 +15,16 @@ import { partitionObstacles } from './core/clearance';
 import { STUB_OBSTACLES, TERRAIN_BOUNDS } from './core/terrain';
 import type { TruckSpec } from './core/types';
 import type RAPIER from '@dimforge/rapier3d-compat';
+import { AssetRegistry } from './render/assets/asset-registry';
+import { ASSET_MANIFEST, TRUCK_GATE_ASSET_KEYS } from './render/assets/manifest';
+import { createLoadingIndicator } from './ui/loading-indicator';
+
+// Art-asset loading (ADR 0010): TRUCK_GATE_TIMEOUT_MS bounds how long the
+// BUILDER -> DRIVING transition will wait for the player's own truck
+// model(s) before starting anyway with whatever's loaded so far (primitive
+// fallback for the rest) -- human-confirmed 3s, tunable here if playtests
+// disagree (ADR 0010 §4.3).
+const TRUCK_GATE_TIMEOUT_MS = 3000;
 
 // Bootstrap: wires core (pure rules) <-> physics (Rapier kinematic
 // controller) <-> render (three.js) <-> input/ui, per ADR 0001 §5/§7. The
@@ -36,6 +46,19 @@ async function main() {
   const hud = createHud(app, store);
   const builder = createBuilderScreen(app, store);
   const gameOver = createGameOverScreen(app, store);
+  const loadingIndicator = createLoadingIndicator(app);
+
+  // AssetRegistry is app-lived, not session-lived (ADR 0010 §6/Consequences):
+  // created once here and prefetched once, so a restart round-trip
+  // (BUILDER -> DRIVING -> GAME_OVER -> BUILDER) never re-downloads. The
+  // builder screen is itself only ever mounted once (toggled via display,
+  // not recreated per ADR 0009's pause/resume flow), so kicking prefetch off
+  // right after it mounts satisfies "prefetch on entering the builder"
+  // (ADR 0010 §4.1) without needing a second prefetch trigger later.
+  const assetRegistry = new AssetRegistry();
+  assetRegistry.prefetch(
+    Object.entries(ASSET_MANIFEST).map(([key, entry]) => ({ key, url: entry.url.toString() })),
+  );
 
   // A driving session (rAF loop, input listeners, Rapier obstacle/truck
   // bodies, three.js scene) is started fresh on every BUILDER -> DRIVING
@@ -74,16 +97,47 @@ async function main() {
   // Captured (pause) / consumed (resume) below; stays undefined across a
   // game-over so a subsequent fresh build gets a fresh farmer.
   let pausedFarmerState: FarmerRunState | undefined;
+
+  // Truck-asset gate (ADR 0010 §4.3): waits up to TRUCK_GATE_TIMEOUT_MS for
+  // the player's own truck model(s) before constructing the driving
+  // session, showing the loading indicator only for that bounded wait --
+  // then starts regardless (primitive fallback for anything not ready by
+  // then). Kept as its own const arrow function (rather than a hoisted
+  // `function` declaration) so TypeScript's narrowing of `app` from the
+  // guard above still applies inside it.
+  const beginDrivingSession = async (spec: TruckSpec, gas: number, farmerSeed: FarmerRunState | undefined) => {
+    loadingIndicator.show();
+    await assetRegistry.waitFor(TRUCK_GATE_ASSET_KEYS, TRUCK_GATE_TIMEOUT_MS);
+    loadingIndicator.hide();
+
+    // The player may have left DRIVING again (e.g. an immediate pause)
+    // while the gate was pending -- don't construct a session for a screen
+    // we're no longer on; the dispose branch below already ran (or will run)
+    // for that transition and expects `driving` to still be undefined here.
+    if (store.screen !== 'DRIVING') {
+      startingDriving = false;
+      return;
+    }
+
+    driving = startDriving(app, world, store, assetRegistry, spec, gas, farmerSeed);
+    startingDriving = false;
+  };
+
   const unsubscribe = store.subscribe(() => {
     if (store.screen === 'DRIVING' && !driving && !startingDriving && store.spec) {
       startingDriving = true;
       // resumeDriving() and confirmBuild() both land here through this one
       // guarded call site (ADR 0009 §4) — resume adds no second
       // session-construction path, so the #21 re-entrancy guard still
-      // covers both entries.
-      driving = startDriving(app, world, store, store.spec, store.gas, pausedFarmerState);
+      // covers both entries. `startingDriving` is set synchronously above,
+      // before beginDrivingSession()'s first `await`, so a re-entrant
+      // `store.emit()` during the async gate below still can't pass this
+      // guard -- same #21 protection, just spanning an async gap now.
+      const spec = store.spec;
+      const gas = store.gas;
+      const farmerSeed = pausedFarmerState;
       pausedFarmerState = undefined; // consumed
-      startingDriving = false;
+      void beginDrivingSession(spec, gas, farmerSeed);
     } else if (store.screen !== 'DRIVING' && driving) {
       // Ordering requirement (ADR 0009 §2c): the farmer snapshot MUST be
       // captured before dispose() tears the FarmerSystem down, and only on
@@ -101,6 +155,7 @@ async function main() {
     hud.dispose();
     builder.dispose();
     gameOver.dispose();
+    loadingIndicator.dispose();
     driving?.dispose();
   });
 }
@@ -115,6 +170,7 @@ function startDriving(
   app: HTMLElement,
   world: RAPIER.World,
   store: GameStore,
+  assetRegistry: AssetRegistry,
   spec: TruckSpec,
   initialGas: number = spec.gasCapacity,
   farmerSeed?: FarmerRunState,
@@ -127,7 +183,7 @@ function startDriving(
   const truckStart = { x: 0, z: 6 };
   const truckController = new TruckController(world, truckStart, TRUCK_CONTACT_RADIUS, TRUCK_HALF_HEIGHT);
 
-  const scene = createGameScene(app, TERRAIN_BOUNDS, STUB_OBSTACLES);
+  const scene = createGameScene(app, TERRAIN_BOUNDS, STUB_OBSTACLES, assetRegistry);
   scene.setTruckTransform(truckStart, 0);
 
   const input = new KeyboardInput();

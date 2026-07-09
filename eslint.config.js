@@ -3,7 +3,10 @@ import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist/**', 'node_modules/**'] },
+  // scripts/ holds one-off Node dev tooling (e.g. regenerating the ADR 0010
+  // test-fixture .glb) -- plain Node JS, not part of the app's TS/browser
+  // lint scope.
+  { ignores: ['dist/**', 'node_modules/**', 'scripts/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

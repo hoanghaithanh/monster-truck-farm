@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import type { ObstacleInstance, Vec2 } from '../core/types';
 import type { TerrainBounds } from '../core/terrain';
 import { clampCameraToBounds } from '../core/driving/boundary';
+import type { AssetRegistry } from './assets/asset-registry';
+import { createUpgradableObject, disposeObject3D } from './assets/upgradable-object';
+import { TRUCK_GATE_ASSET_KEYS } from './assets/manifest';
 
 // Chase camera stays this far inset from the ground plane's edge so a
 // corner position never lets the camera see past the ground into the
@@ -53,7 +56,23 @@ function createObstacleMesh(obstacle: ObstacleInstance): THREE.Object3D {
   return mesh;
 }
 
-export function createGameScene(container: HTMLElement, bounds: TerrainBounds, obstacles: ObstacleInstance[]) {
+// PASS-1 INFRASTRUCTURE DEMO (ADR 0010): a small marker cube that proves the
+// AssetRegistry + createUpgradableObject pipeline works end-to-end against a
+// real loaded .glb in the running game -- primitive on frame 1, swapped in
+// place for the ADR 0010 test-fixture model the moment it's ready, with no
+// pop (see upgradable-object.ts). It is NOT a real gameplay object and has
+// no consumer meaning yet; ADR 0011 replaces it with the actual truck
+// body/wheel upgrade wiring once real truck models exist, at which point
+// this demo can be deleted.
+const DEMO_UPGRADE_PROBE_POSITION: Vec2 = { x: 4, z: 4 };
+const DEMO_UPGRADE_PROBE_ASSET_KEY = TRUCK_GATE_ASSET_KEYS[0];
+
+export function createGameScene(
+  container: HTMLElement,
+  bounds: TerrainBounds,
+  obstacles: ObstacleInstance[],
+  assetRegistry?: AssetRegistry,
+) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x8fd3ff);
 
@@ -88,6 +107,19 @@ export function createGameScene(container: HTMLElement, bounds: TerrainBounds, o
   truckMesh.position.y = 0.4;
   scene.add(truckMesh);
   let bumpFlashRemaining = 0;
+
+  // PASS-1 INFRASTRUCTURE DEMO (see comment above createGameScene): starts
+  // as a small primitive and upgrades in place once the fixture loads.
+  const demoUpgradeProbe = (() => {
+    if (!assetRegistry || !DEMO_UPGRADE_PROBE_ASSET_KEY) return undefined;
+    const primitive = new THREE.Mesh(
+      new THREE.BoxGeometry(0.6, 0.6, 0.6),
+      new THREE.MeshStandardMaterial({ color: 0x9b59b6 }),
+    );
+    primitive.position.set(DEMO_UPGRADE_PROBE_POSITION.x, 0.3, DEMO_UPGRADE_PROBE_POSITION.z);
+    scene.add(primitive);
+    return createUpgradableObject(scene, primitive);
+  })();
 
   const animalMeshes = new Map<string, THREE.Object3D>();
   let farmerMesh: THREE.Mesh | undefined;
@@ -188,6 +220,14 @@ export function createGameScene(container: HTMLElement, bounds: TerrainBounds, o
 
   /** Per-frame visual-effect decay (bump flash + fuel glow bursts) -- called once per render frame from main.ts. */
   function tickEffects(dt: number): void {
+    // PASS-1 INFRASTRUCTURE DEMO: upgrade the probe the moment its asset is
+    // ready (ADR 0010 §4 "upgrade in place" -- checked, not pushed, so it
+    // naturally fires on whichever frame the load settles, no matter when).
+    if (demoUpgradeProbe && !demoUpgradeProbe.upgraded && assetRegistry && DEMO_UPGRADE_PROBE_ASSET_KEY) {
+      const model = assetRegistry.get(DEMO_UPGRADE_PROBE_ASSET_KEY);
+      if (model) demoUpgradeProbe.upgrade(model);
+    }
+
     if (bumpFlashRemaining > 0) {
       bumpFlashRemaining = Math.max(0, bumpFlashRemaining - dt);
       const t = bumpFlashRemaining / BUMP_FLASH_SECONDS;
@@ -222,6 +262,12 @@ export function createGameScene(container: HTMLElement, bounds: TerrainBounds, o
 
   function dispose() {
     window.removeEventListener('resize', onResize);
+    // Per-session model clones are disposed with the scene (ADR 0010 §6) --
+    // the shared cached source in AssetRegistry is left untouched, only this
+    // session's clone. Existing primitive meshes elsewhere in this module
+    // aren't individually disposed (a pre-existing gap, not introduced
+    // here); this only covers what upgrade-in-place newly adds.
+    if (demoUpgradeProbe?.upgraded) disposeObject3D(demoUpgradeProbe.current);
     renderer.dispose();
     container.removeChild(renderer.domElement);
   }
