@@ -35,7 +35,7 @@ Rejected alternative, kept here only for traceability:
 
 ## User stories
 
-1. As a player, I want to choose a paint color or design for my truck's body, so my truck feels personalized regardless of which body tier I've unlocked.
+1. ~~As a player, I want to choose a paint color for my truck's body, so my truck feels personalized regardless of which body tier I've unlocked.~~ **(Removed post-ship 2026-07-09 — see note above.)** As a player, I want to choose a design (decal) for my truck's body, so my truck feels personalized regardless of which body tier I've unlocked.
 2. As a player, I want to choose a look for my wheels (texture/rim style), so my truck's appearance matches my style regardless of which wheel tier I've unlocked.
 3. As a player, I want the cosmetic choices to be clearly separate from my functional part choices in the builder, so I don't accidentally think a color change affects my truck's stats.
 
@@ -50,7 +50,7 @@ Rejected alternative, kept here only for traceability:
 
 ### Cosmetic customization (independent of functional tier)
 
-- **AC5:** Given a player has selected any body tier, when they open the cosmetic section, then they can choose from the full set of available body paint colors/designs regardless of which body tier is currently equipped or owned.
+- **AC5:** Given a player has selected any body tier, when they open the cosmetic section, then they can choose from the full set of available body paint ~~colors/~~designs regardless of which body tier is currently equipped or owned. **(Body paint color removed post-ship 2026-07-09 — see note above; design/decal choice is unaffected and still applies.)**
 - **AC6:** Given a player has selected any wheel tier, when they open the cosmetic section, then they can choose from the full set of available wheel looks (texture/rim style) regardless of which wheel tier is currently equipped or owned.
 - **AC7:** Given a player has chosen a cosmetic option and then equips a different (owned) functional tier on the same axis, when the tier changes, then the previously chosen cosmetic is re-applied to the new tier's model if a matching variant exists for it, or the cosmetic resets to that tier's default look if it doesn't (exact behavior — carry-over vs. reset — is an open implementation detail, not gated on this doc, since either satisfies "never crashes, never looks broken").
 - **AC8:** The cosmetic selection made in the builder is reflected identically on the truck model spawned in the driving scene (same asset-matching guarantee as `vehicle-and-character-art.md` AC4, extended to cosmetics).
