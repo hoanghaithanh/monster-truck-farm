@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BODY_TIER_SOCKETS } from './truck-sockets';
+import { BODY_TIER_SOCKETS, DEFAULT_SOCKETS, WHEEL_RADIUS_BY_TIER, socketsForBodyTier } from './truck-sockets';
 
 describe('BODY_TIER_SOCKETS[2] (issue #38, tier-2 front/rear wheel-well fix)', () => {
   // Values re-derived against the tier-2 body's own built-in
@@ -26,5 +26,124 @@ describe('BODY_TIER_SOCKETS[2] (issue #38, tier-2 front/rear wheel-well fix)', (
     expect(rearLeft.x).toBe(-rearRight.x);
     expect(frontLeft.y).toBe(frontRight.y);
     expect(rearLeft.y).toBe(rearRight.y);
+  });
+});
+
+// Regression tests (issue #36): pin every BODY_TIER_SOCKETS entry's full
+// values -- body, bodyScale, all 4 wheels, wheelScale, engine, gasTank -- so
+// an accidental edit to any tier's sourced-art-derived constants (module
+// header in truck-sockets.ts explains how each number was derived) shows up
+// as a failing test instead of a silent drift. These pin *all three* tiers;
+// the describe block above already covers tier 2's wheel Z values/mirroring
+// from issue #38, so it isn't duplicated here.
+describe('BODY_TIER_SOCKETS full-value regression (issue #36)', () => {
+  it('tier 0 matches its authored values', () => {
+    const tier0 = BODY_TIER_SOCKETS[0];
+    expect(tier0.body.x).toBe(0);
+    expect(tier0.body.y).toBeCloseTo(0.1001, 4);
+    expect(tier0.body.z).toBe(0);
+    expect(tier0.bodyScale).toBeCloseTo(0.3475, 4);
+
+    const [frontLeft, frontRight, rearLeft, rearRight] = tier0.wheels;
+    expect(frontLeft.x).toBeCloseTo(0.5557, 4);
+    expect(frontLeft.y).toBeCloseTo(0.28, 4);
+    expect(frontLeft.z).toBeCloseTo(0.558, 4);
+    expect(frontRight.x).toBeCloseTo(-0.5557, 4);
+    expect(frontRight.y).toBeCloseTo(0.28, 4);
+    expect(frontRight.z).toBeCloseTo(0.558, 4);
+    expect(rearLeft.x).toBeCloseTo(0.5557, 4);
+    expect(rearLeft.y).toBeCloseTo(0.28, 4);
+    expect(rearLeft.z).toBeCloseTo(-0.558, 4);
+    expect(rearRight.x).toBeCloseTo(-0.5557, 4);
+    expect(rearRight.y).toBeCloseTo(0.28, 4);
+    expect(rearRight.z).toBeCloseTo(-0.558, 4);
+
+    expect(tier0.wheelScale).toBeCloseTo(0.5207, 4);
+    expect(tier0.engine.x).toBe(0);
+    expect(tier0.engine.y).toBeCloseTo(0.6851, 4);
+    expect(tier0.engine.z).toBeCloseTo(0.648, 4);
+    expect(tier0.gasTank.x).toBeCloseTo(0.3615, 4);
+    expect(tier0.gasTank.y).toBeCloseTo(0.4089, 4);
+    expect(tier0.gasTank.z).toBeCloseTo(-0.612, 4);
+  });
+
+  it('tier 1 matches its authored values', () => {
+    const tier1 = BODY_TIER_SOCKETS[1];
+    expect(tier1.body.x).toBe(0);
+    expect(tier1.body.y).toBeCloseTo(0.3111, 4);
+    expect(tier1.body.z).toBe(0);
+    expect(tier1.bodyScale).toBeCloseTo(0.3724, 4);
+
+    const [frontLeft, frontRight, rearLeft, rearRight] = tier1.wheels;
+    expect(frontLeft.x).toBeCloseTo(0.7134, 4);
+    expect(frontLeft.y).toBeCloseTo(0.4, 4);
+    expect(frontLeft.z).toBeCloseTo(0.6355, 4);
+    expect(frontRight.x).toBeCloseTo(-0.7134, 4);
+    expect(frontRight.y).toBeCloseTo(0.4, 4);
+    expect(frontRight.z).toBeCloseTo(0.6355, 4);
+    expect(rearLeft.x).toBeCloseTo(0.7134, 4);
+    expect(rearLeft.y).toBeCloseTo(0.4, 4);
+    expect(rearLeft.z).toBeCloseTo(-0.6355, 4);
+    expect(rearRight.x).toBeCloseTo(-0.7134, 4);
+    expect(rearRight.y).toBeCloseTo(0.4, 4);
+    expect(rearRight.z).toBeCloseTo(-0.6355, 4);
+
+    expect(tier1.wheelScale).toBeCloseTo(0.7166, 4);
+    expect(tier1.engine.x).toBe(0);
+    expect(tier1.engine.y).toBeCloseTo(0.9743, 4);
+    expect(tier1.engine.z).toBeCloseTo(0.738, 4);
+    expect(tier1.gasTank.x).toBeCloseTo(0.444, 4);
+    expect(tier1.gasTank.y).toBeCloseTo(0.5827, 4);
+    expect(tier1.gasTank.z).toBeCloseTo(-0.697, 4);
+  });
+
+  it('tier 2 matches its authored values (body/bodyScale/wheelScale/engine/gasTank not covered by the #38 describe block above)', () => {
+    const tier2 = BODY_TIER_SOCKETS[2];
+    expect(tier2.body.x).toBe(0);
+    expect(tier2.body.y).toBeCloseTo(0.5059, 4);
+    expect(tier2.body.z).toBe(0);
+    expect(tier2.bodyScale).toBeCloseTo(0.4125, 4);
+
+    const [frontLeft, frontRight, rearLeft, rearRight] = tier2.wheels;
+    expect(frontLeft.x).toBeCloseTo(0.9328, 4);
+    expect(frontLeft.y).toBeCloseTo(0.58, 4);
+    expect(frontRight.x).toBeCloseTo(-0.9328, 4);
+    expect(frontRight.y).toBeCloseTo(0.58, 4);
+    expect(rearLeft.x).toBeCloseTo(0.9328, 4);
+    expect(rearLeft.y).toBeCloseTo(0.58, 4);
+    expect(rearRight.x).toBeCloseTo(-0.9328, 4);
+    expect(rearRight.y).toBeCloseTo(0.58, 4);
+
+    expect(tier2.wheelScale).toBeCloseTo(1.039, 4);
+    expect(tier2.engine.x).toBe(0);
+    expect(tier2.engine.y).toBeCloseTo(1.569, 4);
+    expect(tier2.engine.z).toBeCloseTo(0.828, 4);
+    expect(tier2.gasTank.x).toBeCloseTo(0.5524, 4);
+    expect(tier2.gasTank.y).toBeCloseTo(0.8947, 4);
+    expect(tier2.gasTank.z).toBeCloseTo(-0.782, 4);
+  });
+});
+
+describe('WHEEL_RADIUS_BY_TIER (issue #36)', () => {
+  it('pins the Base/Off-road/Monster wheel-radius progression', () => {
+    expect(WHEEL_RADIUS_BY_TIER[0]).toBe(0.28);
+    expect(WHEEL_RADIUS_BY_TIER[1]).toBe(0.4);
+    expect(WHEEL_RADIUS_BY_TIER[2]).toBe(0.58);
+  });
+});
+
+describe('socketsForBodyTier (issue #36)', () => {
+  it('returns each in-range tier\'s own table, not the fallback', () => {
+    expect(socketsForBodyTier(0)).toBe(BODY_TIER_SOCKETS[0]);
+    expect(socketsForBodyTier(1)).toBe(BODY_TIER_SOCKETS[1]);
+    expect(socketsForBodyTier(2)).toBe(BODY_TIER_SOCKETS[2]);
+  });
+
+  it.each([-1, 3, 99])('falls back to DEFAULT_SOCKETS for an out-of-range tier index (%d)', (tier) => {
+    expect(socketsForBodyTier(tier)).toBe(DEFAULT_SOCKETS);
+  });
+
+  it('DEFAULT_SOCKETS is exactly BODY_TIER_SOCKETS[0]', () => {
+    expect(DEFAULT_SOCKETS).toBe(BODY_TIER_SOCKETS[0]);
   });
 });
