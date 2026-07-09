@@ -149,4 +149,70 @@ describe('AssetRegistry.waitFor (the ADR 0010 §4.3 bounded gate)', () => {
     await registry.waitFor(['never-requested'], 3000);
     expect(Date.now() - start).toBeLessThan(50);
   });
+
+  it('waits for every key to settle, not just the first -- a fast key settling early does not short-circuit the gate while a slower key is still pending', async () => {
+    vi.useFakeTimers();
+    const fast = deferred<{ scene: THREE.Object3D }>();
+    const slow = deferred<{ scene: THREE.Object3D }>();
+    const registry = new AssetRegistry({
+      loadAsync: (url: string) => (url === 'fast' ? fast.promise : slow.promise),
+    });
+    registry.load('fast', 'fast');
+    registry.load('slow', 'slow');
+
+    let resolved = false;
+    void registry.waitFor(['fast', 'slow'], 3000).then(() => {
+      resolved = true;
+    });
+
+    fast.resolve({ scene: fakeScene() });
+    await vi.advanceTimersByTimeAsync(0);
+    // Only "fast" has settled -- the gate must still be waiting on "slow",
+    // well before the 3s timeout.
+    expect(resolved).toBe(false);
+    expect(registry.status('fast')).toBe('ready');
+    expect(registry.status('slow')).toBe('pending');
+
+    slow.resolve({ scene: fakeScene() });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(resolved).toBe(true);
+    vi.useRealTimers();
+  });
+
+  it('a load that settles after the gate already timed out still becomes ready afterward, so a later upgrade-in-place is possible even though this gate gave up on it', async () => {
+    vi.useFakeTimers();
+    const pending = deferred<{ scene: THREE.Object3D }>();
+    const registry = new AssetRegistry({ loadAsync: () => pending.promise });
+    registry.load('key', 'url');
+
+    let gateResolved = false;
+    void registry.waitFor(['key'], 3000).then(() => {
+      gateResolved = true;
+    });
+
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(gateResolved).toBe(true);
+    expect(registry.status('key')).toBe('pending'); // gate gave up; load itself keeps going
+
+    // The load finally resolves well after the gate's timeout elapsed.
+    pending.resolve({ scene: fakeScene() });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(registry.status('key')).toBe('ready');
+    expect(registry.get('key')).toBeDefined();
+    vi.useRealTimers();
+  });
+
+  it('a second waitFor() call for a key that already settled on a previous gate resolves immediately (re-entering DRIVING a second time must not re-wait)', async () => {
+    const loader: GltfLoaderLike = { loadAsync: async () => ({ scene: fakeScene() }) };
+    const registry = new AssetRegistry(loader);
+    registry.load('key', 'url');
+    await registry.waitFor(['key'], 3000);
+    expect(registry.status('key')).toBe('ready');
+
+    const start = Date.now();
+    await registry.waitFor(['key'], 3000);
+    expect(Date.now() - start).toBeLessThan(50);
+    expect(registry.status('key')).toBe('ready');
+  });
 });
