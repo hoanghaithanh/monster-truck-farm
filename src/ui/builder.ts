@@ -166,7 +166,25 @@ export function createBuilderScreen(
   let previewRig: TruckRigResult = buildTruckRig(store.build, store.cosmetics, assetRegistry);
   previewScene.add(previewRig.group);
 
-  /** Rebuilds the preview rig from the *current* store state -- the single assembly path shared with scene.ts's driving-scene truck (ADR 0011 §5). Called on every builder render() so a tier/cosmetic change is reflected immediately, never blocking first paint since buildTruckRig always returns *something* (primitive fallback if assets aren't ready yet, per ADR 0010 §7/vehicle-art AC11/AC13). */
+  // Last-seen build/cosmetics the preview rig was actually built from (issue
+  // #34 perf fix): render() is invoked from every keyboard nav event
+  // (ArrowUp/Down/Left/Right), not just from an actual tier/cosmetic change,
+  // so without this the full dispose+buildTruckRig cost was paid on every
+  // keystroke. Both TruckBuild and TruckCosmetics are small flat objects of
+  // primitives, so a shallow field-by-field comparison is enough -- no need
+  // for a deep-equal library.
+  let lastBuild: TruckBuild = { ...store.build };
+  let lastCosmetics: TruckCosmetics = { ...store.cosmetics };
+
+  function buildsEqual(a: TruckBuild, b: TruckBuild): boolean {
+    return a.body === b.body && a.wheels === b.wheels && a.engine === b.engine && a.gasTank === b.gasTank;
+  }
+
+  function cosmeticsEqual(a: TruckCosmetics, b: TruckCosmetics): boolean {
+    return a.wheelLook === b.wheelLook;
+  }
+
+  /** Rebuilds the preview rig from the *current* store state -- the single assembly path shared with scene.ts's driving-scene truck (ADR 0011 §5). Called whenever render() detects an actual build/cosmetics change, and unconditionally from previewInterval's own opportunistic asset-upgrade check -- never blocking first paint since buildTruckRig always returns *something* (primitive fallback if assets aren't ready yet, per ADR 0010 §7/vehicle-art AC11/AC13). */
   function rebuildPreview(): void {
     const rebuilt = buildTruckRig(store.build, store.cosmetics, assetRegistry);
     rebuilt.group.rotation.y = previewRig.group.rotation.y; // keep the idle spin continuous across a rebuild
@@ -174,6 +192,8 @@ export function createBuilderScreen(
     previewRig.dispose();
     previewRig = rebuilt;
     previewScene.add(previewRig.group);
+    lastBuild = { ...store.build };
+    lastCosmetics = { ...store.cosmetics };
   }
 
   const previewInterval = setInterval(() => {
@@ -368,7 +388,13 @@ export function createBuilderScreen(
   }
 
   function render() {
-    rebuildPreview();
+    // Only pay the dispose+rebuild cost when build/cosmetics actually
+    // changed (issue #34) -- render() also fires on pure cursor-navigation
+    // keypresses and on unrelated store emits (coins, ownership, etc.),
+    // none of which should tear down and reassemble the rig.
+    if (!buildsEqual(lastBuild, store.build) || !cosmeticsEqual(lastCosmetics, store.cosmetics)) {
+      rebuildPreview();
+    }
 
     const build = store.build;
     const ownership = store.ownership;
