@@ -302,6 +302,14 @@ export function createGameScene(
         const rebuilt = buildTruckRig(currentBuild, currentCosmetics, assetRegistry);
         rebuilt.group.position.copy(truckRig.group.position);
         rebuilt.group.rotation.copy(truckRig.group.rotation);
+        // Carry over each wheel's current roll/steer angle (issue #44) --
+        // the rebuilt rig's pivots are freshly created at rotation 0, so
+        // without this the wheels visibly snap back to un-rolled for one
+        // frame before setTruckWheelMotion's next call resumes accumulating.
+        for (const wheelKey of Object.keys(truckRig.wheels) as (keyof typeof truckRig.wheels)[]) {
+          rebuilt.wheels[wheelKey].roll.rotation.x = truckRig.wheels[wheelKey].roll.rotation.x;
+          rebuilt.wheels[wheelKey].steer.rotation.y = truckRig.wheels[wheelKey].steer.rotation.y;
+        }
         scene.add(rebuilt.group);
         scene.remove(truckRig.group);
         truckRig.dispose();

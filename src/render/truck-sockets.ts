@@ -47,6 +47,26 @@
 // the same fractional layout the old hand-authored table used, since the
 // real body models don't expose named attachment points either.
 //
+// Tier-2 front-wheel-socket fix (issue #38, 2026-07-09): the tier-2 body
+// ("Truck_Armored") ships its own built-in (later-removed, see
+// removeBuiltinWheelNodes in truck-rig.ts) `FrontWheel_L`/`FrontWheel_R`/
+// `BackWheels` nodes -- the original artist's own wheel-well placement for
+// this exact mesh. Sampling those nodes' actual (post node-transform)
+// vertex centroids and scaling by this tier's `bodyScale` (0.4125) puts the
+// real front wheel-well center at local Z ~0.479 (rear ~-0.885) -- but the
+// old `wheelZFront` value below (0.713, inherited from the same "roughly
+// symmetric around the body's own trimmed-down front/rear span" approach
+// used for tiers 0/1) put the front wheel about 0.23 units further forward
+// than the actual wheel-well opening on this specific body mesh, clear of
+// any fender geometry -- the "detached wheel" look reported in #38, visible
+// in the builder's oblique preview camera. Tiers 0/1 share a *different*
+// (and much closer to symmetric) built-in wheel-well anchor, which is why
+// only tier 2 showed the defect. Re-derived `wheelZFront` for tier 2 only
+// against the real built-in-node anchor (same "sample actual mesh data"
+// technique as the `design` socket fix below); `wheelZRear`/`wheelX` are
+// unchanged since #38 reports the front wheel only and physics/collision
+// doesn't depend on this render-only placement.
+//
 // Sourced-art-fixes pass (issue #33 follow-up, 2026-07-09, see
 // docs/qa/screenshots/adr-0011-sourced-art-fixes/): the *first* sourced-art
 // pass's `design` socket Y was wrong -- it used each body mesh's *global*
@@ -122,7 +142,7 @@ function sockets(
 export const BODY_TIER_SOCKETS: Record<number, TruckSockets> = {
   0: sockets(0.1001, 0.3475, 0.5557, 0.28, 0.5207, 0.558, -0.558, [0, 0.6851, 0.648], [0.3615, 0.4089, -0.612], [0, 0.5866, 0]),
   1: sockets(0.3111, 0.3724, 0.7134, 0.4, 0.7166, 0.6355, -0.6355, [0, 0.9743, 0.738], [0.444, 0.5827, -0.697], [0, 0.8348, 0]),
-  2: sockets(0.5059, 0.4125, 0.9328, 0.58, 1.039, 0.713, -0.713, [0, 1.569, 0.828], [0.5524, 0.8947, -0.782], [0, 1.3286, 0]),
+  2: sockets(0.5059, 0.4125, 0.9328, 0.58, 1.039, 0.479, -0.713, [0, 1.569, 0.828], [0.5524, 0.8947, -0.782], [0, 1.3286, 0]),
 };
 
 /** Fallback socket table for an out-of-range tier index -- never crash on an unexpected build value (ADR 0010 §7's forgiving-fallback spirit). */
