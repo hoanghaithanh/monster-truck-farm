@@ -187,7 +187,18 @@ export function createGameScene(
     rearLeft.roll.rotation.x += rollDelta;
     rearRight.roll.rotation.x += rollDelta;
 
-    const steerAngle = THREE.MathUtils.clamp(steerIntent, -1, 1) * MAX_FRONT_WHEEL_STEER_YAW;
+    // Sign fix (2026-07-09, issue #40 human report -- wheels steered
+    // opposite the truck's actual turn direction). `steer.rotation.y` is a
+    // plain Three.js Y-axis rotation on a pivot nested directly under the
+    // truck body group, so it obeys the exact same right-hand-rule
+    // convention `truck-motion.ts`'s TruckMotionState.heading doc comment
+    // establishes: increasing Y-rotation swings a +Z-forward vector toward
+    // +X, which is the truck's LEFT, not right. That's why
+    // integrateTruckMotion() computes `heading -= intent.steer * ...` (steer
+    // right => heading must *decrease*) -- the wheel-visual angle needs that
+    // same negation, which this code originally omitted, so it was
+    // literally the mirror image of the correct steer direction.
+    const steerAngle = -THREE.MathUtils.clamp(steerIntent, -1, 1) * MAX_FRONT_WHEEL_STEER_YAW;
     frontLeft.steer.rotation.y = steerAngle;
     frontRight.steer.rotation.y = steerAngle;
   }

@@ -1,0 +1,33 @@
+{
+  "straight": {
+    "frontLeftSteer": 0,
+    "frontRightSteer": 0,
+    "rearLeftSteer": 0,
+    "rearRightSteer": 0,
+    "truckHeading": 0
+  },
+  "leftRot": {
+    "frontLeftSteer": 0.5235987755982988,
+    "frontRightSteer": 0.5235987755982988,
+    "rearLeftSteer": 0,
+    "rearRightSteer": 0,
+    "truckHeading": 1.3138400000000006
+  },
+  "straightAgain": {
+    "frontLeftSteer": 0,
+    "frontRightSteer": 0,
+    "rearLeftSteer": 0,
+    "rearRightSteer": 0,
+    "truckHeading": 1.4055800000000012
+  },
+  "rightRot": {
+    "frontLeftSteer": -0.5235987755982988,
+    "frontRightSteer": -0.5235987755982988,
+    "rearLeftSteer": 0,
+    "rearRightSteer": 0,
+    "truckHeading": 0.06115999999999882
+  },
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ]
+}
