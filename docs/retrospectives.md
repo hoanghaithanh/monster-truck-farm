@@ -29,3 +29,20 @@ Dated entries, one per sprint close-out, recorded by the `project-manager` agent
 
 ### Changes to try next sprint
 1. The developer agent should explicitly confirm via `git log`/`git status` that its commit landed before reporting completion — verify, don't just narrate. Note: test-engineer already started doing this self-check on its own after the #25 incident; this makes it an explicit convention for the developer step as well.
+
+## Sprint 3 (2026-07-08 – 2026-07-15) — retro recorded 2026-07-09
+
+**Outcome:** 15/15 issues closed (#27, #30-#41, #43-#44). Milestone closed 2026-07-09, a few days ahead of the 2026-07-14 due date, by deliberate human choice. 3 stories originally in scope (#26 environment dressing, #28 chicken model, #29 farmer model) plus new story #42 (obstacle climbing) were rolled forward into Sprint 4 earlier the same day rather than force-closed here.
+
+### What went well
+- The core deliverable — replacing procedurally-generated placeholder truck art with a real sourced CC0/CC-BY pack (#33, #27) — shipped and held up under live-browser scrutiny across two follow-up defect passes (#38 wheel-socket misalignment, #35 muddy body-color tint), both caught by actually looking at rendered screenshots rather than by unit tests or code review alone, consistent with the CLAUDE.md lesson already logged from that work.
+- Wheel roll/steer motion (#40) and the #38 socket-alignment fix both shipped clean, each backed by dedicated regression test coverage (truck-sockets.test.ts) added in the same pass rather than deferred.
+- Three issues (#27, #30, #37) closed on inspection as already-satisfied or made obsolete by other work, rather than costing a wasted implementation pass — the team correctly recognized when scope had already been covered elsewhere (e.g. #37's target function no longer existed after #39/#41's cleanup) instead of mechanically completing them as originally scoped.
+
+### What didn't go well
+- Body-color and body-design cosmetics (#30's original scope) were fully implemented and shipped, then removed entirely post-ship at the human's direct request after playtest feedback (#39, #41) — real implementation and review effort was spent on cosmetic work the player ended up not wanting, discovered only after it was live rather than during requirements or design.
+- Code review surfaced a cluster of real, pre-existing gaps only once it looked closely at this sprint's touched files: #34 (preview rig needlessly rebuilding on pure keyboard navigation), #36 (truck-sockets.ts had zero test coverage despite being the site of two shipped visual regressions, #38 and an earlier one), #43 (a dead field left behind after #41's decal removal), and #37 mentioned above. None of these were caught by the original implementation or its own first review pass — they were only found once a later reviewer pass went back over the same code with the benefit of hindsight from the visual-defect fixes.
+
+### Changes to try next sprint
+1. For cosmetic/product-feel changes with no hard functional requirement (paint color, decals, and similar "would this look nice" work), get a human playtest check-in *before* full implementation + review + test investment, not just at final acceptance sign-off — Sprint 3 spent a full pipeline pass on body-color/body-design before learning the human didn't want it.
+2. When a fix touches a shared file with a known history of visual regressions (truck-sockets.ts had two: the original and #38), treat "does this file have test coverage at all" as a standing review checklist item rather than something that surfaces later as its own separate tech-debt issue (#36) — it should be caught the first time that file is touched under review, not the second or third.
