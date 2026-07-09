@@ -69,10 +69,19 @@ export function createHud(container: HTMLElement, store: GameStore): { dispose: 
 
     const spec = store.spec;
     const drivingScreen = store.screen === 'DRIVING';
-    gasTrack.style.display = drivingScreen && spec ? 'block' : 'none';
-    hitsRow.style.display = drivingScreen && spec ? 'block' : 'none';
+    // Gas/hits bars are gated on `sessionActive`, not `drivingScreen` alone
+    // (issue #32): `screen` flips to DRIVING synchronously, up to 3s before
+    // main.ts's ADR 0010 truck-asset gate actually constructs the driving
+    // scene, so a `drivingScreen`-only check would render these bars over
+    // the loading overlay before there's anything behind it. The pause
+    // button stays gated on `drivingScreen` alone -- pausing during the
+    // gate window is a legitimate, now-correctly-handled flow (issue #31),
+    // not something that needs a session to exist first.
+    const sessionActive = store.sessionActive;
+    gasTrack.style.display = sessionActive && spec ? 'block' : 'none';
+    hitsRow.style.display = sessionActive && spec ? 'block' : 'none';
     pauseBtn.style.display = drivingScreen ? 'block' : 'none';
-    if (drivingScreen && spec) {
+    if (sessionActive && spec) {
       const gasFraction = spec.gasCapacity > 0 ? store.gas / spec.gasCapacity : 0;
       gasFill.style.width = `${Math.max(0, Math.min(100, gasFraction * 100))}%`;
       hitsRow.textContent = '❤️'.repeat(store.hitsRemaining) + '\u{1F5A4}'.repeat(spec.hitCapacity - store.hitsRemaining);

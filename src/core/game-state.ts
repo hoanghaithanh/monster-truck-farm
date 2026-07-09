@@ -41,6 +41,7 @@ export class GameStore {
   private _hitsRemaining = 0;
   private _gas = 0;
   private _pausedMidRun = false;
+  private _sessionActive = false;
   private listeners = new Set<Listener>();
 
   get coins(): number {
@@ -78,6 +79,26 @@ export class GameStore {
   /** True when the current BUILDER visit is a voluntary pause mid-run (ADR 0009), not a fresh build/post-game-over visit. Drives the builder UI's "Resume driving!" label and beginDrive()'s routing. */
   get pausedMidRun(): boolean {
     return this._pausedMidRun;
+  }
+
+  /**
+   * True once a driving session (scene/physics/rAF loop) actually exists,
+   * as opposed to `screen === 'DRIVING'` alone -- which flips synchronously
+   * on `confirmBuild()`/`resumeDriving()`, up to `TRUCK_GATE_TIMEOUT_MS`
+   * (ADR 0010 §4.3) before main.ts's truck-asset gate resolves and a session
+   * is actually constructed. Set by main.ts, not derived from `screen`, so
+   * DRIVING-only UI (HUD gas/hits bars, issue #32) can distinguish "on the
+   * driving screen" from "there is something to render behind the loading
+   * overlay."
+   */
+  get sessionActive(): boolean {
+    return this._sessionActive;
+  }
+
+  /** See `sessionActive` — main.ts flips this exactly when it constructs/tears down a driving session. */
+  setSessionActive(active: boolean): void {
+    this._sessionActive = active;
+    this.emit();
   }
 
   addCoins(amount: number): void {

@@ -18,6 +18,7 @@ import type RAPIER from '@dimforge/rapier3d-compat';
 import { AssetRegistry } from './render/assets/asset-registry';
 import { ASSET_MANIFEST, TRUCK_GATE_ASSET_KEYS } from './render/assets/manifest';
 import { createLoadingIndicator } from './ui/loading-indicator';
+import { createDrivingSessionController } from './core/driving-session-controller';
 
 // Art-asset loading (ADR 0010): TRUCK_GATE_TIMEOUT_MS bounds how long the
 // BUILDER -> DRIVING transition will wait for the player's own truck
@@ -62,101 +63,30 @@ async function main() {
 
   // A driving session (rAF loop, input listeners, Rapier obstacle/truck
   // bodies, three.js scene) is started fresh on every BUILDER -> DRIVING
-  // transition and torn down on the matching DRIVING -> GAME_OVER
+  // transition and torn down on the matching DRIVING -> GAME_OVER/BUILDER
   // transition, so a restart (GAME_OVER -> BUILDER -> DRIVING, builder AC7)
   // rebuilds against the player's possibly-new TruckSpec instead of
-  // silently continuing the stale session (issue #18). The `!driving` /
-  // `driving` guards make each branch fire exactly once per transition,
-  // not on every store mutation (e.g. addCoins) that re-fires this
-  // subscriber while already mid-session.
-  let driving: ReturnType<typeof startDriving> | undefined;
-  // Guards against *re-entrant* `store.emit()` calls firing synchronously
-  // while this very listener is still on the call stack constructing a
-  // session -- e.g. `GasSystem`'s constructor calls `store.setGas()`
-  // (drive AC10) partway through `startDriving()`, which synchronously
-  // notifies every subscriber, including this one, before `driving` below
-  // has been assigned. The `!driving` guard alone can't catch that: it's
-  // still `undefined` at that point (the assignment only happens once
-  // `startDriving()` *returns*), so the re-entrant call passed the guard
-  // too, called `startDriving()` again, which itself re-entered via its own
-  // `GasSystem` construction, and so on -- unbounded synchronous recursion,
-  // each level standing up a whole extra scene/physics session that never
-  // gets disposed (only the last one survives in `driving`), until the JS
-  // call stack overflowed mid-`Rapier.World.createCollider()` WASM call.
-  // That's the actual root cause of issue #21's "Maximum call stack size
-  // exceeded" / "recursive use of an object" crash -- confirmed by
-  // instrumenting this listener, which logged 1643 nested `startDriving()`
-  // entries (and hundreds of "Too many active WebGL contexts" warnings from
-  // the orphaned scenes) before the crash. It is not a bug in
-  // `createObstacleColliders`/Rapier's collider API, which builds a fresh
-  // descriptor per obstacle and reproduces cleanly in isolation.
-  let startingDriving = false;
-  // Farmer state-carry across a voluntary pause (ADR 0009 §2c): held here,
-  // not on GameStore, because the farmer FSM was never store-owned and its
-  // lifecycle is bound to this module's own session dispose/recreate.
-  // Captured (pause) / consumed (resume) below; stays undefined across a
-  // game-over so a subsequent fresh build gets a fresh farmer.
-  let pausedFarmerState: FarmerRunState | undefined;
-
-  // Truck-asset gate (ADR 0010 §4.3): waits up to TRUCK_GATE_TIMEOUT_MS for
-  // the player's own truck model(s) before constructing the driving
-  // session, showing the loading indicator only for that bounded wait --
-  // then starts regardless (primitive fallback for anything not ready by
-  // then). Kept as its own const arrow function (rather than a hoisted
-  // `function` declaration) so TypeScript's narrowing of `app` from the
-  // guard above still applies inside it.
-  const beginDrivingSession = async (spec: TruckSpec, gas: number, farmerSeed: FarmerRunState | undefined) => {
-    loadingIndicator.show();
-    await assetRegistry.waitFor(TRUCK_GATE_ASSET_KEYS, TRUCK_GATE_TIMEOUT_MS);
-    loadingIndicator.hide();
-
-    // The player may have left DRIVING again (e.g. an immediate pause)
-    // while the gate was pending -- don't construct a session for a screen
-    // we're no longer on; the dispose branch below already ran (or will run)
-    // for that transition and expects `driving` to still be undefined here.
-    if (store.screen !== 'DRIVING') {
-      startingDriving = false;
-      return;
-    }
-
-    driving = startDriving(app, world, store, assetRegistry, spec, gas, farmerSeed);
-    startingDriving = false;
-  };
-
-  const unsubscribe = store.subscribe(() => {
-    if (store.screen === 'DRIVING' && !driving && !startingDriving && store.spec) {
-      startingDriving = true;
-      // resumeDriving() and confirmBuild() both land here through this one
-      // guarded call site (ADR 0009 §4) — resume adds no second
-      // session-construction path, so the #21 re-entrancy guard still
-      // covers both entries. `startingDriving` is set synchronously above,
-      // before beginDrivingSession()'s first `await`, so a re-entrant
-      // `store.emit()` during the async gate below still can't pass this
-      // guard -- same #21 protection, just spanning an async gap now.
-      const spec = store.spec;
-      const gas = store.gas;
-      const farmerSeed = pausedFarmerState;
-      pausedFarmerState = undefined; // consumed
-      void beginDrivingSession(spec, gas, farmerSeed);
-    } else if (store.screen !== 'DRIVING' && driving) {
-      // Ordering requirement (ADR 0009 §2c): the farmer snapshot MUST be
-      // captured before dispose() tears the FarmerSystem down, and only on
-      // the *pause* exit (store.pausedMidRun), not a game-over -- on
-      // game-over the blob stays undefined so a fresh build gets a fresh
-      // farmer, matching #18's dispose-ordering fix precisely.
-      pausedFarmerState = store.pausedMidRun ? driving.snapshotFarmer() : undefined;
-      driving.dispose();
-      driving = undefined;
-    }
+  // silently continuing the stale session (issue #18). The full lifecycle
+  // guard (re-entrancy per issue #21; reading store state only after the
+  // ADR 0010 §4.3 truck-asset gate resolves, per issue #31) lives in
+  // `createDrivingSessionController` (src/core/driving-session-controller.ts)
+  // rather than inline here, so it can be driven and tested with a fake
+  // gate/store independent of this module's DOM/Rapier/three.js wiring.
+  const sessionController = createDrivingSessionController<FarmerRunState>({
+    store,
+    waitForGate: () => assetRegistry.waitFor(TRUCK_GATE_ASSET_KEYS, TRUCK_GATE_TIMEOUT_MS),
+    onGateStart: () => loadingIndicator.show(),
+    onGateEnd: () => loadingIndicator.hide(),
+    onSessionActiveChange: (active) => store.setSessionActive(active), // issue #32
+    startSession: (spec, gas, farmerSeed) => startDriving(app, world, store, assetRegistry, spec, gas, farmerSeed),
   });
 
   window.addEventListener('unload', () => {
-    unsubscribe();
+    sessionController.dispose();
     hud.dispose();
     builder.dispose();
     gameOver.dispose();
     loadingIndicator.dispose();
-    driving?.dispose();
   });
 }
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { GameStore, nextScreen } from './game-state';
 import { DEFAULT_TRUCK_BUILD } from './stats/default-truck';
 import { BODY_TIERS, ENGINE_TIERS, GAS_TIERS, WHEEL_TIERS } from './stats/tiers';
@@ -777,6 +777,34 @@ describe('confirmBuild/restart clear pausedMidRun (ADR 0009 §5)', () => {
     store.bump(); // -> gameOver
     store.restart();
     expect(store.pausedMidRun).toBe(false);
+  });
+});
+
+describe('GameStore.sessionActive (issue #32: HUD gas/hits bars gate on this, not `screen` alone)', () => {
+  it('starts false', () => {
+    const store = new GameStore();
+    expect(store.sessionActive).toBe(false);
+  });
+
+  it('is independent of screen -- confirmBuild() alone does not set it', () => {
+    const store = new GameStore();
+    store.confirmBuild();
+    expect(store.screen).toBe('DRIVING');
+    expect(store.sessionActive).toBe(false); // main.ts's driving-session controller sets this once the session actually exists
+  });
+
+  it('setSessionActive() flips the flag and notifies subscribers', () => {
+    const store = new GameStore();
+    const listener = vi.fn();
+    store.subscribe(listener);
+
+    store.setSessionActive(true);
+    expect(store.sessionActive).toBe(true);
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    store.setSessionActive(false);
+    expect(store.sessionActive).toBe(false);
+    expect(listener).toHaveBeenCalledTimes(2);
   });
 });
 
