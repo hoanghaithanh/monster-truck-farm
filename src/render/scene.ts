@@ -4,8 +4,26 @@ import type { TerrainBounds } from '../core/terrain';
 import { clampCameraToBounds } from '../core/driving/boundary';
 import type { AssetRegistry } from './assets/asset-registry';
 import { truckAssetKeysForBuild } from './assets/manifest';
-import { buildTruckRig } from './truck-rig';
+import { buildTruckRig, type TruckWheelPivots } from './truck-rig';
 import { WHEEL_RADIUS_BY_TIER } from './truck-sockets';
+
+/**
+ * Copies each wheel's current roll/steer angle from `from` onto the matching
+ * pivot in `to` (issue #44) -- extracted to a small, DOM/WebGL-free pure
+ * function specifically so it's unit-testable on its own (scene.test.ts):
+ * `createGameScene`'s returned closure needs a real `THREE.WebGLRenderer`
+ * (this project's test env is plain Node, no jsdom/canvas), but this one
+ * step of `tickEffects`'s rig-rebuild path has no such dependency. The cast
+ * inside is safe by construction: both `from` and `to` are `TruckWheelPivots`
+ * literals assembled by the same `buildTruckRig` (truck-rig.ts), so they
+ * always share the exact same four keys (frontLeft/frontRight/rearLeft/rearRight).
+ */
+export function carryOverWheelRotations(from: TruckWheelPivots, to: TruckWheelPivots): void {
+  for (const key of Object.keys(from) as (keyof TruckWheelPivots)[]) {
+    to[key].roll.rotation.x = from[key].roll.rotation.x;
+    to[key].steer.rotation.y = from[key].steer.rotation.y;
+  }
+}
 
 // Chase camera stays this far inset from the ground plane's edge so a
 // corner position never lets the camera see past the ground into the
@@ -306,10 +324,9 @@ export function createGameScene(
         // the rebuilt rig's pivots are freshly created at rotation 0, so
         // without this the wheels visibly snap back to un-rolled for one
         // frame before setTruckWheelMotion's next call resumes accumulating.
-        for (const wheelKey of Object.keys(truckRig.wheels) as (keyof typeof truckRig.wheels)[]) {
-          rebuilt.wheels[wheelKey].roll.rotation.x = truckRig.wheels[wheelKey].roll.rotation.x;
-          rebuilt.wheels[wheelKey].steer.rotation.y = truckRig.wheels[wheelKey].steer.rotation.y;
-        }
+        // See carryOverWheelRotations's own doc comment for why this is a
+        // separate top-level function (scene.test.ts coverage).
+        carryOverWheelRotations(truckRig.wheels, rebuilt.wheels);
         scene.add(rebuilt.group);
         scene.remove(truckRig.group);
         truckRig.dispose();
