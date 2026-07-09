@@ -46,6 +46,23 @@
 // low/rear/side for the gas-tank cue, roof-centerline for the design decal --
 // the same fractional layout the old hand-authored table used, since the
 // real body models don't expose named attachment points either.
+//
+// Sourced-art-fixes pass (issue #33 follow-up, 2026-07-09, see
+// docs/qa/screenshots/adr-0011-sourced-art-fixes/): the *first* sourced-art
+// pass's `design` socket Y was wrong -- it used each body mesh's *global*
+// bounding-box top (`rawMaxY`), which on these models is a thin roll-bar/
+// antenna strut poking well above the actual cab roof deck, with a real gap
+// (no geometry at all) between the roof and the strut tip. Placing the
+// decal at that Y put it floating in that empty gap -- the "flame accent
+// reads as a bare arrow detached above the roof" / "racing stripe invisible"
+// defects (the stripe is a thin 0.02-unit box, easy to lose entirely against
+// the sky at the wrong height). Fixed by sampling each body's actual mesh
+// vertices (not just min/max) binned by Y, and using the top of the last
+// bin that still has solid, wide (not strut-thin) cross-section -- empirically
+// ~66.6% up each tier's raw [minY, maxY] mesh span, which lands on the real
+// roof deck below the strut/roll-bar gap for all 3 tiers (re-confirmed live,
+// see the fixes screenshots) instead of the old ~100-103% (above everything,
+// including the strut).
 import * as THREE from 'three';
 
 export interface TruckSockets {
@@ -103,9 +120,9 @@ function sockets(
  * instead of a hand-authored box.
  */
 export const BODY_TIER_SOCKETS: Record<number, TruckSockets> = {
-  0: sockets(0.1001, 0.3475, 0.5557, 0.28, 0.5207, 0.558, -0.558, [0, 0.6851, 0.648], [0.3615, 0.4089, -0.612], [0, 0.7541, 0]),
-  1: sockets(0.3111, 0.3724, 0.7134, 0.4, 0.7166, 0.6355, -0.6355, [0, 0.9743, 0.738], [0.444, 0.5827, -0.697], [0, 1.0721, 0]),
-  2: sockets(0.5059, 0.4125, 0.9328, 0.58, 1.039, 0.713, -0.713, [0, 1.569, 0.828], [0.5524, 0.8947, -0.782], [0, 1.7376, 0]),
+  0: sockets(0.1001, 0.3475, 0.5557, 0.28, 0.5207, 0.558, -0.558, [0, 0.6851, 0.648], [0.3615, 0.4089, -0.612], [0, 0.5866, 0]),
+  1: sockets(0.3111, 0.3724, 0.7134, 0.4, 0.7166, 0.6355, -0.6355, [0, 0.9743, 0.738], [0.444, 0.5827, -0.697], [0, 0.8348, 0]),
+  2: sockets(0.5059, 0.4125, 0.9328, 0.58, 1.039, 0.713, -0.713, [0, 1.569, 0.828], [0.5524, 0.8947, -0.782], [0, 1.3286, 0]),
 };
 
 /** Fallback socket table for an out-of-range tier index -- never crash on an unexpected build value (ADR 0010 §7's forgiving-fallback spirit). */

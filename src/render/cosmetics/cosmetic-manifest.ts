@@ -97,15 +97,38 @@ export function getBodyColorMaterial(id: string): THREE.MeshBasicMaterial {
 // (only cloned from).
 const bodyColorTintMaterials = new WeakMap<THREE.Material, Map<string, THREE.Material>>();
 
+// Muddy-tint fix (issue #35, 2026-07-09, see
+// docs/qa/screenshots/adr-0011-sourced-art-fixes/): a pure `.map` x `.color`
+// multiply can only ever make a pixel *darker* than the texture's own
+// baked luminance at that pixel, never brighter -- so on tier-0's bright
+// "Pickup" Atlas texture every cosmetic hue read clearly, but on tier-1/2's
+// much darker "Pickup Armored"/"Truck Armored" Atlas (a dark brown/wood-crate
+// bake), every cosmetic color multiplied down toward that same dark brown,
+// regardless of hue, and read as muddy/indistinguishable (worst on "purple",
+// nearly black in the driving scene's steep lighting). No amount of
+// brightening the multiplied-in `.color` fixes this: `map * color` is
+// bounded above by `map` itself when `color` stays within its own hue (and
+// pushing `color` toward white just fades the tint out, it doesn't rescue
+// saturation). The fix adds a flat, lighting-independent `.emissive`
+// contribution in the same hue at a modest intensity, alongside the
+// unchanged multiplicative `.color` tint -- `map * color + emissive` per
+// Three.js's standard lighting model. The additive term guarantees a real
+// colored floor under dark texture regions (so the cosmetic hue always
+// reads, even where the bake is near-black), while the multiplicative term
+// still carries the baked window/grille/panel-line shading on top, so the
+// texture detail isn't flattened away.
+const BODY_TINT_EMISSIVE_STRENGTH = 0.35;
+
 /**
  * A tinted clone of `source` (the loaded body model's real "Atlas" material)
  * for cosmetic body-color `id`: identical to `source` in every respect
- * (including its `.map` texture) except `.color`, which is set to the
- * cosmetic hex. Three.js's standard `.map` x `.color` per-fragment multiply
- * means this recolors the body paint while keeping the baked window/grille/
- * panel-line detail intact -- see this file's header. Falls back to
- * DEFAULT_BODY_COLOR's hex for an unknown id, same forgiving-fallback
- * behaviour as getBodyColorMaterial.
+ * (including its `.map` texture) except `.color` (set to the cosmetic hex,
+ * for the multiplicative tint that preserves baked texture detail -- see
+ * this file's header) and `.emissive` (set to the same hex at
+ * `BODY_TINT_EMISSIVE_STRENGTH`, the additive floor that keeps the tint
+ * visible on tiers with a dark-baked Atlas texture -- see the muddy-tint-fix
+ * comment above). Falls back to DEFAULT_BODY_COLOR's hex for an unknown id,
+ * same forgiving-fallback behaviour as getBodyColorMaterial.
  */
 export function getBodyColorTintMaterial(source: THREE.Material, id: string): THREE.Material {
   const hex = BODY_COLOR_HEX[id] ?? BODY_COLOR_HEX[DEFAULT_BODY_COLOR];
@@ -118,6 +141,9 @@ export function getBodyColorTintMaterial(source: THREE.Material, id: string): TH
   if (!tinted) {
     tinted = source.clone();
     if ('color' in tinted && tinted.color instanceof THREE.Color) tinted.color.setHex(hex);
+    if ('emissive' in tinted && tinted.emissive instanceof THREE.Color) {
+      tinted.emissive.setHex(hex).multiplyScalar(BODY_TINT_EMISSIVE_STRENGTH);
+    }
     byColor.set(id, tinted);
   }
   return tinted;
