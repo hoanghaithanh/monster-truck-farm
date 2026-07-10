@@ -3,6 +3,7 @@
 Status: Proposed (Sprint 3)
 Date: 2026-07-08
 Related: `docs/requirements/environment-dressing.md` (AC1-AC9); ADR 0001 §7 (obstacle clearance, spawn placement), ADR 0002 (wheel-tier clearance table — must not be disturbed), ADR 0010 (asset pipeline / fallback), ADR 0011 (shared art direction). Sits under ADR 0010's pipeline.
+Cross-reference: ADR 0014 (obstacle-climb four-corner sampling) tunes the truck's climb *lift* against the passable obstacles' rendered heights (bush/rock/derelictCar in `render/scene.ts` `buildObstacleGeometry`, radii in `core/terrain`). Those heights are a shared tunable — if a change here alters an obstacle's rendered height, re-check `DEFAULT_CLIMB_CONFIG` in `core/driving/config.ts` (recorded per the Sprint-1 fairness-reconciliation retro, so a height change doesn't silently mistune the climb).
 
 ## Context
 

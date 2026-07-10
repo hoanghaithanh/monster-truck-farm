@@ -2,6 +2,7 @@
 
 Status: Proposed
 Date: 2026-07-09
+Superseded by: ADR 0014 (four-corner/per-wheel sampling) — after this design shipped and was retuned once, the single-center-point sampling below still let the rock mesh clip the cab (issue #42 acceptance). ADR 0014 keeps this ADR's raised-cosine hump *height field* (Decision step 2) but replaces the single-point *sampling* and gradient-derived tilt (steps 3-4) with four per-wheel samples. Read 0014 for the current algorithm; the rationale and constraints below still apply.
 Related: `docs/requirements/truck-obstacle-climbing.md` (issue #42, AC1-AC6); `docs/requirements/truck-wheel-motion.md` (issue #40, developed in parallel — see §Composition with #40); ADR 0001 §2 (kinematic-only physics), §4 (`core/` purity boundary), §8 (testable seam); `docs/architecture/0011-truck-model-and-cosmetic-variants.md` (the truck rig this animates).
 
 ## Context
@@ -46,7 +47,7 @@ Concretely:
 - **Testable in Vitest with zero engine deps** (ADR 0001 §8 seam): assert `lift=0` outside every footprint, monotonic rise to the center, `peak` scaling with radius, `max`-not-sum for overlaps, and `{0,0,0}` for an empty list — all plain-number assertions.
 - **Zero physics risk.** The effect writes only `group.position.y` and `group.rotation.x/z` on the render rig. It never calls `moveBy`/`setPosition`/`step`, never moves the Rapier collider, and never changes the XZ path — so it structurally cannot regress issues #16/#21/#31 or AC2 (forward progress is untouched; speed only affects how fast you traverse the fixed spatial hump, which is physically correct).
 - **Accepted approximation:** the whole rig lifts/tilts as a unit; wheels are not individually planted on the obstacle surface. During a crossing the wheels can visibly ride above the obstacle mesh. This is the "lightweight visual approximation" the human chose and matches #40's explicit non-goal of per-wheel ground conforming. It is the trade for not touching the physics model.
-- **What becomes harder:** if a future story *does* want per-wheel suspension/contact, this stateless whole-rig lift is not a foundation for it — that work would replace this, not extend it. Documented so it isn't mistaken for a suspension seam.
+- **What becomes harder:** if a future story *does* want per-wheel suspension/contact, this stateless whole-rig lift is not a foundation for it — that work would replace this, not extend it. Documented so it isn't mistaken for a suspension seam. (ADR 0014's four-corner sampling *reads* the four wheel positions to shape the whole-rig lift/tilt, but it is still a whole-rig approximation — not per-wheel planting — so this note still holds.)
 
 ## Component / data design
 
