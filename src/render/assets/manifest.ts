@@ -57,6 +57,19 @@ const GAS_CUE_URLS = [
 ];
 const CHICKEN_URL = new URL('./models/chicken.glb', import.meta.url);
 
+// Structures pass (issue #46, 2026-07-10): 'barn'/'windmill'/'farmhouse'
+// added as the first real sourced-art *environment* entries (previously
+// windmill/barn/farmhouse didn't exist in the scene at all). Same sourcing
+// discipline as the chicken entry above -- barn/windmill are "Barn"/"Tower
+// Windmill" by Quaternius (CC0 1.0), farmhouse is "Farm house" by Poly by
+// Google (CC-BY 3.0); see repo-root CREDITS.md for full attribution.
+// farmhouse's baked texture was pre-downscaled 2048->512 before being
+// committed (~991KB gzip -> ~200KB gzip) to stay well inside ADR 0010 §3's
+// budget -- see CREDITS.md, no further action needed here.
+const BARN_URL = new URL('./models/barn.glb', import.meta.url);
+const WINDMILL_URL = new URL('./models/windmill.glb', import.meta.url);
+const FARMHOUSE_URL = new URL('./models/farmhouse.glb', import.meta.url);
+
 // Real measured gzip sizes. body-tier-*/wheel-tier-* are the sourced-art
 // models (`gzip -9` against the committed files, 2026-07-09 -- see repo-root
 // CREDITS.md's budget table); engine-cue-*/gas-cue-* are still the
@@ -80,6 +93,10 @@ const WHEEL_GZIP_BYTES = [10408, 10833, 10833];
 const ENGINE_CUE_GZIP_BYTES = [740, 789, 1371];
 const GAS_CUE_GZIP_BYTES = [1233, 1398, 3366];
 const CHICKEN_GZIP_BYTES = 15821;
+// Measured directly (`gzip -9`) against the committed files (issue #46).
+const BARN_GZIP_BYTES = 25758;
+const WINDMILL_GZIP_BYTES = 81508;
+const FARMHOUSE_GZIP_BYTES = 200378;
 
 export const ASSET_MANIFEST = {
   // PASS-1 test fixture (ADR 0010 infrastructure) -- kept registered so the
@@ -109,6 +126,14 @@ export const ASSET_MANIFEST = {
   // everything else in the manifest, loaded progressively/in-place via
   // UpgradableObject in scene.ts's upsertAnimal.
   chicken: { url: CHICKEN_URL, approxGzipBytes: CHICKEN_GZIP_BYTES },
+
+  // Issue #46: same "not gated by truckAssetKeysForBuild" rationale as
+  // chicken above -- structures aren't the player's own truck parts, so
+  // they load progressively per ADR 0010 §4.4 rather than blocking the
+  // BUILDER -> DRIVING transition.
+  barn: { url: BARN_URL, approxGzipBytes: BARN_GZIP_BYTES },
+  windmill: { url: WINDMILL_URL, approxGzipBytes: WINDMILL_GZIP_BYTES },
+  farmhouse: { url: FARMHOUSE_URL, approxGzipBytes: FARMHOUSE_GZIP_BYTES },
 } satisfies Record<string, AssetManifestEntry>;
 
 export type AssetKey = keyof typeof ASSET_MANIFEST;
@@ -129,6 +154,13 @@ export function gasCueAssetKey(tier: number): AssetKey {
 
 /** The (single, non-tiered) manifest key for the chicken model (issue #28) -- exported so scene.ts's upsertAnimal doesn't hardcode the string. */
 export const CHICKEN_ASSET_KEY: AssetKey = 'chicken';
+
+/** Manifest keys for the three structure models (issue #46), keyed by `StructureKind` -- exported so scene.ts's structure-rendering code doesn't hardcode the strings. */
+export const STRUCTURE_ASSET_KEYS: Record<'windmill' | 'barn' | 'farmhouse', AssetKey> = {
+  windmill: 'windmill',
+  barn: 'barn',
+  farmhouse: 'farmhouse',
+};
 
 /**
  * The asset keys the ADR 0010 §4.3 bounded gate waits on before DRIVING

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { pickSpawnPosition, type Rng } from './spawn-position';
-import type { TerrainBounds } from '../terrain';
+import { pickSpawnPosition, structureKeepouts, type Rng } from './spawn-position';
+import type { StructureInstance, TerrainBounds } from '../terrain';
 import type { ObstacleInstance } from '../types';
 
 const bounds: TerrainBounds = { minX: -20, maxX: 20, minZ: -20, maxZ: 20 };
@@ -117,6 +117,70 @@ describe('pickSpawnPosition — spawn AC1 (valid location: within bounds, not on
     for (const obstacle of obstacles) {
       const dist = Math.hypot(point!.x - obstacle.position.x, point!.z - obstacle.position.z);
       expect(dist).toBeGreaterThanOrEqual(obstacle.radius + 0.5);
+    }
+  });
+});
+
+describe('structureKeepouts (issue #46, ADR 0012 §5, AC6)', () => {
+  const structures: StructureInstance[] = [
+    { id: 'windmill-1', kind: 'windmill', position: { x: 12, z: 12 }, footprintRadius: 2, collidable: true },
+    { id: 'barn-1', kind: 'barn', position: { x: -12, z: -10 }, footprintRadius: 3, collidable: true },
+  ];
+
+  it('maps every collidable structure to a {position, radius} keep-out circle', () => {
+    expect(structureKeepouts(structures)).toEqual([
+      { position: { x: 12, z: 12 }, radius: 2 },
+      { position: { x: -12, z: -10 }, radius: 3 },
+    ]);
+  });
+
+  it('excludes non-collidable structures (river/mountains, issue #47) from the keep-out set', () => {
+    const withNonCollidable: StructureInstance[] = [
+      ...structures,
+      { id: 'river-1', kind: 'windmill', position: { x: 0, z: 0 }, footprintRadius: 5, collidable: false },
+    ];
+    expect(structureKeepouts(withNonCollidable)).toHaveLength(2);
+  });
+});
+
+describe('pickSpawnPosition — AC6 (never spawns inside a structure footprint)', () => {
+  it('rejects a candidate inside a structure footprint, same as an obstacle', () => {
+    // A single generously-sized structure keep-out centered at the origin --
+    // ADR 0012's own risk-mitigation suggestion (a pinned-RNG unit test
+    // asserting no point lands within a footprint).
+    const structureFootprint = { position: { x: 0, z: 0 }, radius: 4 };
+    const rng = sequenceRng([0.5, 0.5, 0.9, 0.9]); // first candidate -> origin (inside footprint), second -> clear
+    const point = pickSpawnPosition({
+      bounds,
+      obstacles: [structureFootprint],
+      truckPosition: { x: -1000, z: -1000 },
+      minDistanceFromTruck: 4,
+      rng,
+    });
+    expect(point).not.toBeNull();
+    const dist = Math.hypot(point!.x, point!.z);
+    expect(dist).toBeGreaterThanOrEqual(structureFootprint.radius + 0.5);
+  });
+
+  it('combined obstacles + structure keep-out (as every real call site now passes) keeps candidates clear of both', () => {
+    const structures: StructureInstance[] = [
+      { id: 'barn-1', kind: 'barn', position: { x: 3, z: 3 }, footprintRadius: 2, collidable: true },
+    ];
+    const combined = [...obstacles, ...structureKeepouts(structures)];
+    const candidates = [0, 0.1, 0.9, 0.2, 0.8, 0.3, 0.7, 0.5, 0.65, 0.35, 0.55, 0.45];
+    const rng = sequenceRng(candidates);
+    const point = pickSpawnPosition({
+      bounds,
+      obstacles: combined,
+      truckPosition: { x: 15, z: 15 },
+      minDistanceFromTruck: 4,
+      rng,
+      maxAttempts: 50,
+    });
+    expect(point).not.toBeNull();
+    for (const keepout of combined) {
+      const dist = Math.hypot(point!.x - keepout.position.x, point!.z - keepout.position.z);
+      expect(dist).toBeGreaterThanOrEqual(keepout.radius + 0.5);
     }
   });
 });

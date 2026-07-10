@@ -1,5 +1,5 @@
 import { createGameScene } from './render/scene';
-import { initPhysics, TruckController, createObstacleColliders, createGroundCollider } from './physics/world';
+import { initPhysics, TruckController, createObstacleColliders, createStructureColliders, createGroundCollider } from './physics/world';
 import { GameStore } from './core/game-state';
 import { KeyboardInput } from './input/keyboard-input';
 import { createHud } from './ui/hud';
@@ -13,7 +13,7 @@ import { GasSystem } from './systems/gas-system';
 import { FarmerSystem, type FarmerRunState } from './systems/farmer-system';
 import { FuelSystem } from './systems/fuel-system';
 import { partitionObstacles } from './core/clearance';
-import { STUB_OBSTACLES, TERRAIN_BOUNDS } from './core/terrain';
+import { STUB_OBSTACLES, STUB_STRUCTURES, TERRAIN_BOUNDS } from './core/terrain';
 import type { TruckBuild, TruckCosmetics, TruckSpec } from './core/types';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { AssetRegistry } from './render/assets/asset-registry';
@@ -120,6 +120,11 @@ function startDriving(
   const { blocking, passable } = partitionObstacles(STUB_OBSTACLES, spec.clearance);
   const obstacleBodies = createObstacleColliders(world, blocking);
 
+  // Structures (issue #46, ADR 0012 §1): always-solid regardless of wheel
+  // tier -- unconditional, no clearance partitioning, so this is simpler
+  // than the obstacle path above rather than more complex.
+  const structureBodies = createStructureColliders(world, STUB_STRUCTURES);
+
   // Obstacle-climb wheel footprint (ADR 0014, issue #42): body tier is fixed
   // for a run, so this is computed once here rather than every frame --
   // unwraps truck-sockets.ts's THREE.Vector3-based per-tier wheel table into
@@ -134,7 +139,7 @@ function startDriving(
   // confirmed, assembled via buildTruckRig -- the same assembly path the
   // builder's live preview uses, so what's driven here can never mismatch
   // what was shown there (AC4, cosmetics AC8).
-  const scene = createGameScene(app, TERRAIN_BOUNDS, STUB_OBSTACLES, build, cosmetics, assetRegistry);
+  const scene = createGameScene(app, TERRAIN_BOUNDS, STUB_OBSTACLES, STUB_STRUCTURES, build, cosmetics, assetRegistry);
   scene.setTruckTransform(truckStart, 0);
 
   const input = new KeyboardInput();
@@ -234,6 +239,7 @@ function startDriving(
       scene.dispose();
       truckController.dispose();
       for (const body of obstacleBodies) world.removeRigidBody(body);
+      for (const body of structureBodies) world.removeRigidBody(body);
     },
   };
 }

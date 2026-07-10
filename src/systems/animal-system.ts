@@ -3,16 +3,21 @@
 // (boop) -> coin -> hud-sync). Owns the list of live animals; render/ only
 // ever reflects it via onSpawn/onRemove callbacks.
 import { updateSpawnTimer, initialSpawnTimerState, type SpawnTimerState } from '../core/spawn/spawn-timer';
-import { pickSpawnPosition, type Rng } from '../core/spawn/spawn-position';
+import { pickSpawnPosition, structureKeepouts, type Rng } from '../core/spawn/spawn-position';
 import { spawnAnimal } from '../core/spawn/spawn-animal';
 import { ANIMAL_SPECIES } from '../core/spawn/species';
 import { SPAWN_INTERVAL_SECONDS, MAX_CONCURRENT_ANIMALS, MIN_SPAWN_DISTANCE_FROM_TRUCK } from '../core/spawn/config';
 import { isBoopContact, resolveBoop } from '../core/boop';
 import { isScatterDone, startScatter, tickScatter, type ScatterState } from '../core/scatter';
-import { TERRAIN_BOUNDS, STUB_OBSTACLES } from '../core/terrain';
+import { TERRAIN_BOUNDS, STUB_OBSTACLES, STUB_STRUCTURES } from '../core/terrain';
 import { TRUCK_CONTACT_RADIUS } from '../core/driving/config';
 import type { AnimalState, Vec2 } from '../core/types';
 import type { GameStore } from '../core/game-state';
+
+// Spawn keep-out (issue #46, ADR 0012 §5, AC6): the existing obstacles plus
+// the collidable structures' footprints, computed once since both source
+// arrays are fixed stub data -- see structureKeepouts's own doc comment.
+const SPAWN_KEEPOUTS = [...STUB_OBSTACLES, ...structureKeepouts(STUB_STRUCTURES)];
 
 export interface AnimalSystemCallbacks {
   onSpawn(id: string, position: Vec2): void;
@@ -40,7 +45,7 @@ export class AnimalSystem {
     if (timerResult.shouldSpawn) {
       const position = pickSpawnPosition({
         bounds: TERRAIN_BOUNDS,
-        obstacles: STUB_OBSTACLES,
+        obstacles: SPAWN_KEEPOUTS,
         truckPosition,
         minDistanceFromTruck: MIN_SPAWN_DISTANCE_FROM_TRUCK,
         rng: this.rng,

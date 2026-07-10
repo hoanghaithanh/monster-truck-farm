@@ -5,6 +5,7 @@ import {
   CHICKEN_ASSET_KEY,
   engineCueAssetKey,
   gasCueAssetKey,
+  STRUCTURE_ASSET_KEYS,
   truckAssetKeysForBuild,
   wheelAssetKey,
 } from './manifest';
@@ -50,5 +51,23 @@ describe('chicken asset entry (issue #28)', () => {
     expect(entry).toBeDefined();
     expect(entry.url).toBeInstanceOf(URL);
     expect(entry.approxGzipBytes).toBeGreaterThan(0);
+  });
+});
+
+describe('structure asset entries (issue #46)', () => {
+  it('windmill/barn/farmhouse are each registered in the manifest with a real URL and a positive measured gzip size', () => {
+    for (const kind of ['windmill', 'barn', 'farmhouse'] as const) {
+      const entry = ASSET_MANIFEST[STRUCTURE_ASSET_KEYS[kind]];
+      expect(entry).toBeDefined();
+      expect(entry.url).toBeInstanceOf(URL);
+      expect(entry.approxGzipBytes).toBeGreaterThan(0);
+    }
+  });
+
+  it('are never included in truckAssetKeysForBuild -- structures are not one of the player\'s own truck parts (ADR 0010 §4.4), so they must never gate the DRIVING-start wait', () => {
+    const keys = truckAssetKeysForBuild({ body: 1, wheels: 1, engine: 1, gasTank: 1 });
+    expect(keys).not.toContain(STRUCTURE_ASSET_KEYS.windmill);
+    expect(keys).not.toContain(STRUCTURE_ASSET_KEYS.barn);
+    expect(keys).not.toContain(STRUCTURE_ASSET_KEYS.farmhouse);
   });
 });

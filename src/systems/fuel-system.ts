@@ -4,7 +4,7 @@
 // generic spawn/spawn-timer.ts and spawn/spawn-position.ts machinery as-is
 // (ADR 0008 §1) -- its own timer/cap/config, independent of animals (AC3).
 import { updateSpawnTimer, initialSpawnTimerState, type SpawnTimerState } from '../core/spawn/spawn-timer';
-import { pickSpawnPosition, type Rng } from '../core/spawn/spawn-position';
+import { pickSpawnPosition, structureKeepouts, type Rng } from '../core/spawn/spawn-position';
 import { spawnFuelPickup } from '../core/fuel/spawn-fuel';
 import { isFuelContact } from '../core/fuel/collect';
 import {
@@ -14,9 +14,14 @@ import {
   FUEL_SPAWN_INTERVAL_SECONDS,
   MAX_CONCURRENT_FUEL,
 } from '../core/fuel/config';
-import { TERRAIN_BOUNDS, STUB_OBSTACLES } from '../core/terrain';
+import { TERRAIN_BOUNDS, STUB_OBSTACLES, STUB_STRUCTURES } from '../core/terrain';
 import { TRUCK_CONTACT_RADIUS } from '../core/driving/config';
 import type { FuelPickupState, Vec2 } from '../core/types';
+
+// Spawn keep-out (issue #46, ADR 0012 §5, AC6): the existing obstacles plus
+// the collidable structures' footprints, computed once since both source
+// arrays are fixed stub data -- see structureKeepouts's own doc comment.
+const SPAWN_KEEPOUTS = [...STUB_OBSTACLES, ...structureKeepouts(STUB_STRUCTURES)];
 
 export interface FuelSystemCallbacks {
   onSpawn(id: string, position: Vec2): void;
@@ -40,7 +45,7 @@ export class FuelSystem {
     if (timerResult.shouldSpawn) {
       const position = pickSpawnPosition({
         bounds: TERRAIN_BOUNDS,
-        obstacles: STUB_OBSTACLES,
+        obstacles: SPAWN_KEEPOUTS,
         truckPosition,
         minDistanceFromTruck: FUEL_MIN_SPAWN_DISTANCE_FROM_TRUCK,
         rng: this.rng,

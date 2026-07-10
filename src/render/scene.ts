@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import type { ObstacleInstance, TruckBuild, TruckCosmetics, Vec2 } from '../core/types';
-import type { TerrainBounds } from '../core/terrain';
+import type { StructureInstance, TerrainBounds } from '../core/terrain';
 import { clampCameraToBounds } from '../core/driving/boundary';
 import type { AssetRegistry } from './assets/asset-registry';
-import { CHICKEN_ASSET_KEY, truckAssetKeysForBuild } from './assets/manifest';
+import { CHICKEN_ASSET_KEY, STRUCTURE_ASSET_KEYS, truckAssetKeysForBuild } from './assets/manifest';
 import { createUpgradableObject, type UpgradableObject } from './assets/upgradable-object';
 import { buildTruckRig, type TruckWheelPivots } from './truck-rig';
 import { WHEEL_RADIUS_BY_TIER } from './truck-sockets';
@@ -144,10 +144,105 @@ export function buildChickenDisplayModel(source: THREE.Object3D): THREE.Object3D
   return outer;
 }
 
+// Structures (issue #46, ADR 0012 §2): always-solid scenery (windmill/barn/
+// farmhouse), rendered via the same primitive-fallback -> AssetRegistry ->
+// UpgradableObject pattern the chicken (issue #28) established. Unlike
+// animals, structures are static (create-once, no per-frame position
+// tracking) -- see createGameScene's structuresGroup below.
+const STRUCTURE_PRIMITIVE_COLORS: Record<StructureInstance['kind'], number> = {
+  windmill: 0xd8c9a3,
+  barn: 0xb23a2f,
+  farmhouse: 0xe8dcb8,
+};
+
+/**
+ * A simple, recognizable primitive stand-in for each structure kind (AC7's
+ * "falls back to a simple placeholder"), sized off the structure's own
+ * `footprintRadius` -- the same simplified-footprint sizing philosophy ADR
+ * 0012 §2 uses for the physics collider, reused here for visual consistency.
+ * Geometry is translated so the mesh's local origin sits at its *base*
+ * (y=0), not its center -- unlike the small obstacle primitives above, a
+ * multi-unit-tall building floating/sinking by half its height would be an
+ * obvious defect, so both the primitive and (`buildStructureDisplayModel`
+ * below) the corrected real model share this "local origin = ground contact
+ * point" convention, letting `UpgradableObject.upgrade()`'s position-copy
+ * behave correctly with no special-casing.
+ */
+function buildStructurePrimitive(structure: StructureInstance): THREE.Object3D {
+  const r = structure.footprintRadius;
+  let geometry: THREE.BufferGeometry;
+  let height: number;
+  if (structure.kind === 'windmill') {
+    height = r * 3;
+    geometry = new THREE.CylinderGeometry(r * 0.4, r * 0.7, height, 10);
+  } else {
+    height = r * 1.6;
+    geometry = new THREE.BoxGeometry(r * 2, height, r * 1.6);
+  }
+  geometry.translate(0, height / 2, 0);
+  const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: STRUCTURE_PRIMITIVE_COLORS[structure.kind] }));
+  mesh.position.set(structure.position.x, 0, structure.position.z);
+  return mesh;
+}
+
+/**
+ * Wraps a freshly-cloned structure source model (from `AssetRegistry.get`)
+ * in a corrective group, following the same "derive the scale from the
+ * model's own measured bounding box, don't hand-pick a magic constant"
+ * pattern `buildChickenDisplayModel` established (issue #28) -- the three
+ * sourced windmill/barn/farmhouse `.glb`s were each authored/exported at
+ * their own unrelated raw scale (see the orchestrator's sourcing notes,
+ * issue #46), so a single hardcoded scale constant would be wrong for at
+ * least two of the three.
+ *
+ * Unlike the chicken (which centers on all three axes -- acceptable for a
+ * small animal), this keeps the model's *base* at the wrapper's local
+ * origin (only x/z are re-centered, not y) so a multi-unit-tall building
+ * sits on the ground rather than floating/sinking by half its height --
+ * matching `buildStructurePrimitive`'s "local origin = ground contact
+ * point" convention above, so `UpgradableObject.upgrade()`'s position-copy
+ * (primitive -> real model) requires no special-casing.
+ *
+ * `targetWidth` is the structure's own `footprintRadius * 2` (passed by the
+ * caller) -- scaling anchored to the model's horizontal (max of X/Z) extent
+ * so the visual footprint tracks the same authored constant the physics
+ * collider uses, keeping the two from silently drifting apart.
+ *
+ * The correction lives on an *inner* group, not the returned outer one, for
+ * the same reason `buildChickenDisplayModel` does: `UpgradableObject.upgrade()`
+ * overwrites the outer object's position/rotation/scale with the outgoing
+ * primitive's own transform, which would clobber a correction applied
+ * directly to the returned object.
+ */
+export function buildStructureDisplayModel(source: THREE.Object3D, targetWidth: number): THREE.Object3D {
+  const box = new THREE.Box3().setFromObject(source);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  const center = new THREE.Vector3();
+  box.getCenter(center);
+
+  source.position.x -= center.x;
+  source.position.z -= center.z;
+  source.position.y -= box.min.y;
+
+  const horizontalExtent = Math.max(size.x, size.z);
+  const scaleFactor = horizontalExtent > 0 ? targetWidth / horizontalExtent : 1;
+  const inner = new THREE.Group();
+  inner.name = 'StructureDisplayScale';
+  inner.scale.setScalar(scaleFactor);
+  inner.add(source);
+
+  const outer = new THREE.Group();
+  outer.name = 'StructureModel';
+  outer.add(inner);
+  return outer;
+}
+
 export function createGameScene(
   container: HTMLElement,
   bounds: TerrainBounds,
   obstacles: ObstacleInstance[],
+  structures: StructureInstance[],
   build: TruckBuild,
   cosmetics: TruckCosmetics,
   assetRegistry?: AssetRegistry,
@@ -179,6 +274,18 @@ export function createGameScene(
 
   for (const obstacle of obstacles) {
     scene.add(createObstacleMesh(obstacle));
+  }
+
+  // Structures (issue #46, ADR 0012 §2): created once at scene setup (static
+  // scenery, no per-frame position tracking needed unlike animals) -- each
+  // gets its own UpgradableObject starting as the primitive placeholder
+  // (AC7), upgraded in place the moment its manifest key reports 'ready'
+  // (checked in tickEffects below, mirroring upsertAnimal's chicken check).
+  const structureSlots: { structure: StructureInstance; slot: UpgradableObject }[] = [];
+  for (const structure of structures) {
+    const primitive = buildStructurePrimitive(structure);
+    scene.add(primitive);
+    structureSlots.push({ structure, slot: createUpgradableObject(scene, primitive) });
   }
 
   // Truck rig (ADR 0011 §4/§5): the single buildTruckRig assembly path also
@@ -411,6 +518,20 @@ export function createGameScene(
 
   /** Per-frame visual-effect decay (bump flash + fuel glow bursts) -- called once per render frame from main.ts. */
   function tickEffects(dt: number): void {
+    // Structure sourced-art upgrade-in-place (issue #46, ADR 0010 §4/§7):
+    // same cheap status()-check-then-upgrade-once pattern as upsertAnimal's
+    // chicken check -- stops checking a given structure the moment its slot
+    // is upgraded.
+    if (assetRegistry) {
+      for (const { structure, slot } of structureSlots) {
+        if (slot.upgraded) continue;
+        const assetKey = STRUCTURE_ASSET_KEYS[structure.kind];
+        if (assetRegistry.status(assetKey) !== 'ready') continue;
+        const source = assetRegistry.get(assetKey);
+        if (source) slot.upgrade(buildStructureDisplayModel(source, structure.footprintRadius * 2));
+      }
+    }
+
     if (rigNeedsRecheck && assetRegistry) {
       const keys = truckAssetKeysForBuild(currentBuild);
       const nowReady = keys.every((key) => assetRegistry.status(key) === 'ready' || assetRegistry.status(key) === 'failed');

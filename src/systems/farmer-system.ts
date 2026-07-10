@@ -16,11 +16,16 @@ import {
   FARMER_SPAWN_MAX_SECONDS,
   FARMER_SPAWN_MIN_SECONDS,
 } from '../core/farmer/config';
-import { pickSpawnPosition, type Rng } from '../core/spawn/spawn-position';
-import { TERRAIN_BOUNDS, STUB_OBSTACLES } from '../core/terrain';
+import { pickSpawnPosition, structureKeepouts, type Rng } from '../core/spawn/spawn-position';
+import { TERRAIN_BOUNDS, STUB_OBSTACLES, STUB_STRUCTURES } from '../core/terrain';
 import { TRUCK_CONTACT_RADIUS } from '../core/driving/config';
 import type { Vec2 } from '../core/types';
 import type { GameStore } from '../core/game-state';
+
+// Spawn keep-out (issue #46, ADR 0012 §5, AC6): the existing obstacles plus
+// the collidable structures' footprints, computed once since both source
+// arrays are fixed stub data -- see structureKeepouts's own doc comment.
+const SPAWN_KEEPOUTS = [...STUB_OBSTACLES, ...structureKeepouts(STUB_STRUCTURES)];
 
 export interface FarmerSystemCallbacks {
   onAppear(position: Vec2): void;
@@ -88,7 +93,7 @@ export class FarmerSystem {
       if (this.state.spawnElapsed + dt >= this.spawnDelay) {
         const position = pickSpawnPosition({
           bounds: TERRAIN_BOUNDS,
-          obstacles: STUB_OBSTACLES,
+          obstacles: SPAWN_KEEPOUTS,
           truckPosition,
           minDistanceFromTruck: FARMER_MIN_SPAWN_DISTANCE_FROM_TRUCK,
           rng: this.rng,

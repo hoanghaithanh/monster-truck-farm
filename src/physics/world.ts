@@ -1,5 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import type { ObstacleInstance, Vec2 } from '../core/types';
+import type { StructureInstance } from '../core/terrain';
 
 // Physics adapter seam per ADR 0001 §2/§4: Rapier lives entirely behind this
 // module. core/ never imports it directly.
@@ -105,6 +106,27 @@ export function createObstacleColliders(world: RAPIER.World, obstacles: Obstacle
     world.createCollider(RAPIER.ColliderDesc.cylinder(0.5, obstacle.radius), body);
     return body;
   });
+}
+
+/**
+ * Creates fixed colliders for the collidable structures (windmill/barn/farmhouse, issue #46, ADR 0012
+ * §1/§2): unconditionally solid regardless of wheel tier -- no clearance partitioning, so unlike
+ * `createObstacleColliders` above this is called once per driving session with the full collidable set,
+ * not a pre-filtered `blocking` subset. The collider is a simplified cylinder sized to `footprintRadius`,
+ * not the visual mesh's exact geometry (ADR 0012 §2). Returns the created bodies so a caller can remove
+ * them again on a driving-session dispose/restart round trip, same rationale as `createObstacleColliders`'s
+ * own doc comment (otherwise they'd leak in the shared Rapier world forever across a GAME_OVER -> restart).
+ */
+export function createStructureColliders(world: RAPIER.World, structures: StructureInstance[]): RAPIER.RigidBody[] {
+  return structures
+    .filter((structure) => structure.collidable)
+    .map((structure) => {
+      const body = world.createRigidBody(
+        RAPIER.RigidBodyDesc.fixed().setTranslation(structure.position.x, 0.5, structure.position.z),
+      );
+      world.createCollider(RAPIER.ColliderDesc.cylinder(0.5, structure.footprintRadius), body);
+      return body;
+    });
 }
 
 export function createGroundCollider(world: RAPIER.World): void {

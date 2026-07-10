@@ -59,3 +59,46 @@ wheel models above; other candidates found were either a legless floating
 head or a blocky/cube-built style that reads as more abstract than this
 project's confirmed art direction (`docs/requirements/vehicle-and-character-art.md`,
 "Resolved — Art direction").
+
+## Farm structures — windmill, barn, farmhouse (issue #46)
+
+The three environment structures (`src/render/assets/models/{barn,windmill,farmhouse}.glb`)
+are real, sourced low-poly models, downloaded via [poly.pizza](https://poly.pizza)
+on 2026-07-10, per `docs/requirements/environment-dressing.md` AC1/AC9 and
+`docs/architecture/0012-environment-dressing-and-terrain-features.md` §2.
+
+### Barn and Tower Windmill — Quaternius, CC0 1.0 (no attribution required)
+
+| Model | Source |
+|---|---|
+| "Barn" by Quaternius | https://poly.pizza/m/vSqQNA7ez6 |
+| "Tower Windmill" by Quaternius | https://poly.pizza/m/52yaPyaAAG |
+
+License: [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/)
+— public domain, no credit required. Credited here anyway as good practice.
+Same author/pack family as the truck body models (see above) — chosen partly
+for style consistency. The windmill's blades are a separate glTF node
+(`TowerWindmill_Blades_Cylinder.006`) from the tower body, so a future pass
+could add the optional cheap blade-spin animation ADR 0012 §2 allows (not
+required — static satisfies AC8).
+
+### Farm house — Poly by Google, CC-BY 3.0 (attribution required)
+
+| Model | Source |
+|---|---|
+| "Farm house" by Poly by Google | https://poly.pizza/m/bHyQe5jzdiQ |
+
+> "Farm house" by Poly by Google, licensed under
+> [CC-BY 3.0](https://creativecommons.org/licenses/by/3.0/), via
+> [poly.pizza](https://poly.pizza).
+
+**Modified from the original**: the source file's single embedded baked
+texture was 2048×2048 (~980KB, ~991KB gzipped on its own — more than half
+of ADR 0010 §3's entire 1.5MB driving-scene asset budget for one building).
+Downscaled to 512×512 (~200KB gzipped) with no visible quality loss at
+driving-scene viewing distance — geometry, UVs, and material assignment are
+otherwise untouched. Chosen over the alternative Quaternius "Small Farm"
+candidate (different, more cottage-like roof style, bundled with plowed-field
+terrain geometry not wanted here) and over Poly by Google's own "Farm" model
+(a barn+silo combo that would have visually overlapped with the Quaternius
+barn above, not read as a distinct farmhouse).
