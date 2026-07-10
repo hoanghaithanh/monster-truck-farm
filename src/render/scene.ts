@@ -344,6 +344,31 @@ export interface FarmerDisplayModel {
  * `UpgradableObject.upgrade()` on the farmer today (it doesn't use that
  * slot type -- see scene.ts's farmer record), but keeping the same
  * defensive shape costs nothing and matches the established pattern.
+ *
+ * Issue #57 (scale bug, found in issue #29 acceptance): unlike the chicken/
+ * structure sources, the farmer's meshes are `SkinnedMesh`es, so a plain
+ * `Box3.setFromObject(source)` is wrong here -- it reads each mesh's raw,
+ * un-posed `geometry.boundingBox` (this asset's rig is authored at
+ * ~1/500-1/600 scale, with the real-world size meant to come from the
+ * skinning pipeline, not the raw vertex data), which measured a farmer
+ * height of a few millimeters and produced a ~2.666x scale factor instead
+ * of the ~500-600x actually needed -- the farmer rendered, just too small
+ * to ever see. Passing `precise = true` keeps the same measured-bounding-
+ * box *pattern* but fixes the defect: three.js's `Box3.expandByObject`
+ * walks per-vertex via `object.getVertexPosition()` when `precise` is set,
+ * and `SkinnedMesh` overrides that method to apply the live bone skin
+ * transform (`applyBoneTransform`) before returning each vertex -- i.e. it
+ * measures the actually-posed geometry instead of the raw local one. (For
+ * a plain `Mesh`, `getVertexPosition` is just the raw vertex, so this is a
+ * no-op change in precision, not behavior, for the chicken/structures --
+ * deliberately left as `false` there since they have no skinning to
+ * correct for and per-vertex measurement is needlessly slower.) The
+ * `updateMatrixWorld(true)` forces every bone's `matrixWorld` to be
+ * current first: `expandByObject` updates world matrices as it walks the
+ * hierarchy top-down, but a glTF armature's bones are typically siblings
+ * of the `SkinnedMesh` node rather than its children, so relying on
+ * `expandByObject`'s own walk order to have visited the bones before the
+ * mesh would be fragile.
  */
 export function buildFarmerDisplayModel(source: THREE.Object3D): FarmerDisplayModel {
   const tintTargets: THREE.MeshStandardMaterial[] = [];
@@ -372,7 +397,8 @@ export function buildFarmerDisplayModel(source: THREE.Object3D): FarmerDisplayMo
     }
   });
 
-  const box = new THREE.Box3().setFromObject(source);
+  source.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(source, true);
   const size = new THREE.Vector3();
   box.getSize(size);
   const center = new THREE.Vector3();

@@ -208,28 +208,76 @@ describe('buildStructureDisplayModel (issue #46, structure sourced-art scale/gro
   });
 });
 
+// Issue #57's exact repro shape (found in issue #29 acceptance validation):
+// the real farmer.glb's SkinnedMesh nodes have tiny raw local geometry
+// (~0.001-0.02 units) plus similarly tiny bone-to-bone local offsets, with
+// the model's true real-world size instead baked into the skeleton's
+// accessor-supplied inverse bind matrices (independent of the node
+// hierarchy's own tiny local transforms) -- a real glTF-skinning quirk. A
+// naive `Box3.setFromObject(source)` [no `precise` flag] reads only the
+// raw, un-posed `geometry.boundingBox` and never sees that real scale,
+// which is exactly how `buildFarmerDisplayModel` under-measured the model
+// and derived a ~200x-too-small corrective scale. RAW_BODY_HEIGHT and
+// BODY_SKIN_SCALE below reproduce that split explicitly and deliberately
+// far apart, so any regression back to the un-posed measurement is
+// unmissable in the scale test just below.
+const RAW_BODY_HEIGHT = 0.002;
+const BODY_SKIN_SCALE = 1000; // posed body height = RAW_BODY_HEIGHT * BODY_SKIN_SCALE = 2.
+
 describe('buildFarmerDisplayModel (issue #29, ADR 0015 §2 -- farmer sourced-art scale/centering/material isolation)', () => {
   // A stand-in for AssetRegistry.getAnimated('farmer')'s clone: an
   // arbitrarily large, off-center, non-cubic group with a few named
   // materials mimicking the real sourced "Farmer" glTF's 8-material split
-  // (Skin/Eye/Eyebrows/etc, see repo-root CREDITS.md) -- closely enough to
-  // exercise the measure-then-correct + per-material-clone logic without
-  // needing the real skinned .glb in a Node test environment (this is a
-  // plain Mesh group, not an actual SkinnedMesh, since buildFarmerDisplayModel
-  // itself doesn't care about skinning -- that's SkeletonUtils.clone's job,
-  // covered separately in asset-registry.test.ts).
+  // (Skin/Eye/Eyebrows/etc, see repo-root CREDITS.md). The body is a real
+  // `THREE.SkinnedMesh`, not a plain `Mesh` -- issue #57 found that
+  // `buildFarmerDisplayModel`'s scale-derivation step is NOT
+  // skinning-agnostic (a previous version of this fixture's comment
+  // claimed otherwise, which is exactly how the scale bug shipped fully
+  // unit-tested: the fixture used here couldn't have caught it). See the
+  // RAW_BODY_HEIGHT/BODY_SKIN_SCALE comment above for what this
+  // specifically reproduces.
   function rawFarmerModel(): THREE.Object3D {
     const root = new THREE.Group();
-    const body = new THREE.Mesh(
-      new THREE.BoxGeometry(10, 25, 16),
+
+    const bodyGeometry = new THREE.CylinderGeometry(RAW_BODY_HEIGHT / 4, RAW_BODY_HEIGHT / 4, RAW_BODY_HEIGHT, 6);
+    const vertexCount = bodyGeometry.attributes.position.count;
+    const skinIndices: number[] = [];
+    const skinWeights: number[] = [];
+    for (let i = 0; i < vertexCount; i++) {
+      skinIndices.push(0, 0, 0, 0);
+      skinWeights.push(1, 0, 0, 0);
+    }
+    bodyGeometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(skinIndices, 4));
+    bodyGeometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute(skinWeights, 4));
+
+    const body = new THREE.SkinnedMesh(
+      bodyGeometry,
       new THREE.MeshStandardMaterial({ name: 'Skin', color: 0x8899aa, metalness: 0.4 }),
     );
+    // Left at the local origin -- the real rig's bone-to-bone offsets are
+    // similarly tiny (issue #57), so this repro's scale correction has to
+    // come entirely from the skin matrix below, not the bone's own position.
+    const bone = new THREE.Bone();
+    // Baked directly as the skeleton's boneInverses, bypassing
+    // `Skeleton.calculateInverses()` (which would derive inverses FROM the
+    // bone's own -- also tiny -- current transform and collapse this
+    // repro back into a no-op skin transform). This mimics a real glTF
+    // skin's accessor-supplied inverse bind matrices carrying the "real"
+    // scale independently of the node hierarchy's own local offsets.
+    const boneInverses = [new THREE.Matrix4().makeScale(BODY_SKIN_SCALE, BODY_SKIN_SCALE, BODY_SKIN_SCALE)];
+    const skeleton = new THREE.Skeleton([bone], boneInverses);
+    body.add(bone);
+    // Explicit identity bindMatrix skips bind()'s default
+    // calculateInverses() call, which would otherwise overwrite the
+    // deliberately-mismatched boneInverses set above.
+    body.bind(skeleton, new THREE.Matrix4());
+
     const eyes = new THREE.Mesh(
-      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.BoxGeometry(0.001, 0.001, 0.001),
       new THREE.MeshStandardMaterial({ name: 'Eye', color: 0x111111, metalness: 0.4 }),
     );
     const eyebrows = new THREE.Mesh(
-      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.BoxGeometry(0.001, 0.001, 0.001),
       new THREE.MeshStandardMaterial({ name: 'Eyebrows', color: 0x3a2a1a, metalness: 0.4 }),
     );
     root.add(body, eyes, eyebrows);
@@ -237,22 +285,29 @@ describe('buildFarmerDisplayModel (issue #29, ADR 0015 §2 -- farmer sourced-art
     return root;
   }
 
-  it('derives the corrective scale from the source\'s own measured bounding-box height, landing on FARMER_TARGET_HEIGHT', () => {
+  it('derives the corrective scale from the source\'s own measured POSED (skinned) height, landing on FARMER_TARGET_HEIGHT (issue #57 regression guard)', () => {
     const { model } = buildFarmerDisplayModel(rawFarmerModel());
 
-    const box = new THREE.Box3().setFromObject(model);
+    // precise=true measures via the real skin transform -- the same thing
+    // the GPU actually renders (issue #57) -- not the raw/un-posed
+    // measurement the pre-fix bug used, which this fixture's
+    // RAW_BODY_HEIGHT/BODY_SKIN_SCALE split is specifically built to
+    // distinguish from the posed height.
+    const box = new THREE.Box3().setFromObject(model, true);
     const size = new THREE.Vector3();
     box.getSize(size);
 
-    // Raw height was 25 (the body box); whatever FARMER_TARGET_HEIGHT is
-    // tuned to today, the rendered height after correction must match it.
+    // Posed body height was 2 (RAW_BODY_HEIGHT * BODY_SKIN_SCALE), not the
+    // tiny 0.002 a non-precise Box3.setFromObject would read (issue #57's
+    // exact defect) -- whatever FARMER_TARGET_HEIGHT is tuned to today,
+    // the rendered height after correction must match it.
     expect(size.y).toBeCloseTo(1.7, 5);
   });
 
   it('re-centers the model horizontally (x/z) but keeps its base at the wrapper\'s local origin (y=0), like the structures -- not vertically centered like the chicken', () => {
     const { model } = buildFarmerDisplayModel(rawFarmerModel());
 
-    const box = new THREE.Box3().setFromObject(model);
+    const box = new THREE.Box3().setFromObject(model, true);
     const center = new THREE.Vector3();
     box.getCenter(center);
 
