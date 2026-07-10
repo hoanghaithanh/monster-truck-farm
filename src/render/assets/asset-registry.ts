@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import type { AssetLoadOutcome } from '../../core/assets/gate';
 
 // Impure glTF loader/cache (ADR 0010 §6) -- belongs in render/, not core/,
@@ -15,9 +16,17 @@ import type { AssetLoadOutcome } from '../../core/assets/gate';
 // Per-asset isolation: one failed load never affects another (Promise
 // .allSettled semantics throughout, never Promise.all).
 
-/** Minimal subset of GLTFLoader's API this module depends on -- lets tests inject a fake loader instead of touching real network/GLTFLoader (which needs fetch/Image and isn't practical to unit-test in Vitest's node environment). */
+/**
+ * Minimal subset of GLTFLoader's API this module depends on -- lets tests
+ * inject a fake loader instead of touching real network/GLTFLoader (which
+ * needs fetch/Image and isn't practical to unit-test in Vitest's node
+ * environment). `animations` is optional (ADR 0015 §1) so every existing
+ * fake loader in tests/asset-registry.test.ts that only returns `{ scene }`
+ * still type-checks unchanged -- only the farmer asset actually carries
+ * clips today.
+ */
 export interface GltfLoaderLike {
-  loadAsync(url: string): Promise<{ scene: THREE.Object3D }>;
+  loadAsync(url: string): Promise<{ scene: THREE.Object3D; animations?: THREE.AnimationClip[] }>;
 }
 
 interface CacheEntry {
@@ -26,6 +35,8 @@ interface CacheEntry {
   settled: Promise<void>;
   /** The parsed source scene graph, once ready -- kept once, cloned out per `get()` call (ADR 0010 §6: shared source lives for the app's lifetime; callers own and dispose their own clones). */
   source?: THREE.Object3D;
+  /** The glTF's animation clip library, once ready (ADR 0015 §1) -- empty for every non-animated asset. Clips are immutable data, so `getAnimated()` hands out this same array by reference to every caller; safe to share across mixers. */
+  animations?: THREE.AnimationClip[];
 }
 
 export class AssetRegistry {
@@ -62,6 +73,7 @@ export class AssetRegistry {
       (gltf) => {
         entry.status = 'ready';
         entry.source = gltf.scene;
+        entry.animations = gltf.animations ?? [];
         resolveSettled();
       },
       (err: unknown) => {
@@ -98,6 +110,28 @@ export class AssetRegistry {
     const entry = this.cache.get(key);
     if (!entry || entry.status !== 'ready' || !entry.source) return undefined;
     return entry.source.clone(true);
+  }
+
+  /**
+   * The skin-safe sibling of `get()` (ADR 0015 §1) -- for the one asset in
+   * this project (the farmer) whose scene graph includes `SkinnedMesh`
+   * nodes. `Object3D.clone()` (what `get()` uses) does NOT rebind a cloned
+   * `SkinnedMesh` to cloned bones -- the clone's `skeleton` keeps pointing at
+   * the *source* bones, which no mixer targets, so the mesh would sit frozen
+   * in bind pose while any animation played on invisible cloned bones.
+   * `SkeletonUtils.clone` (from `three/examples/jsm/utils/SkeletonUtils.js`)
+   * correctly rebinds skinned meshes to freshly-cloned bones, at the cost of
+   * being heavier than a plain `.clone(true)` -- reserved for this path only,
+   * never used by `get()`'s static-mesh consumers (truck parts, chicken,
+   * structures). Returns `undefined` under the exact same not-ready
+   * conditions as `get()`. The returned `animations` array is the cache's
+   * shared clip array (not copied) -- clips are immutable, so sharing one
+   * array across every mixer that plays them is safe.
+   */
+  getAnimated(key: string): { scene: THREE.Object3D; animations: THREE.AnimationClip[] } | undefined {
+    const entry = this.cache.get(key);
+    if (!entry || entry.status !== 'ready' || !entry.source) return undefined;
+    return { scene: SkeletonUtils.clone(entry.source), animations: entry.animations ?? [] };
   }
 
   /**

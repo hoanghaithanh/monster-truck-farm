@@ -150,11 +150,16 @@ function startDriving(
   const fuelSystem = new FuelSystem(Math.random);
 
   // Render-continuity gap (ADR 0009 §5): a seeded non-ABSENT farmer resumes
-  // already PURSUING, so the ABSENT->PURSUING onAppear callback that would
-  // normally place the mesh never fires. Place it explicitly before frame 1,
-  // mirroring the truck's own setTruckTransform call just above.
+  // already PURSUING/TIRED/LEAVING, so the ABSENT->PURSUING onAppear callback
+  // that would normally place the mesh (and, per ADR 0015 §4, start it in the
+  // Run pose) never fires. Place it explicitly before frame 1, mirroring the
+  // truck's own setTruckTransform call just above -- then correct the pose
+  // for a resumed TIRED/LEAVING farmer (ADR 0015 §4's "Resume path"), since
+  // a fresh farmer record otherwise always starts on Run.
   if (farmerSeed && farmerSeed.state.kind !== 'ABSENT') {
     scene.setFarmerTransform(farmerSeed.state.position);
+    if (farmerSeed.state.kind === 'TIRED') scene.farmerTired();
+    if (farmerSeed.state.kind === 'LEAVING') scene.farmerLeaving();
   }
 
   let last = performance.now();
@@ -202,6 +207,7 @@ function startDriving(
       onMove: (farmerPosition) => scene.setFarmerTransform(farmerPosition),
       onBump: () => scene.flashTruck(),
       onTired: () => scene.farmerTired(),
+      onLeaving: () => scene.farmerLeaving(),
       onDespawn: () => scene.farmerDespawn(),
     });
 

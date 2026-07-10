@@ -140,3 +140,39 @@ function's doc comment in `render/scene.ts`).
 
 There is no river asset — per ADR 0012 §3, the river is procedural flat
 ribbon geometry generated in `render/`, not a downloaded asset.
+
+## Farmer model (issue #29)
+
+The farmer model (`src/render/assets/models/farmer.glb`) is a real, sourced,
+rigged/animated low-poly model, downloaded via [poly.pizza](https://poly.pizza)
+on 2026-07-10, per `docs/requirements/vehicle-and-character-art.md` AC7-AC9.
+Replaces the `CapsuleGeometry` placeholder in `render/scene.ts`.
+
+| Model | Source |
+|---|---|
+| "Farmer" by Quaternius (from the "Ultimate Modular Men Pack") | https://poly.pizza/m/7pn3R6hPvE |
+
+License: [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/)
+— public domain, no credit required. Credited here anyway as good practice.
+Same author/pack family as the truck body, barn, windmill, and mountain
+models above.
+
+Unlike every other art asset sourced so far, this model ships a full
+62-joint skeleton and a bundled animation library (24 clips, most of them
+combat/tool actions not used here). Three clips are used to give the
+farmer's FSM states (`PURSUING`/`TIRED`/`LEAVING`, ADR 0007) real
+pose-driven distinction per AC8 — `CharacterArmature|Run` for PURSUING,
+`CharacterArmature|Idle` for TIRED (paired with the existing
+`FARMER_TIRED_COLOR` amber tint as a supplementary cue, since no clip in
+this library reads as a literal "winded/hands-on-knees" pose — searched
+both this library and poly.pizza's own catalog, nothing matching this art
+style existed), and `CharacterArmature|Walk` for LEAVING. This is the first
+model in this codebase driven by `THREE.AnimationMixer` rather than a
+static swap-in-place — every other model here (truck parts, chicken,
+structures) is a static mesh.
+
+Its materials ship a nonzero `metallicFactor` (0.4, same pattern already
+hit and fixed for the mountain landmark above) — needs the same
+`metalness = 0` force-override this project already applies in
+`buildStructureDisplayModel`, since the scene has no `envMap` for metallic
+surfaces to reflect.

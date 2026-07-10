@@ -3,7 +3,14 @@ import { FarmerSystem } from './farmer-system';
 import { GameStore } from '../core/game-state';
 import { FARMER_CHASE_DURATION, FARMER_CREEP_FLOOR, FARMER_LEAVE_DURATION, FARMER_TIRED_DURATION } from '../core/farmer/config';
 
-const NOOP_CALLBACKS = { onAppear: () => {}, onMove: () => {}, onBump: () => {}, onTired: () => {}, onDespawn: () => {} };
+const NOOP_CALLBACKS = {
+  onAppear: () => {},
+  onMove: () => {},
+  onBump: () => {},
+  onTired: () => {},
+  onLeaving: () => {},
+  onDespawn: () => {},
+};
 
 // ADR 0009 §2c/§5/Testing: FarmerSystem.snapshot() + the optional `seed` ctor
 // param are the whole-blob carry across a voluntary pause. Round-tripping
@@ -19,13 +26,7 @@ describe('FarmerSystem snapshot/seed round trip (ADR 0009 §2c)', () => {
     const original = new FarmerSystem(store, rng);
 
     // Tick a bit so spawnElapsed is non-zero without triggering a spawn.
-    original.update(1, { x: 0, z: 0 }, 0, {
-      onAppear: () => {},
-      onMove: () => {},
-      onBump: () => {},
-      onTired: () => {},
-      onDespawn: () => {},
-    });
+    original.update(1, { x: 0, z: 0 }, 0, NOOP_CALLBACKS);
 
     const snap = original.snapshot();
     expect(snap.state.kind).toBe('ABSENT');
@@ -182,6 +183,69 @@ describe('FarmerSystem — full FSM cycle via update() (ADR 0007 §1: PURSUING -
     farmer.update(0.5, { x: 0, z: 0 }, 12, NOOP_CALLBACKS);
     expect(farmer.snapshot().state.position).toEqual({ x: 3, z: 3 });
     expect(farmer.snapshot().state.kind).toBe('TIRED');
+  });
+
+  // ADR 0015 §4 (issue #29): onLeaving is the new one-shot callback fired on
+  // TIRED -> LEAVING, mirroring exactly how onTired fires on PURSUING ->
+  // TIRED. Render/ uses it to crossfade to the Walk pose.
+  it('fires onLeaving exactly once on the TIRED -> LEAVING transition, at the tired duration', () => {
+    const store = new GameStore();
+    const seed = {
+      state: { kind: 'TIRED' as const, position: { x: 1, z: 1 }, spawnElapsed: 0, phaseElapsed: FARMER_TIRED_DURATION - 0.5 },
+      invuln: { remainingSeconds: 0 },
+      spawnDelay: 8,
+    };
+    const farmer = new FarmerSystem(store, Math.random, seed);
+    let leavingCount = 0;
+    farmer.update(1, { x: 0, z: 0 }, 0, { ...NOOP_CALLBACKS, onLeaving: () => leavingCount++ });
+    expect(farmer.snapshot().state.kind).toBe('LEAVING');
+    expect(leavingCount).toBe(1);
+  });
+
+  it('does not fire onLeaving on a TIRED tick that stays TIRED (before the duration elapses)', () => {
+    const store = new GameStore();
+    const seed = {
+      state: { kind: 'TIRED' as const, position: { x: 1, z: 1 }, spawnElapsed: 0, phaseElapsed: 0 },
+      invuln: { remainingSeconds: 0 },
+      spawnDelay: 8,
+    };
+    const farmer = new FarmerSystem(store, Math.random, seed);
+    let leavingCount = 0;
+    farmer.update(0.1, { x: 0, z: 0 }, 0, { ...NOOP_CALLBACKS, onLeaving: () => leavingCount++ });
+    expect(farmer.snapshot().state.kind).toBe('TIRED');
+    expect(leavingCount).toBe(0);
+  });
+
+  it('does not fire onLeaving on the PURSUING -> TIRED transition (only onTired does)', () => {
+    const store = new GameStore();
+    const seed = {
+      state: { kind: 'PURSUING' as const, position: { x: 0, z: 0 }, spawnElapsed: 0, phaseElapsed: FARMER_CHASE_DURATION - 0.5 },
+      invuln: { remainingSeconds: 0 },
+      spawnDelay: 8,
+    };
+    const farmer = new FarmerSystem(store, Math.random, seed);
+    let leavingCount = 0;
+    let tiredCount = 0;
+    farmer.update(1, { x: 100, z: 100 }, 0, { ...NOOP_CALLBACKS, onLeaving: () => leavingCount++, onTired: () => tiredCount++ });
+    expect(farmer.snapshot().state.kind).toBe('TIRED');
+    expect(tiredCount).toBe(1);
+    expect(leavingCount).toBe(0);
+  });
+
+  it('does not fire onLeaving on the LEAVING -> ABSENT transition (only onDespawn does)', () => {
+    const store = new GameStore();
+    const seed = {
+      state: { kind: 'LEAVING' as const, position: { x: 2, z: 0 }, spawnElapsed: 0, phaseElapsed: FARMER_LEAVE_DURATION - 0.5 },
+      invuln: { remainingSeconds: 0 },
+      spawnDelay: 8,
+    };
+    const farmer = new FarmerSystem(store, Math.random, seed);
+    let leavingCount = 0;
+    let despawnCount = 0;
+    farmer.update(1, { x: 0, z: 0 }, 0, { ...NOOP_CALLBACKS, onLeaving: () => leavingCount++, onDespawn: () => despawnCount++ });
+    expect(farmer.snapshot().state.kind).toBe('ABSENT');
+    expect(despawnCount).toBe(1);
+    expect(leavingCount).toBe(0);
   });
 
   it('does not fire onBump while TIRED or LEAVING, even at truck-contact-range proximity (only PURSUING calls store.bump())', () => {

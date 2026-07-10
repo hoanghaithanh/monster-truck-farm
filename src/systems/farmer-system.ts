@@ -34,6 +34,8 @@ export interface FarmerSystemCallbacks {
   onBump(): void;
   /** Fired once, on the PURSUING -> TIRED transition (ADR 0007 §1): a friendly, non-scary give-up beat. */
   onTired(position: Vec2): void;
+  /** Fired once, on the TIRED -> LEAVING transition (ADR 0015 §4, NEW): render/ crossfades to the Walk pose. Mirrors onTired/onDespawn's one-shot-per-transition shape. */
+  onLeaving(position: Vec2): void;
   /** Fired once, on the LEAVING -> ABSENT transition (ADR 0007 §1): the farmer has walked off; render/ removes/hides the mesh. */
   onDespawn(): void;
 }
@@ -139,6 +141,12 @@ export class FarmerSystem {
       // Stationary friendly give-up beat (ADR 0007 §1, farmer AC7 tone) --
       // no motion, just the fixed-duration timer ticking toward LEAVING.
       this.state = farmerReduce(this.state, { type: 'TICK' }, dt);
+      if (this.state.kind === 'LEAVING') {
+        // TIRED -> LEAVING (ADR 0015 §4, NEW one-shot callback): mirrors
+        // exactly how the PURSUING branch above fires onTired the tick it
+        // flips to TIRED.
+        callbacks.onLeaving(this.state.position);
+      }
       return;
     }
 

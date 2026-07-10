@@ -3,7 +3,7 @@ import type { ObstacleInstance, TruckBuild, TruckCosmetics, Vec2 } from '../core
 import type { StructureInstance, TerrainBounds } from '../core/terrain';
 import { clampCameraToBounds } from '../core/driving/boundary';
 import type { AssetRegistry } from './assets/asset-registry';
-import { CHICKEN_ASSET_KEY, STRUCTURE_ASSET_KEYS, truckAssetKeysForBuild } from './assets/manifest';
+import { CHICKEN_ASSET_KEY, FARMER_ASSET_KEY, STRUCTURE_ASSET_KEYS, truckAssetKeysForBuild } from './assets/manifest';
 import { createUpgradableObject, type UpgradableObject } from './assets/upgradable-object';
 import { buildTruckRig, type TruckWheelPivots } from './truck-rig';
 import { WHEEL_RADIUS_BY_TIER } from './truck-sockets';
@@ -56,6 +56,28 @@ const FARMER_COLOR = 0xd1495b;
 // TIRED give-up beat (ADR 0007 §1, farmer AC7 tone): a friendly amber tint,
 // distinct from the truck's bump-flash red -- "phew, giving up", not scary.
 const FARMER_TIRED_COLOR = 0xf4c542;
+
+// Farmer skeletal model (issue #29, ADR 0015). Clip names are the ONLY three
+// ever referenced out of the sourced .glb's 24-clip library (ADR 0015 §4) --
+// deliberately, since several of the others are combat/tool clips that would
+// break the kid-safe tone constraint (vehicle-art AC9) if accidentally shown.
+const FARMER_CLIP_RUN = 'CharacterArmature|Run';
+const FARMER_CLIP_IDLE = 'CharacterArmature|Idle';
+const FARMER_CLIP_WALK = 'CharacterArmature|Walk';
+// Short enough that the TIRED pose still reads as its own beat within
+// FARMER_TIRED_DURATION (ADR 0015 §4/Risks -- cross-ADR coupling with
+// ADR 0007's FARMER_TIRED_DURATION, currently ~1.5s).
+const FARMER_CROSSFADE_SECONDS = 0.25;
+// Roughly matches the previous CapsuleGeometry(0.35, 0.8, 4, 8) placeholder's
+// total height (~1.5) plus a bit, so the real model doesn't look shrunken or
+// oversized next to the truck/terrain it replaces -- same "derive scale from
+// the model's own measured bounding box, tune only the target constant"
+// convention as CHICKEN_TARGET_HEIGHT (buildChickenDisplayModel).
+const FARMER_TARGET_HEIGHT = 1.7;
+// Amber eyes would read as sickly/unwell against the friendly/comedic TIRED
+// tone (vehicle-art AC9, ADR 0015 §2) -- these two materials are excluded
+// from the tint-target list so the face stays untinted.
+const FARMER_TINT_EXCLUDED_MATERIAL_NAMES = new Set(['Eye', 'Eyebrows']);
 
 // Fuel pickup (ADR 0008 §3): a recognizable jerry-can-ish color, and a brief
 // positive glow burst on collection -- no scatter (fuel AC13), just a
@@ -284,6 +306,95 @@ export function buildStructureDisplayModel(source: THREE.Object3D, targetWidth: 
   return outer;
 }
 
+/** What `buildFarmerDisplayModel` hands back for a fresh per-appearance farmer clone (ADR 0015 §2). */
+export interface FarmerDisplayModel {
+  /** The corrected, ready-to-add-to-scene model -- base at its local origin (y=0), matching `buildStructureDisplayModel`'s ground-contact convention since the farmer is a standing figure. */
+  model: THREE.Object3D;
+  /** Every `MeshStandardMaterial` eligible for the TIRED amber tint -- every cloned material except those named `Eye`/`Eyebrows` (ADR 0015 §2's "amber eyes read as sickly" call). Each has `userData.baseColor` stashed (its post-clone, pre-tint color) so `farmerTired()` can compute `base.multiply(tint)` idempotently even on a farmer re-tinted across more than one TIRED entry. */
+  tintTargets: THREE.MeshStandardMaterial[];
+  /** Every material this function cloned (tintable or not, e.g. `Eye`/`Eyebrows` too) -- the full per-instance-owned set `farmerDespawn` must dispose. Deliberately NOT the model's geometry (see `farmerDespawn`'s own doc comment for why). */
+  ownedMaterials: THREE.Material[];
+}
+
+/**
+ * Wraps a freshly-cloned farmer source model (from `AssetRegistry.getAnimated`)
+ * in a corrective group, following the same measured-bounding-box-derived
+ * scale/centering convention as `buildChickenDisplayModel`/
+ * `buildStructureDisplayModel` -- the sourced "Farmer" glTF's raw geometry
+ * has no tidy round-number scale either, so the corrective factor is derived
+ * from the model's own measured height rather than hand-picked. Base-on-
+ * ground (only x/z re-centered, `y -= box.min.y`) like the structures, since
+ * the farmer is a standing figure, not a small centered animal like the
+ * chicken.
+ *
+ * Per ADR 0015 §2, this is also where the farmer's materials become safe to
+ * mutate per-instance: `SkeletonUtils.clone` (what `getAnimated` uses) shares
+ * materials by reference with the app-lifetime cached source, exactly like
+ * `Object3D.clone(true)` does for the static-mesh consumers (see
+ * `truck-rig.ts`'s `TruckRigResult.dispose` doc comment for the same
+ * sharing hazard on the geometry side). Cloning every material here isolates
+ * the TIRED tint's `.color` mutation to this one disposable farmer instance
+ * -- without it, tinting would bleed amber into the shared source and thus
+ * into every future respawned farmer. `metalness` is force-zeroed for the
+ * same physically-motivated reason `buildStructureDisplayModel` already
+ * documents (the source ships `metallicFactor: 0.4` with no scene `envMap`).
+ *
+ * The correction lives on an *inner* group for the same clobber-avoidance
+ * reason as the chicken/structure builders: nothing in this codebase calls
+ * `UpgradableObject.upgrade()` on the farmer today (it doesn't use that
+ * slot type -- see scene.ts's farmer record), but keeping the same
+ * defensive shape costs nothing and matches the established pattern.
+ */
+export function buildFarmerDisplayModel(source: THREE.Object3D): FarmerDisplayModel {
+  const tintTargets: THREE.MeshStandardMaterial[] = [];
+  const ownedMaterials: THREE.Material[] = [];
+
+  const cloneAndPrepare = (material: THREE.Material): THREE.Material => {
+    const clone = material.clone();
+    ownedMaterials.push(clone);
+    if (clone instanceof THREE.MeshStandardMaterial) {
+      clone.metalness = 0;
+      if (!FARMER_TINT_EXCLUDED_MATERIAL_NAMES.has(clone.name)) {
+        clone.userData.baseColor = clone.color.clone();
+        tintTargets.push(clone);
+      }
+    }
+    return clone;
+  };
+
+  source.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    const material = child.material;
+    if (Array.isArray(material)) {
+      child.material = material.map(cloneAndPrepare);
+    } else {
+      child.material = cloneAndPrepare(material);
+    }
+  });
+
+  const box = new THREE.Box3().setFromObject(source);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  const center = new THREE.Vector3();
+  box.getCenter(center);
+
+  source.position.x -= center.x;
+  source.position.z -= center.z;
+  source.position.y -= box.min.y;
+
+  const scaleFactor = size.y > 0 ? FARMER_TARGET_HEIGHT / size.y : 1;
+  const inner = new THREE.Group();
+  inner.name = 'FarmerDisplayScale';
+  inner.scale.setScalar(scaleFactor);
+  inner.add(source);
+
+  const outer = new THREE.Group();
+  outer.name = 'FarmerModel';
+  outer.add(inner);
+
+  return { model: outer, tintTargets, ownedMaterials };
+}
+
 // River (issue #47, ADR 0012 §3): a procedural flat ribbon following a
 // simple polyline -- built entirely here, no external asset, no collider,
 // no AssetRegistry involvement. Runs roughly along the terrain's north edge
@@ -439,8 +550,33 @@ export function createGameScene(
   // a fresh clone per call, per its own doc comment -- required here since
   // multiple animals can be on screen at once).
   const animalSlots = new Map<string, UpgradableObject>();
-  let farmerMesh: THREE.Mesh | undefined;
-  let farmerMaterial: THREE.MeshStandardMaterial | undefined;
+
+  // Farmer (issue #29, ADR 0015 §3): a farmer exists for one
+  // PURSUING->TIRED->LEAVING cycle and is fully torn down on despawn
+  // (`farmerDespawn`), matching the old placeholder's "recreate fresh on
+  // respawn" contract -- so a single nullable record, not a permanent
+  // UpgradableObject slot, is the right shape here (see ADR 0015's
+  // "Alternatives considered": UpgradableObject was rejected for exactly
+  // this reason). `mixer`/`actions`/`tintTargets`/`ownedMaterials` are only
+  // set for the real animated model; the primitive capsule fallback
+  // (asset not ready / no registry, vehicle-art AC13) uses `capsuleMaterial`
+  // instead and leaves the others undefined.
+  interface FarmerActions {
+    idle?: THREE.AnimationAction;
+    run?: THREE.AnimationAction;
+    walk?: THREE.AnimationAction;
+  }
+  interface FarmerRecord {
+    root: THREE.Object3D;
+    mixer?: THREE.AnimationMixer;
+    actions?: FarmerActions;
+    currentAction?: THREE.AnimationAction;
+    tintTargets?: THREE.MeshStandardMaterial[];
+    ownedMaterials?: THREE.Material[];
+    capsuleMaterial?: THREE.MeshStandardMaterial;
+  }
+  let farmer: FarmerRecord | undefined;
+
   const fuelMeshes = new Map<string, THREE.Object3D>();
   const fuelGlows: { mesh: THREE.Mesh; material: THREE.MeshBasicMaterial; remaining: number }[] = [];
 
@@ -575,27 +711,129 @@ export function createGameScene(
     animalSlots.delete(id);
   }
 
-  /** Places (creating on first call) the farmer mesh at its current position (farmer AC1/AC2). */
-  function setFarmerTransform(position: Vec2): void {
-    if (!farmerMesh) {
-      farmerMaterial = new THREE.MeshStandardMaterial({ color: FARMER_COLOR });
-      farmerMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.35, 0.8, 4, 8), farmerMaterial);
-      scene.add(farmerMesh);
+  /**
+   * Builds a fresh `AnimationAction` per found clip (ADR 0015 §3/§4): looks
+   * clips up by exact name via `THREE.AnimationClip.findByName` -- a missing
+   * clip degrades to no action for that state rather than throwing, and no
+   * clip name outside the three constants above is ever referenced (AC9 --
+   * the combat/gun/melee clips in this library's 24-clip set are
+   * unreachable by construction). Each found action loops.
+   */
+  function buildFarmerActions(mixer: THREE.AnimationMixer, clips: THREE.AnimationClip[]): FarmerActions {
+    const actions: FarmerActions = {};
+    const runClip = THREE.AnimationClip.findByName(clips, FARMER_CLIP_RUN);
+    const idleClip = THREE.AnimationClip.findByName(clips, FARMER_CLIP_IDLE);
+    const walkClip = THREE.AnimationClip.findByName(clips, FARMER_CLIP_WALK);
+    if (runClip) actions.run = mixer.clipAction(runClip).setLoop(THREE.LoopRepeat, Infinity);
+    if (idleClip) actions.idle = mixer.clipAction(idleClip).setLoop(THREE.LoopRepeat, Infinity);
+    if (walkClip) actions.walk = mixer.clipAction(walkClip).setLoop(THREE.LoopRepeat, Infinity);
+    return actions;
+  }
+
+  /** Crossfades `farmer`'s currently-playing action to `next` (ADR 0015 §4 -- smooth, not a hard cut). A no-op if `next` is missing (its clip wasn't found) or there's no live animated farmer. */
+  function crossfadeFarmerAction(next: THREE.AnimationAction | undefined): void {
+    if (!farmer || !next) return;
+    const current = farmer.currentAction;
+    next.reset().play();
+    if (current && current !== next) {
+      current.crossFadeTo(next, FARMER_CROSSFADE_SECONDS, false);
+    } else {
+      next.fadeIn(FARMER_CROSSFADE_SECONDS);
     }
-    farmerMesh.position.set(position.x, 0.75, position.z);
+    farmer.currentAction = next;
   }
 
-  /** TIRED give-up beat (ADR 0007 §1): a friendly, non-scary tint -- no motion change, just feedback that the farmer is done chasing for now. */
+  /**
+   * Builds a fresh farmer -- the real animated model (ADR 0015 §1/§3) if
+   * `assetRegistry` reports `farmer` ready, else the primitive capsule
+   * fallback (vehicle-art AC13). `Run` starts playing immediately (no
+   * crossfade in) since PURSUING is the near-universal creation trigger
+   * (ADR 0015 §4).
+   */
+  function createFarmerRecord(): FarmerRecord {
+    if (assetRegistry?.status(FARMER_ASSET_KEY) === 'ready') {
+      const animated = assetRegistry.getAnimated(FARMER_ASSET_KEY);
+      if (animated) {
+        const { model, tintTargets, ownedMaterials } = buildFarmerDisplayModel(animated.scene);
+        scene.add(model);
+        const mixer = new THREE.AnimationMixer(model);
+        const actions = buildFarmerActions(mixer, animated.animations);
+        const record: FarmerRecord = { root: model, mixer, actions, tintTargets, ownedMaterials };
+        if (actions.run) {
+          actions.run.reset().play();
+          record.currentAction = actions.run;
+        }
+        return record;
+      }
+    }
+
+    // Fallback (ADR 0015 §3 / vehicle-art AC13): asset not ready yet (genuine
+    // load failure, or the narrow window before prefetch settles) or no
+    // registry at all (unit-test scene). Deliberately not upgraded
+    // mid-appearance -- a farmer appearance is short-lived and self-replacing,
+    // so the *next* appearance picks up the real model instead (ADR 0015 §3).
+    const capsuleMaterial = new THREE.MeshStandardMaterial({ color: FARMER_COLOR });
+    const root = new THREE.Mesh(new THREE.CapsuleGeometry(0.35, 0.8, 4, 8), capsuleMaterial);
+    scene.add(root);
+    return { root, capsuleMaterial };
+  }
+
+  /** Places (creating on first call) the farmer at its current position (farmer AC1/AC2). The animated model's corrected base sits at its own local origin (y=0, `buildFarmerDisplayModel`'s ground-contact convention); the capsule fallback is centered on itself, so it keeps its own y=0.75 offset. */
+  function setFarmerTransform(position: Vec2): void {
+    if (!farmer) {
+      farmer = createFarmerRecord();
+    }
+    const y = farmer.mixer ? 0 : 0.75;
+    farmer.root.position.set(position.x, y, position.z);
+  }
+
+  /** TIRED give-up beat (ADR 0007 §1, vehicle-art AC8): crossfades to the Idle pose (if a real model) and applies the friendly amber tint -- computed from each material's stored base color (ADR 0015 §2), so re-entering TIRED on a later cycle (a fresh farmer instance, fresh base colors) is correct without an explicit reset. */
   function farmerTired(): void {
-    farmerMaterial?.color.setHex(FARMER_TIRED_COLOR);
+    if (!farmer) return;
+    crossfadeFarmerAction(farmer.actions?.idle);
+
+    if (farmer.tintTargets) {
+      const tint = new THREE.Color(FARMER_TIRED_COLOR);
+      for (const material of farmer.tintTargets) {
+        const base = material.userData.baseColor as THREE.Color | undefined;
+        if (base) material.color.copy(base).multiply(tint);
+      }
+    } else {
+      farmer.capsuleMaterial?.color.setHex(FARMER_TIRED_COLOR);
+    }
   }
 
-  /** LEAVING -> ABSENT (ADR 0007 §1): the farmer has walked off; remove the mesh so a later re-appear recreates it fresh (base color). */
+  /** TIRED -> LEAVING (ADR 0015 §4, NEW): crossfades to the Walk pose. The amber tint persists from TIRED (ADR 0015 §4) -- no explicit change here. */
+  function farmerLeaving(): void {
+    if (!farmer) return;
+    crossfadeFarmerAction(farmer.actions?.walk);
+  }
+
+  /** LEAVING -> ABSENT (ADR 0007 §1): the farmer has walked off; tear down the mixer + model so a later re-appear recreates it fresh (base color, Run pose). */
   function farmerDespawn(): void {
-    if (!farmerMesh) return;
-    scene.remove(farmerMesh);
-    farmerMesh = undefined;
-    farmerMaterial = undefined;
+    if (!farmer) return;
+    farmer.mixer?.stopAllAction();
+    scene.remove(farmer.root);
+
+    if (farmer.ownedMaterials) {
+      // Dispose only the per-instance CLONED materials `buildFarmerDisplayModel`
+      // made (ADR 0015 §2) -- deliberately NOT the model's geometry. Unlike
+      // ADR 0015 §3's literal "disposeObject3D" wording, `SkeletonUtils.clone`
+      // shares `BufferGeometry` by reference with the app-lifetime cached
+      // source (the same sharing hazard `truck-rig.ts`'s
+      // `TruckRigResult.dispose` doc comment already documents for loaded
+      // truck parts) -- disposing it here would free GPU resources the next
+      // respawned farmer (and the cached source itself) still needs. This is
+      // a deliberate, narrower deviation from the ADR's dispose description.
+      for (const material of farmer.ownedMaterials) material.dispose();
+    } else if (farmer.capsuleMaterial) {
+      // Fallback capsule: geometry/material are created fresh per appearance
+      // (never shared with anything else), so disposing both here is safe.
+      farmer.capsuleMaterial.dispose();
+      (farmer.root as THREE.Mesh).geometry.dispose();
+    }
+
+    farmer = undefined;
   }
 
   /** Triggers the bump feedback flash (farmer AC5) as a translucent overlay burst at the truck's current position, decayed in tickEffects -- see the module header note on why this can't mutate the shared paint material. */
@@ -645,8 +883,10 @@ export function createGameScene(
   // (build/cosmetics are fixed for the session; see truck-rig.ts).
   let rigNeedsRecheck = !truckRig.allAssetsReady;
 
-  /** Per-frame visual-effect decay (bump flash + fuel glow bursts) -- called once per render frame from main.ts. */
+  /** Per-frame visual-effect decay (bump flash + fuel glow bursts) plus the farmer's `AnimationMixer.update` (ADR 0015 §3) -- called once per render frame from main.ts. */
   function tickEffects(dt: number): void {
+    farmer?.mixer?.update(dt);
+
     // Structure sourced-art upgrade-in-place (issue #46, ADR 0010 §4/§7):
     // same cheap status()-check-then-upgrade-once pattern as upsertAnimal's
     // chicken check -- stops checking a given structure the moment its slot
@@ -724,6 +964,13 @@ export function createGameScene(
 
   function dispose() {
     window.removeEventListener('resize', onResize);
+    // A farmer can be alive (PURSUING/TIRED/LEAVING) at teardown time --
+    // notably on the hard game-over restart path (CLAUDE.md's core loop
+    // step 8), which is a frequently-hit path, not a rare corner case.
+    // Reuse farmerDespawn's existing mixer-stop/scene-remove/material-dispose
+    // teardown rather than duplicating it here; re-nulling `farmer` is
+    // harmless even though the whole scene is going away right after.
+    farmerDespawn();
     // Per-session rig clones are disposed with the scene (ADR 0010 §6 /
     // 0011 Consequences) -- only the resources truckRig.dispose() actually
     // owns (fallback primitives + decal geometry); the shared cached source
@@ -744,6 +991,7 @@ export function createGameScene(
     removeAnimal,
     setFarmerTransform,
     farmerTired,
+    farmerLeaving,
     farmerDespawn,
     flashTruck,
     upsertFuelPickup,

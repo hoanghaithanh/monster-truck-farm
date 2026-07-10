@@ -4,6 +4,7 @@ import {
   bodyAssetKey,
   CHICKEN_ASSET_KEY,
   engineCueAssetKey,
+  FARMER_ASSET_KEY,
   gasCueAssetKey,
   STRUCTURE_ASSET_KEYS,
   truckAssetKeysForBuild,
@@ -51,6 +52,20 @@ describe('chicken asset entry (issue #28)', () => {
     expect(entry).toBeDefined();
     expect(entry.url).toBeInstanceOf(URL);
     expect(entry.approxGzipBytes).toBeGreaterThan(0);
+  });
+});
+
+describe('farmer asset entry (issue #29, ADR 0015)', () => {
+  it('is registered in the manifest with a real URL and a positive measured gzip size', () => {
+    const entry = ASSET_MANIFEST[FARMER_ASSET_KEY];
+    expect(entry).toBeDefined();
+    expect(entry.url).toBeInstanceOf(URL);
+    expect(entry.approxGzipBytes).toBeGreaterThan(0);
+  });
+
+  it('is never included in truckAssetKeysForBuild -- the farmer is not one of the player\'s own truck parts (ADR 0010 §4.4), so it must never gate the DRIVING-start wait', () => {
+    const keys = truckAssetKeysForBuild({ body: 1, wheels: 1, engine: 1, gasTank: 1 });
+    expect(keys).not.toContain(FARMER_ASSET_KEY);
   });
 });
 

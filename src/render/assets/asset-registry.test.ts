@@ -23,6 +23,34 @@ function fakeScene(): THREE.Object3D {
   return new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
 }
 
+// A minimal skinned scene, mimicking the shape that makes plain
+// `Object3D.clone()` unsafe (ADR 0015 §1): one bone plus a SkinnedMesh bound
+// to it via a Skeleton, wrapped in a root Group -- enough for
+// SkeletonUtils.clone to have real bones to rebind.
+function fakeSkinnedScene(): THREE.Object3D {
+  const bone = new THREE.Bone();
+  bone.position.set(0, 1, 0);
+  const skeleton = new THREE.Skeleton([bone]);
+
+  const geometry = new THREE.CylinderGeometry(0.2, 0.2, 1, 4);
+  const skinIndices: number[] = [];
+  const skinWeights: number[] = [];
+  for (let i = 0; i < geometry.attributes.position.count; i++) {
+    skinIndices.push(0, 0, 0, 0);
+    skinWeights.push(1, 0, 0, 0);
+  }
+  geometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(skinIndices, 4));
+  geometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute(skinWeights, 4));
+
+  const mesh = new THREE.SkinnedMesh(geometry, new THREE.MeshStandardMaterial());
+  mesh.add(bone);
+  mesh.bind(skeleton);
+
+  const root = new THREE.Group();
+  root.add(mesh);
+  return root;
+}
+
 describe('AssetRegistry.load / status / get (ADR 0010 §2/§6/§7)', () => {
   it('starts a key as pending with no source', () => {
     const registry = new AssetRegistry({ loadAsync: () => new Promise(() => {}) });
@@ -91,6 +119,61 @@ describe('AssetRegistry.load / status / get (ADR 0010 §2/§6/§7)', () => {
     expect(registry.status('good')).toBe('ready');
     expect(registry.status('bad')).toBe('failed');
     vi.restoreAllMocks();
+  });
+});
+
+describe('AssetRegistry.getAnimated (ADR 0015 §1: the skin-safe clone path)', () => {
+  it('returns undefined for a key that is not ready (never requested, still pending, or failed) -- same not-ready contract as get()', async () => {
+    const registry = new AssetRegistry({ loadAsync: () => new Promise(() => {}) });
+    expect(registry.getAnimated('missing')).toBeUndefined();
+
+    registry.load('pending-key', 'url');
+    expect(registry.getAnimated('pending-key')).toBeUndefined();
+  });
+
+  it('hands back a fresh clone whose SkinnedMesh is correctly rebound to its own cloned bones (not left pointing at the source skeleton)', async () => {
+    const scene = fakeSkinnedScene();
+    const loader: GltfLoaderLike = { loadAsync: async () => ({ scene, animations: [] }) };
+    const registry = new AssetRegistry(loader);
+
+    registry.load('farmer', 'url');
+    await registry.waitFor(['farmer'], 1000);
+
+    const animated = registry.getAnimated('farmer');
+    expect(animated).toBeDefined();
+    expect(animated!.scene).not.toBe(scene); // a clone, not the shared source
+
+    const sourceMesh = scene.children[0] as THREE.SkinnedMesh;
+    const cloneMesh = animated!.scene.children[0] as THREE.SkinnedMesh;
+    // The clone's skeleton bones must be its OWN clones, not the source's --
+    // this is exactly what a naive Object3D.clone(true) gets wrong (ADR 0015
+    // §1's "frozen bind pose" hazard).
+    expect(cloneMesh.skeleton.bones[0]).not.toBe(sourceMesh.skeleton.bones[0]);
+    expect(cloneMesh.skeleton.bones[0]).toBe(cloneMesh.children.find((c) => c instanceof THREE.Bone));
+  });
+
+  it('preserves gltf.animations, handing out the same clip array by reference to every caller (clips are immutable, sharing is safe)', async () => {
+    const clip = new THREE.AnimationClip('CharacterArmature|Run', 1, []);
+    const loader: GltfLoaderLike = { loadAsync: async () => ({ scene: fakeSkinnedScene(), animations: [clip] }) };
+    const registry = new AssetRegistry(loader);
+
+    registry.load('farmer', 'url');
+    await registry.waitFor(['farmer'], 1000);
+
+    const a = registry.getAnimated('farmer');
+    const b = registry.getAnimated('farmer');
+    expect(a!.animations).toEqual([clip]);
+    expect(a!.animations).toBe(b!.animations); // same shared array reference
+  });
+
+  it('defaults animations to an empty array for an asset whose loader response omits them (widened optional field, existing non-animated fakes still work)', async () => {
+    const loader: GltfLoaderLike = { loadAsync: async () => ({ scene: fakeScene() }) }; // no `animations` key at all
+    const registry = new AssetRegistry(loader);
+
+    registry.load('key', 'url');
+    await registry.waitFor(['key'], 1000);
+
+    expect(registry.getAnimated('key')!.animations).toEqual([]);
   });
 });
 

@@ -87,6 +87,17 @@ const FARMHOUSE_URL = new URL('./models/farmhouse.glb', import.meta.url);
 const MOUNTAIN_A_URL = new URL('./models/mountain-a.glb', import.meta.url);
 const MOUNTAIN_B_URL = new URL('./models/mountain-b.glb', import.meta.url);
 
+// Farmer pass (issue #29, ADR 0015 §1/§5): 'farmer' is the first *animated*
+// manifest entry -- a single, non-tiered key like chicken/structures above,
+// prefetched the same way (not gated by truckAssetKeysForBuild, ADR 0010
+// §4.4 -- not a player truck part). Unlike every prior entry, its consumer
+// (scene.ts) reaches it through the new AssetRegistry.getAnimated() path,
+// not get(), because it ships a skinned mesh + animation clip library (see
+// repo-root CREDITS.md for full sourcing/clip notes). approxGzipBytes is
+// measured directly (`gzip -9`) against the committed file, same discipline
+// as every other sourced-art entry above.
+const FARMER_URL = new URL('./models/farmer.glb', import.meta.url);
+
 // Real measured gzip sizes. body-tier-*/wheel-tier-* are the sourced-art
 // models (`gzip -9` against the committed files, 2026-07-09 -- see repo-root
 // CREDITS.md's budget table); engine-cue-*/gas-cue-* are still the
@@ -117,6 +128,9 @@ const FARMHOUSE_GZIP_BYTES = 200378;
 // Measured directly (`gzip -9`) against the committed files (issue #47).
 const MOUNTAIN_A_GZIP_BYTES = 17009;
 const MOUNTAIN_B_GZIP_BYTES = 6561;
+// Measured directly (`gzip -9`) against the committed file (issue #29) --
+// matches ADR 0015 §5's measured figure exactly.
+const FARMER_GZIP_BYTES = 324927;
 
 export const ASSET_MANIFEST = {
   // PASS-1 test fixture (ADR 0010 infrastructure) -- kept registered so the
@@ -160,9 +174,18 @@ export const ASSET_MANIFEST = {
   // so it loads progressively per ADR 0010 §4.4 like every other structure.
   'mountain-a': { url: MOUNTAIN_A_URL, approxGzipBytes: MOUNTAIN_A_GZIP_BYTES },
   'mountain-b': { url: MOUNTAIN_B_URL, approxGzipBytes: MOUNTAIN_B_GZIP_BYTES },
+
+  // Issue #29: same "not gated by truckAssetKeysForBuild" rationale as the
+  // chicken/structures/mountain above -- the farmer is not a player truck
+  // part, so it loads progressively per ADR 0010 §4.4. Consumed via
+  // AssetRegistry.getAnimated() (ADR 0015 §1), not get().
+  farmer: { url: FARMER_URL, approxGzipBytes: FARMER_GZIP_BYTES },
 } satisfies Record<string, AssetManifestEntry>;
 
 export type AssetKey = keyof typeof ASSET_MANIFEST;
+
+/** The manifest key for the (single, non-tiered) farmer model (issue #29) -- exported so scene.ts's farmer-rendering code doesn't hardcode the string. */
+export const FARMER_ASSET_KEY: AssetKey = 'farmer';
 
 /** The manifest key for a given tier index on a given truck-rig geometry axis (ADR 0011 §1/§4). */
 export function bodyAssetKey(tier: number): AssetKey {

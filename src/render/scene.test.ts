@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { buildTruckRig } from './truck-rig';
 import {
   buildChickenDisplayModel,
+  buildFarmerDisplayModel,
   buildRiverMesh,
   buildStructureDisplayModel,
   carryOverWheelRotations,
@@ -204,6 +205,106 @@ describe('buildStructureDisplayModel (issue #46, structure sourced-art scale/gro
     model.scale.set(1, 1, 1);
     const box = new THREE.Box3().setFromObject(model);
     expect(box.min.y).toBeCloseTo(0, 5);
+  });
+});
+
+describe('buildFarmerDisplayModel (issue #29, ADR 0015 §2 -- farmer sourced-art scale/centering/material isolation)', () => {
+  // A stand-in for AssetRegistry.getAnimated('farmer')'s clone: an
+  // arbitrarily large, off-center, non-cubic group with a few named
+  // materials mimicking the real sourced "Farmer" glTF's 8-material split
+  // (Skin/Eye/Eyebrows/etc, see repo-root CREDITS.md) -- closely enough to
+  // exercise the measure-then-correct + per-material-clone logic without
+  // needing the real skinned .glb in a Node test environment (this is a
+  // plain Mesh group, not an actual SkinnedMesh, since buildFarmerDisplayModel
+  // itself doesn't care about skinning -- that's SkeletonUtils.clone's job,
+  // covered separately in asset-registry.test.ts).
+  function rawFarmerModel(): THREE.Object3D {
+    const root = new THREE.Group();
+    const body = new THREE.Mesh(
+      new THREE.BoxGeometry(10, 25, 16),
+      new THREE.MeshStandardMaterial({ name: 'Skin', color: 0x8899aa, metalness: 0.4 }),
+    );
+    const eyes = new THREE.Mesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshStandardMaterial({ name: 'Eye', color: 0x111111, metalness: 0.4 }),
+    );
+    const eyebrows = new THREE.Mesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshStandardMaterial({ name: 'Eyebrows', color: 0x3a2a1a, metalness: 0.4 }),
+    );
+    root.add(body, eyes, eyebrows);
+    root.position.set(4, 12.5, -2); // off-origin, base not at y=0
+    return root;
+  }
+
+  it('derives the corrective scale from the source\'s own measured bounding-box height, landing on FARMER_TARGET_HEIGHT', () => {
+    const { model } = buildFarmerDisplayModel(rawFarmerModel());
+
+    const box = new THREE.Box3().setFromObject(model);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+
+    // Raw height was 25 (the body box); whatever FARMER_TARGET_HEIGHT is
+    // tuned to today, the rendered height after correction must match it.
+    expect(size.y).toBeCloseTo(1.7, 5);
+  });
+
+  it('re-centers the model horizontally (x/z) but keeps its base at the wrapper\'s local origin (y=0), like the structures -- not vertically centered like the chicken', () => {
+    const { model } = buildFarmerDisplayModel(rawFarmerModel());
+
+    const box = new THREE.Box3().setFromObject(model);
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+
+    expect(center.x).toBeCloseTo(0, 5);
+    expect(center.z).toBeCloseTo(0, 5);
+    expect(box.min.y).toBeCloseTo(0, 5);
+  });
+
+  it('clones every material rather than mutating the source in place -- required so a later TIRED tint never bleeds into the app-lifetime cached source', () => {
+    const source = rawFarmerModel();
+    const sourceMaterial = (source.children[0] as THREE.Mesh).material as THREE.MeshStandardMaterial;
+    const { model } = buildFarmerDisplayModel(source);
+
+    const cloneMaterial = (model.children[0].children[0].children[0] as THREE.Mesh).material as THREE.MeshStandardMaterial;
+    expect(cloneMaterial).not.toBe(sourceMaterial);
+
+    cloneMaterial.color.setHex(0xff0000);
+    expect(sourceMaterial.color.getHex()).not.toBe(0xff0000);
+  });
+
+  it('forces metalness to 0 on every cloned MeshStandardMaterial (same near-black-under-no-envMap fix as buildStructureDisplayModel)', () => {
+    const { ownedMaterials } = buildFarmerDisplayModel(rawFarmerModel());
+    for (const material of ownedMaterials) {
+      expect((material as THREE.MeshStandardMaterial).metalness).toBe(0);
+    }
+  });
+
+  it('excludes materials named Eye/Eyebrows from tintTargets (amber eyes would read as sickly, ADR 0015 §2)', () => {
+    const { tintTargets } = buildFarmerDisplayModel(rawFarmerModel());
+    const names = tintTargets.map((m) => m.name);
+    expect(names).toContain('Skin');
+    expect(names).not.toContain('Eye');
+    expect(names).not.toContain('Eyebrows');
+  });
+
+  it('stashes each tint target\'s post-clone color as userData.baseColor, so a later multiply-tint is idempotent from a fresh instance', () => {
+    const { tintTargets } = buildFarmerDisplayModel(rawFarmerModel());
+    const skin = tintTargets.find((m) => m.name === 'Skin')!;
+    expect((skin.userData.baseColor as THREE.Color).getHex()).toBe(new THREE.Color(0x8899aa).getHex());
+  });
+
+  it('ownedMaterials includes every cloned material, tintable or not (Eye/Eyebrows are cloned/metalness-fixed but just excluded from tinting)', () => {
+    const { ownedMaterials } = buildFarmerDisplayModel(rawFarmerModel());
+    const names = ownedMaterials.map((m) => m.name);
+    expect(names).toEqual(expect.arrayContaining(['Skin', 'Eye', 'Eyebrows']));
+    expect(ownedMaterials).toHaveLength(3);
+  });
+
+  it('keeps the corrective scale/centering on an inner group, not the returned outer object', () => {
+    const { model } = buildFarmerDisplayModel(rawFarmerModel());
+    expect(model.position.toArray()).toEqual([0, 0, 0]);
+    expect(model.scale.toArray()).toEqual([1, 1, 1]);
   });
 });
 
