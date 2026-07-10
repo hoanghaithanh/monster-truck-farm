@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { STUB_OBSTACLES, STUB_STRUCTURES, TERRAIN_BOUNDS } from './terrain';
 
-describe('STUB_STRUCTURES (issue #46, ADR 0012 §1)', () => {
-  it('has exactly one windmill, one barn, and one farmhouse', () => {
+describe('STUB_STRUCTURES (issue #46, ADR 0012 §1; mountain landmark added issue #47 redesign, ADR 0012 addendum/AC3a)', () => {
+  it('has exactly one windmill, one barn, one farmhouse, and one mountain landmark', () => {
     const kinds = STUB_STRUCTURES.map((s) => s.kind).sort();
-    expect(kinds).toEqual(['barn', 'farmhouse', 'windmill']);
+    expect(kinds).toEqual(['barn', 'farmhouse', 'mountain', 'windmill']);
   });
 
   it('every structure is collidable (AC2: always-solid, no tier gating)', () => {
@@ -45,5 +45,26 @@ describe('STUB_STRUCTURES (issue #46, ADR 0012 §1)', () => {
         expect(dist).toBeGreaterThanOrEqual(a.footprintRadius + b.footprintRadius);
       }
     }
+  });
+});
+
+describe('mountain landmark specifically (issue #47 redesign, AC3a: reachable/collidable, inside TERRAIN_BOUNDS -- opposite of the superseded backdrop-ring design)', () => {
+  const mountain = STUB_STRUCTURES.find((s) => s.kind === 'mountain');
+
+  it('exists exactly once', () => {
+    expect(mountain).toBeDefined();
+  });
+
+  it('is collidable (AC3a: same unconditional-solid behavior as windmill/barn/farmhouse)', () => {
+    expect(mountain?.collidable).toBe(true);
+  });
+
+  it('sits strictly inside TERRAIN_BOUNDS, clear of the edge by at least its own footprint (AC3a: reachable, not a backdrop-outside-bounds ring member)', () => {
+    expect(mountain).toBeDefined();
+    if (!mountain) return;
+    expect(mountain.position.x - mountain.footprintRadius).toBeGreaterThanOrEqual(TERRAIN_BOUNDS.minX);
+    expect(mountain.position.x + mountain.footprintRadius).toBeLessThanOrEqual(TERRAIN_BOUNDS.maxX);
+    expect(mountain.position.z - mountain.footprintRadius).toBeGreaterThanOrEqual(TERRAIN_BOUNDS.minZ);
+    expect(mountain.position.z + mountain.footprintRadius).toBeLessThanOrEqual(TERRAIN_BOUNDS.maxZ);
   });
 });

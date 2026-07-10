@@ -45,13 +45,16 @@ function isValid(point: Vec2, options: SpawnPositionOptions): boolean {
 }
 
 /**
- * Maps the collidable structures (windmill/barn/farmhouse) to keep-out
- * circles (ADR 0012 §5, AC6) -- shared by every spawn-system call site
- * (animal/farmer/fuel) so "combine obstacles + structures" is one small
- * helper instead of three independent, drift-prone inline mappings. Only
- * `collidable` structures produce a keep-out entry: river/mountains (issue
- * #47) are deliberately excluded (river is spawnable-over by design,
- * mountains sit outside `TERRAIN_BOUNDS` and are never selected anyway).
+ * Maps the collidable structures (windmill/barn/farmhouse, and -- since the
+ * issue #47 mountain redesign, 2026-07-10 -- the single collidable mountain
+ * landmark too) to keep-out circles (ADR 0012 §5, AC6) -- shared by every
+ * spawn-system call site (animal/farmer/fuel) so "combine obstacles +
+ * structures" is one small helper instead of three independent, drift-prone
+ * inline mappings. Only `collidable` structures produce a keep-out entry --
+ * this filter is what makes the mountain get keep-out automatically now that
+ * it's `collidable: true` and inside `TERRAIN_BOUNDS`, with no code change
+ * needed here. The river remains excluded: it's not a `StructureInstance` at
+ * all (spawnable-over by design, ADR 0012 §3).
  */
 export function structureKeepouts(structures: StructureInstance[]): Keepout[] {
   return structures

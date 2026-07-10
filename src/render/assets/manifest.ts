@@ -70,6 +70,23 @@ const BARN_URL = new URL('./models/barn.glb', import.meta.url);
 const WINDMILL_URL = new URL('./models/windmill.glb', import.meta.url);
 const FARMHOUSE_URL = new URL('./models/farmhouse.glb', import.meta.url);
 
+// Mountain pass (issue #47, 2026-07-10): 'mountain-a'/'mountain-b' were
+// originally added for a 12-instance non-collidable backdrop ring (river has
+// no asset -- it's procedural geometry built entirely in render/scene.ts,
+// see ADR 0012 §3). Both are "Mountain" by Quaternius (CC0 1.0); see
+// repo-root CREDITS.md for full sourcing notes, including the corrective
+// node transform already baked into each .glb (no bounding-box-derived
+// scale correction needed here, unlike the chicken/structure entries
+// above). Mid-Sprint-4 redesign (ADR 0012 addendum, AC3a): the ring was
+// superseded by a single reachable/collidable landmark using 'mountain-a'
+// (the taller/sharper model) as `StructureInstance` kind 'mountain' (see
+// STRUCTURE_ASSET_KEYS below). 'mountain-b' has no consumer as of this
+// redesign -- left registered anyway (same "kept even though unused"
+// precedent as 'test-fixture-cube' above) since it's a real, already-staged,
+// harmless-to-keep asset; no broken reference either way.
+const MOUNTAIN_A_URL = new URL('./models/mountain-a.glb', import.meta.url);
+const MOUNTAIN_B_URL = new URL('./models/mountain-b.glb', import.meta.url);
+
 // Real measured gzip sizes. body-tier-*/wheel-tier-* are the sourced-art
 // models (`gzip -9` against the committed files, 2026-07-09 -- see repo-root
 // CREDITS.md's budget table); engine-cue-*/gas-cue-* are still the
@@ -97,6 +114,9 @@ const CHICKEN_GZIP_BYTES = 15821;
 const BARN_GZIP_BYTES = 25758;
 const WINDMILL_GZIP_BYTES = 81508;
 const FARMHOUSE_GZIP_BYTES = 200378;
+// Measured directly (`gzip -9`) against the committed files (issue #47).
+const MOUNTAIN_A_GZIP_BYTES = 17009;
+const MOUNTAIN_B_GZIP_BYTES = 6561;
 
 export const ASSET_MANIFEST = {
   // PASS-1 test fixture (ADR 0010 infrastructure) -- kept registered so the
@@ -134,6 +154,12 @@ export const ASSET_MANIFEST = {
   barn: { url: BARN_URL, approxGzipBytes: BARN_GZIP_BYTES },
   windmill: { url: WINDMILL_URL, approxGzipBytes: WINDMILL_GZIP_BYTES },
   farmhouse: { url: FARMHOUSE_URL, approxGzipBytes: FARMHOUSE_GZIP_BYTES },
+
+  // Issue #47: same "not gated by truckAssetKeysForBuild" rationale as the
+  // structures above -- the mountain landmark is not a player truck part,
+  // so it loads progressively per ADR 0010 §4.4 like every other structure.
+  'mountain-a': { url: MOUNTAIN_A_URL, approxGzipBytes: MOUNTAIN_A_GZIP_BYTES },
+  'mountain-b': { url: MOUNTAIN_B_URL, approxGzipBytes: MOUNTAIN_B_GZIP_BYTES },
 } satisfies Record<string, AssetManifestEntry>;
 
 export type AssetKey = keyof typeof ASSET_MANIFEST;
@@ -155,11 +181,20 @@ export function gasCueAssetKey(tier: number): AssetKey {
 /** The (single, non-tiered) manifest key for the chicken model (issue #28) -- exported so scene.ts's upsertAnimal doesn't hardcode the string. */
 export const CHICKEN_ASSET_KEY: AssetKey = 'chicken';
 
-/** Manifest keys for the three structure models (issue #46), keyed by `StructureKind` -- exported so scene.ts's structure-rendering code doesn't hardcode the strings. */
-export const STRUCTURE_ASSET_KEYS: Record<'windmill' | 'barn' | 'farmhouse', AssetKey> = {
+/**
+ * Manifest keys for the four structure models, keyed by `StructureKind` --
+ * exported so scene.ts's structure-rendering code doesn't hardcode the
+ * strings. 'mountain' added in the issue #47 redesign (ADR 0012 addendum,
+ * AC3a): the landmark mountain is a `StructureInstance` like the other
+ * three, so it goes through the exact same generic
+ * asset-key-lookup/AssetRegistry/UpgradableObject path -- no mountain-
+ * specific rendering code needed.
+ */
+export const STRUCTURE_ASSET_KEYS: Record<'windmill' | 'barn' | 'farmhouse' | 'mountain', AssetKey> = {
   windmill: 'windmill',
   barn: 'barn',
   farmhouse: 'farmhouse',
+  mountain: 'mountain-a',
 };
 
 /**

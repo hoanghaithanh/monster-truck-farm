@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { buildTruckRig } from './truck-rig';
-import { buildChickenDisplayModel, buildStructureDisplayModel, carryOverWheelRotations } from './scene';
+import {
+  buildChickenDisplayModel,
+  buildRiverMesh,
+  buildStructureDisplayModel,
+  carryOverWheelRotations,
+} from './scene';
 import type { TruckBuild, TruckCosmetics } from '../core/types';
 
 // carryOverWheelRotations (issue #44) is exercised directly here rather than
@@ -124,7 +129,7 @@ describe('buildChickenDisplayModel (issue #28, chicken sourced-art scale/centeri
   });
 });
 
-describe('buildStructureDisplayModel (issue #46, structure sourced-art scale/ground-alignment)', () => {
+describe('buildStructureDisplayModel (issue #46, structure sourced-art scale/ground-alignment; metalness override added issue #47 mountain-landmark follow-up)', () => {
   // A stand-in for AssetRegistry.get(<structure key>)'s clone: an
   // arbitrarily large, off-center, non-cubic box, mimicking the three real
   // sourced windmill/barn/farmhouse .glb's each being authored at their own
@@ -136,6 +141,29 @@ describe('buildStructureDisplayModel (issue #46, structure sourced-art scale/gro
     mesh.position.set(4, 12.5, -2); // off-origin, base not at y=0
     return mesh;
   }
+
+  // A stand-in for the mountain model's own sourced material, which (unlike
+  // every other structure's diffuse-only material) ships a nonzero
+  // metallicFactor -- see buildStructureDisplayModel's own doc comment for
+  // the near-black-under-no-envMap rationale this override fixes.
+  function offCenterRawModelWithMetalness(): THREE.Object3D {
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(10, 25, 16),
+      new THREE.MeshStandardMaterial({ metalness: 0.4, roughness: 0.27 }),
+    );
+    mesh.position.set(4, 12.5, -2);
+    return mesh;
+  }
+
+  it('forces metalness to 0 on every MeshStandardMaterial in the source, leaving roughness/color untouched (2026-07-10 near-black-mountain fix, generalized to every structure)', () => {
+    const source = offCenterRawModelWithMetalness();
+    buildStructureDisplayModel(source, 6);
+
+    const mesh = source as THREE.Mesh;
+    const material = mesh.material as THREE.MeshStandardMaterial;
+    expect(material.metalness).toBe(0);
+    expect(material.roughness).toBeCloseTo(0.27, 5);
+  });
 
   it('derives the corrective scale from the source\'s own measured horizontal (max of x/z) extent, not a hardcoded number', () => {
     const model = buildStructureDisplayModel(offCenterRawModel(), 6);
@@ -176,5 +204,45 @@ describe('buildStructureDisplayModel (issue #46, structure sourced-art scale/gro
     model.scale.set(1, 1, 1);
     const box = new THREE.Box3().setFromObject(model);
     expect(box.min.y).toBeCloseTo(0, 5);
+  });
+});
+
+describe('buildRiverMesh (issue #47, procedural river ribbon)', () => {
+  it('builds a triangle-strip mesh with two vertices per route point and no crash for a normal route', () => {
+    const route = [
+      { x: -10, z: 0 },
+      { x: 0, z: 1 },
+      { x: 10, z: 0 },
+    ];
+    const mesh = buildRiverMesh(route, 3) as THREE.Mesh;
+    expect(mesh).toBeInstanceOf(THREE.Mesh);
+    const position = mesh.geometry.getAttribute('position');
+    expect(position.count).toBe(route.length * 2);
+    expect(mesh.geometry.getIndex()?.count).toBe((route.length - 1) * 6);
+  });
+
+  it('degrades gracefully (AC7) to an empty, childless group for a degenerate route (fewer than 2 points), never crashing', () => {
+    expect(() => buildRiverMesh([], 3)).not.toThrow();
+    const empty = buildRiverMesh([], 3);
+    expect(empty.children.length).toBe(0);
+    expect(empty).not.toBeInstanceOf(THREE.Mesh);
+
+    expect(() => buildRiverMesh([{ x: 0, z: 0 }], 3)).not.toThrow();
+    const single = buildRiverMesh([{ x: 0, z: 0 }], 3);
+    expect(single.children.length).toBe(0);
+  });
+
+  it('every ribbon vertex sits at the configured surface height, just above ground level', () => {
+    const route = [
+      { x: -5, z: 5 },
+      { x: 5, z: 5 },
+    ];
+    const mesh = buildRiverMesh(route, 2) as THREE.Mesh;
+    const position = mesh.geometry.getAttribute('position');
+    for (let i = 0; i < position.count; i++) {
+      const y = position.getY(i);
+      expect(y).toBeGreaterThan(0);
+      expect(y).toBeLessThan(0.5);
+    }
   });
 });

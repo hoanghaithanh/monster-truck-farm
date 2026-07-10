@@ -102,3 +102,41 @@ candidate (different, more cottage-like roof style, bundled with plowed-field
 terrain geometry not wanted here) and over Poly by Google's own "Farm" model
 (a barn+silo combo that would have visually overlapped with the Quaternius
 barn above, not read as a distinct farmhouse).
+
+## Mountain landmark (issue #47)
+
+Two low-poly mountain models (`src/render/assets/models/mountain-{a,b}.glb`),
+downloaded via [poly.pizza](https://poly.pizza) on 2026-07-10. Originally
+sourced for a 12-instance non-collidable backdrop ring placed outside
+`TERRAIN_BOUNDS` (ADR 0012 §4, "one, or a few, low-poly mountain .glb(s),
+instanced/reused around the perimeter"); mid-Sprint-4 the human superseded
+that design in favor of one large, reachable, collidable mountain landmark
+placed *inside* `TERRAIN_BOUNDS` (ADR 0012 addendum 2026-07-10, requirements
+doc AC3a). Only `mountain-a.glb` (the taller/sharper model) is used by the
+shipped landmark; `mountain-b.glb` has no consumer as of this redesign but
+is left registered/committed (harmless, same "kept even if unused"
+precedent as the manifest's `test-fixture-cube` entry).
+
+| File | Model | Source |
+|---|---|---|
+| `mountain-a.glb` | "Mountain" by Quaternius (484 tris, taller/sharper) — used as the landmark | https://poly.pizza/m/XY4ej3Zg3I |
+| `mountain-b.glb` | "Mountain" by Quaternius (194 tris, shorter/rounder) — unused as of the AC3a redesign | https://poly.pizza/m/7HYR2s9JVi |
+
+License: [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/)
+— public domain, no credit required. Credited here anyway as good practice.
+Same author/pack family as the truck body, barn, and windmill models above.
+Ships with a corrective node transform (a 100x scale plus a -90° X rotation
+fixing the Z-up export to Three.js's Y-up convention), so unlike the
+chicken/farmhouse models above, no manual scale-correction workaround was
+needed for orientation/units — the raw glTF loads at an already-sensible
+size (final display scale is still tuned to a specific target height via
+`buildStructureDisplayModel`'s width-driven scaling, same as every other
+structure; see ADR 0012 addendum for the exact derivation). Its sourced
+"Stone"/"Snow"/"Dirt" materials ship a nonzero `metallicFactor` (unlike
+every other structure/asset in this project) — `buildStructureDisplayModel`
+now force-overrides `metalness` to 0 on every structure's loaded materials
+to compensate for this project's scene having no `envMap` (see that
+function's doc comment in `render/scene.ts`).
+
+There is no river asset — per ADR 0012 §3, the river is procedural flat
+ribbon geometry generated in `render/`, not a downloaded asset.

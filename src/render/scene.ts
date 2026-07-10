@@ -145,14 +145,19 @@ export function buildChickenDisplayModel(source: THREE.Object3D): THREE.Object3D
 }
 
 // Structures (issue #46, ADR 0012 §2): always-solid scenery (windmill/barn/
-// farmhouse), rendered via the same primitive-fallback -> AssetRegistry ->
-// UpgradableObject pattern the chicken (issue #28) established. Unlike
-// animals, structures are static (create-once, no per-frame position
-// tracking) -- see createGameScene's structuresGroup below.
+// farmhouse/mountain), rendered via the same primitive-fallback ->
+// AssetRegistry -> UpgradableObject pattern the chicken (issue #28)
+// established. Unlike animals, structures are static (create-once, no
+// per-frame position tracking) -- see createGameScene's structuresGroup
+// below. 'mountain' added in the issue #47 redesign (ADR 0012 addendum,
+// AC3a): the landmark mountain is just a fourth `StructureKind`, so it
+// needs a fallback color/primitive shape here like the other three, but no
+// new rendering machinery.
 const STRUCTURE_PRIMITIVE_COLORS: Record<StructureInstance['kind'], number> = {
   windmill: 0xd8c9a3,
   barn: 0xb23a2f,
   farmhouse: 0xe8dcb8,
+  mountain: 0x8a8a80,
 };
 
 /**
@@ -175,6 +180,15 @@ function buildStructurePrimitive(structure: StructureInstance): THREE.Object3D {
   if (structure.kind === 'windmill') {
     height = r * 3;
     geometry = new THREE.CylinderGeometry(r * 0.4, r * 0.7, height, 10);
+  } else if (structure.kind === 'mountain') {
+    // A cone reads as "mountain" at a glance far better than the generic
+    // box fallback the other buildings use -- cheap and worth it since this
+    // fallback is what a slow/failed asset load leaves on screen (AC7).
+    // Height target matches the real model's derivation (terrain.ts's own
+    // footprintRadius comment): ~3.46x the footprint radius gets close to
+    // the ~16.3-unit target height for this structure's actual r=4.71.
+    height = r * 3.46;
+    geometry = new THREE.ConeGeometry(r, height, 12);
   } else {
     height = r * 1.6;
     geometry = new THREE.BoxGeometry(r * 2, height, r * 1.6);
@@ -213,8 +227,40 @@ function buildStructurePrimitive(structure: StructureInstance): THREE.Object3D {
  * overwrites the outer object's position/rotation/scale with the outgoing
  * primitive's own transform, which would clobber a correction applied
  * directly to the returned object.
+ *
+ * Metalness override (2026-07-10, issue #47 mountain landmark follow-up):
+ * the mountain model's sourced "Stone"/"Snow"/"Dirt" materials ship
+ * `metallicFactor: 0.4` (vs. `0` on every other structure/asset in this
+ * project -- barn/windmill/farmhouse/chicken/truck are all fully diffuse),
+ * which under `MeshStandardMaterial`'s PBR model means that fraction of the
+ * surface's appearance is expected to come from reflecting a scene
+ * `envMap`. This project's lighting setup has no `envMap` (nothing else
+ * needs one), so a nonzero metalness with no environment to reflect renders
+ * visibly darker than it should -- confirmed via live before/after pixel
+ * sampling (average brightness across the rendered silhouette rose ~36%
+ * with this override applied). Forcing `metalness` to 0 on every material
+ * of the loaded clone is a physically-motivated consistency fix matching
+ * this project's diffuse-only material convention, not a recolor --
+ * `color`/`roughness`/textures are untouched, and the source `.glb` on disk
+ * is never modified (this only mutates the per-clone material instance
+ * `AssetRegistry.get()` already hands the caller to own). Applied here
+ * (generically, to every structure) rather than as a mountain-only special
+ * case: it's a no-op for barn/windmill/farmhouse, which already ship
+ * `metallicFactor: 0`.
  */
 export function buildStructureDisplayModel(source: THREE.Object3D, targetWidth: number): THREE.Object3D {
+  source.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    const material = child.material;
+    if (Array.isArray(material)) {
+      for (const m of material) {
+        if (m instanceof THREE.MeshStandardMaterial) m.metalness = 0;
+      }
+    } else if (material instanceof THREE.MeshStandardMaterial) {
+      material.metalness = 0;
+    }
+  });
+
   const box = new THREE.Box3().setFromObject(source);
   const size = new THREE.Vector3();
   box.getSize(size);
@@ -236,6 +282,84 @@ export function buildStructureDisplayModel(source: THREE.Object3D, targetWidth: 
   outer.name = 'StructureModel';
   outer.add(inner);
   return outer;
+}
+
+// River (issue #47, ADR 0012 §3): a procedural flat ribbon following a
+// simple polyline -- built entirely here, no external asset, no collider,
+// no AssetRegistry involvement. Runs roughly along the terrain's north edge
+// (z ~15-17), clear of the windmill/barn/farmhouse (issue #46, at (12,12)/
+// (-12,-10)/(10,-12)) and the bush/rock/derelict-car obstacles (all south of
+// z=4) -- see the issue #47 hand-off notes for the placement rationale.
+const RIVER_COLOR = 0x2f7fb8;
+const RIVER_SURFACE_Y = 0.03; // just above the ground plane (y=0) to avoid z-fighting.
+const RIVER_WIDTH = 3;
+const RIVER_ROUTE: Vec2[] = [
+  { x: -18, z: 16 },
+  { x: -8, z: 15 },
+  { x: 2, z: 16.5 },
+  { x: 18, z: 15.5 },
+];
+
+/**
+ * Builds a flat triangle-strip ribbon following `route`, `width` units wide,
+ * laid at `RIVER_SURFACE_Y`. Each vertex's left/right offset is the local
+ * segment normal (averaged from the adjacent segments at interior points),
+ * so the ribbon follows gentle bends in the route without gapping.
+ *
+ * Defensive per AC7 ("degrade gracefully if e.g. terrain data is
+ * malformed"): a route with fewer than 2 points can't form a ribbon, so this
+ * returns an empty (childless) group instead of building degenerate/empty
+ * geometry -- caller just adds it to the scene like any other object3D, no
+ * special-casing needed, and nothing crashes.
+ */
+export function buildRiverMesh(route: Vec2[], width: number): THREE.Object3D {
+  if (route.length < 2) return new THREE.Group();
+
+  const positions: number[] = [];
+  for (let i = 0; i < route.length; i++) {
+    const prev = route[i - 1] ?? route[i];
+    const next = route[i + 1] ?? route[i];
+    const dx = next.x - prev.x;
+    const dz = next.z - prev.z;
+    const segLength = Math.hypot(dx, dz) || 1;
+    // Left-hand normal of the local direction, in the XZ plane.
+    const nx = -dz / segLength;
+    const nz = dx / segLength;
+    const halfWidth = width / 2;
+    positions.push(route[i].x + nx * halfWidth, RIVER_SURFACE_Y, route[i].z + nz * halfWidth);
+    positions.push(route[i].x - nx * halfWidth, RIVER_SURFACE_Y, route[i].z - nz * halfWidth);
+  }
+
+  const indices: number[] = [];
+  for (let i = 0; i < route.length - 1; i++) {
+    const a = i * 2;
+    const b = i * 2 + 1;
+    const c = (i + 1) * 2;
+    const d = (i + 1) * 2 + 1;
+    indices.push(a, b, c, b, d, c);
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+
+  const material = new THREE.MeshStandardMaterial({
+    color: RIVER_COLOR,
+    transparent: true,
+    opacity: 0.85,
+    // DoubleSide (not the default FrontSide): the ribbon's triangle winding
+    // depends on the route's direction/curvature, and a flat horizontal
+    // strip built from an arbitrary polyline can easily end up with a
+    // downward-facing normal for a given segment (confirmed empirically --
+    // the initial FrontSide version rendered invisible from the chase
+    // camera, which always looks down at the ground, even though the mesh
+    // was correctly present in the scene graph). Double-siding is the
+    // robust fix rather than hand-deriving a winding-order rule that would
+    // only hold for this specific RIVER_ROUTE and break if it's edited.
+    side: THREE.DoubleSide,
+  });
+  return new THREE.Mesh(geometry, material);
 }
 
 export function createGameScene(
@@ -287,6 +411,11 @@ export function createGameScene(
     scene.add(primitive);
     structureSlots.push({ structure, slot: createUpgradableObject(scene, primitive) });
   }
+
+  // River (issue #47, ADR 0012 §3): pure procedural geometry, created once
+  // here -- no loading, no fallback concern (buildRiverMesh's own empty-
+  // group guard covers a malformed/degenerate route per AC7).
+  scene.add(buildRiverMesh(RIVER_ROUTE, RIVER_WIDTH));
 
   // Truck rig (ADR 0011 §4/§5): the single buildTruckRig assembly path also
   // used by the builder's live 3D preview (ui/builder.ts) -- so a mismatch

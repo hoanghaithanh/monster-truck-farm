@@ -54,9 +54,9 @@ describe('chicken asset entry (issue #28)', () => {
   });
 });
 
-describe('structure asset entries (issue #46)', () => {
-  it('windmill/barn/farmhouse are each registered in the manifest with a real URL and a positive measured gzip size', () => {
-    for (const kind of ['windmill', 'barn', 'farmhouse'] as const) {
+describe('structure asset entries (issue #46; mountain added issue #47 redesign, ADR 0012 addendum/AC3a)', () => {
+  it('windmill/barn/farmhouse/mountain are each registered in the manifest with a real URL and a positive measured gzip size', () => {
+    for (const kind of ['windmill', 'barn', 'farmhouse', 'mountain'] as const) {
       const entry = ASSET_MANIFEST[STRUCTURE_ASSET_KEYS[kind]];
       expect(entry).toBeDefined();
       expect(entry.url).toBeInstanceOf(URL);
@@ -64,10 +64,15 @@ describe('structure asset entries (issue #46)', () => {
     }
   });
 
+  it('the mountain landmark resolves to the mountain-a manifest key (the taller/sharper of the two sourced models)', () => {
+    expect(STRUCTURE_ASSET_KEYS.mountain).toBe('mountain-a');
+  });
+
   it('are never included in truckAssetKeysForBuild -- structures are not one of the player\'s own truck parts (ADR 0010 §4.4), so they must never gate the DRIVING-start wait', () => {
     const keys = truckAssetKeysForBuild({ body: 1, wheels: 1, engine: 1, gasTank: 1 });
     expect(keys).not.toContain(STRUCTURE_ASSET_KEYS.windmill);
     expect(keys).not.toContain(STRUCTURE_ASSET_KEYS.barn);
     expect(keys).not.toContain(STRUCTURE_ASSET_KEYS.farmhouse);
+    expect(keys).not.toContain(STRUCTURE_ASSET_KEYS.mountain);
   });
 });
