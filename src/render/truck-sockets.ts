@@ -143,6 +143,26 @@ export function socketsForBodyTier(tier: number): TruckSockets {
 }
 
 /**
+ * Plain-number wheel footprint for the obstacle-climb four-corner sampling
+ * (ADR 0014, issue #42): `core/driving/obstacle-climb.ts` needs the truck's
+ * wheelbase/track to sample per-wheel, but must stay `three`-free (ADR 0001
+ * §4) -- this is the one place a `THREE.Vector3`-based socket gets unwrapped
+ * into plain numbers for `core/` to consume. `wheels[0]`/`wheels[2]` are the
+ * front-right/rear-right sockets (see `sockets()` above); `halfTrack` uses
+ * `Math.abs` since some tiers author `wheelX` on the -X (left) side.
+ */
+export interface TruckFootprint {
+  halfTrack: number;
+  zFront: number;
+  zRear: number;
+}
+
+export function footprintForBodyTier(tier: number): TruckFootprint {
+  const s = socketsForBodyTier(tier);
+  return { halfTrack: Math.abs(s.wheels[0].x), zFront: s.wheels[0].z, zRear: s.wheels[2].z };
+}
+
+/**
  * Ground-clearance reference per body tier -- the wheel radius baked into
  * that tier's socket table, so callers (fallback geometry, camera framing)
  * can match it without duplicating the numbers. Re-tuned (2026-07-09) for

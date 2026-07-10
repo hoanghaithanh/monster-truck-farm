@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { BODY_TIER_SOCKETS, DEFAULT_SOCKETS, WHEEL_RADIUS_BY_TIER, socketsForBodyTier } from './truck-sockets';
+import {
+  BODY_TIER_SOCKETS,
+  DEFAULT_SOCKETS,
+  WHEEL_RADIUS_BY_TIER,
+  socketsForBodyTier,
+  footprintForBodyTier,
+} from './truck-sockets';
 
 describe('BODY_TIER_SOCKETS[2] (issue #38, tier-2 front/rear wheel-well fix)', () => {
   // Values re-derived against the tier-2 body's own built-in
@@ -145,5 +151,39 @@ describe('socketsForBodyTier (issue #36)', () => {
 
   it('DEFAULT_SOCKETS is exactly BODY_TIER_SOCKETS[0]', () => {
     expect(DEFAULT_SOCKETS).toBe(BODY_TIER_SOCKETS[0]);
+  });
+});
+
+describe('footprintForBodyTier (ADR 0014, issue #42): plain-number wheel footprint extraction for core/driving/obstacle-climb.ts', () => {
+  it('extracts halfTrack/zFront/zRear from each in-range tier\'s own front-right/rear-right wheel sockets', () => {
+    for (const tier of [0, 1, 2]) {
+      const sockets = BODY_TIER_SOCKETS[tier];
+      const [, frontRight, , rearRight] = sockets.wheels;
+      const footprint = footprintForBodyTier(tier);
+      expect(footprint.halfTrack).toBeCloseTo(Math.abs(frontRight.x), 6);
+      expect(footprint.zFront).toBeCloseTo(frontRight.z, 6);
+      expect(footprint.zRear).toBeCloseTo(rearRight.z, 6);
+    }
+  });
+
+  it('matches ADR 0014\'s §Layering table numbers for tier 0/1/2', () => {
+    const tier0 = footprintForBodyTier(0);
+    expect(tier0.halfTrack).toBeCloseTo(0.556, 2);
+    expect(tier0.zFront).toBeCloseTo(0.558, 2);
+    expect(tier0.zRear).toBeCloseTo(-0.558, 2);
+
+    const tier1 = footprintForBodyTier(1);
+    expect(tier1.halfTrack).toBeCloseTo(0.713, 2);
+    expect(tier1.zFront).toBeCloseTo(0.636, 2);
+    expect(tier1.zRear).toBeCloseTo(-0.636, 2);
+
+    const tier2 = footprintForBodyTier(2);
+    expect(tier2.halfTrack).toBeCloseTo(0.933, 2);
+    expect(tier2.zFront).toBeCloseTo(0.479, 2);
+    expect(tier2.zRear).toBeCloseTo(-0.885, 2);
+  });
+
+  it.each([-1, 3, 99])('falls back to tier 0\'s footprint for an out-of-range tier index (%d) -- never crash (ADR 0010 §7)', (tier) => {
+    expect(footprintForBodyTier(tier)).toEqual(footprintForBodyTier(0));
   });
 });

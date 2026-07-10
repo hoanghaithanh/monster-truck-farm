@@ -18,6 +18,7 @@ import type { TruckBuild, TruckCosmetics, TruckSpec } from './core/types';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { AssetRegistry } from './render/assets/asset-registry';
 import { ASSET_MANIFEST, truckAssetKeysForBuild } from './render/assets/manifest';
+import { footprintForBodyTier } from './render/truck-sockets';
 import { createLoadingIndicator } from './ui/loading-indicator';
 import { createDrivingSessionController } from './core/driving-session-controller';
 
@@ -119,6 +120,13 @@ function startDriving(
   const { blocking, passable } = partitionObstacles(STUB_OBSTACLES, spec.clearance);
   const obstacleBodies = createObstacleColliders(world, blocking);
 
+  // Obstacle-climb wheel footprint (ADR 0014, issue #42): body tier is fixed
+  // for a run, so this is computed once here rather than every frame --
+  // unwraps truck-sockets.ts's THREE.Vector3-based per-tier wheel table into
+  // the plain {halfTrack, zFront, zRear} shape computeClimbTransform (core/,
+  // three-free per ADR 0001 §4) needs to sample its four wheel corners.
+  const climbFootprint = footprintForBodyTier(build.body);
+
   const truckStart = { x: 0, z: 6 };
   const truckController = new TruckController(world, truckStart, TRUCK_CONTACT_RADIUS, TRUCK_HALF_HEIGHT);
 
@@ -159,10 +167,11 @@ function startDriving(
     drivingSystem.setTopSpeed(effectiveTopSpeed);
 
     const { position, heading } = drivingSystem.update(intent, dt);
-    // Obstacle climb (issue #42, ADR 0013): purely visual lift/tilt over
-    // `passable` obstacles, derived statelessly from this frame's position --
-    // never touches the physics collider or the clearance rule above.
-    const climb = computeClimbTransform(position, heading, passable, DEFAULT_CLIMB_CONFIG);
+    // Obstacle climb (issue #42, ADR 0014): purely visual four-corner
+    // lift/tilt over `passable` obstacles, derived statelessly from this
+    // frame's position/heading and the run's fixed wheel footprint -- never
+    // touches the physics collider or the clearance rule above.
+    const climb = computeClimbTransform(position, heading, climbFootprint, passable, DEFAULT_CLIMB_CONFIG);
     scene.setTruckTransform(position, heading, climb);
     // Wheel roll + front-wheel steer-yaw (issue #40): purely visual, reads
     // this frame's already-computed speed/steer intent rather than a second
