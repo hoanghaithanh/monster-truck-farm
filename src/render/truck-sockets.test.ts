@@ -158,7 +158,7 @@ describe('footprintForBodyTier (ADR 0014, issue #42): plain-number wheel footpri
   it('extracts halfTrack/zFront/zRear from each in-range tier\'s own front-right/rear-right wheel sockets', () => {
     for (const tier of [0, 1, 2]) {
       const sockets = BODY_TIER_SOCKETS[tier];
-      const [, frontRight, , rearRight] = sockets.wheels;
+      const [frontRight, , rearRight] = sockets.wheels;
       const footprint = footprintForBodyTier(tier);
       expect(footprint.halfTrack).toBeCloseTo(Math.abs(frontRight.x), 6);
       expect(footprint.zFront).toBeCloseTo(frontRight.z, 6);
