@@ -147,9 +147,25 @@ export function createGameScene(
   const fuelMeshes = new Map<string, THREE.Object3D>();
   const fuelGlows: { mesh: THREE.Mesh; material: THREE.MeshBasicMaterial; remaining: number }[] = [];
 
-  function setTruckTransform(position: Vec2, heading: number): void {
-    truckRig.group.position.set(position.x, 0, position.z);
-    truckRig.group.rotation.y = heading;
+  function setTruckTransform(
+    position: Vec2,
+    heading: number,
+    climb?: { lift: number; pitch: number; roll: number },
+  ): void {
+    // Obstacle climb (issue #42, ADR 0013): a dumb adapter over numbers
+    // computed in core/driving/obstacle-climb.ts -- this function never
+    // computes the climb itself or reads obstacle data. When `climb` is
+    // omitted, behavior is pixel-identical to before this feature (lift 0,
+    // no pitch/roll), so the builder preview and any other caller of this
+    // function are unaffected.
+    const lift = climb?.lift ?? 0;
+    const pitch = climb?.pitch ?? 0;
+    const roll = climb?.roll ?? 0;
+    truckRig.group.position.set(position.x, lift, position.z);
+    // 'YXZ' Euler order: heading (Y) applies first, then pitch about the
+    // rig's already-yawed local X axis, then roll -- so the tilt reads
+    // correctly in the truck's own body frame at any heading.
+    truckRig.group.rotation.set(pitch, heading, roll, 'YXZ');
 
     // Simple chase camera, offset behind the truck's heading. At terrain
     // corners this offset can extend past the finite ground plane, so the

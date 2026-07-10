@@ -6,7 +6,8 @@ import { createHud } from './ui/hud';
 import { createBuilderScreen } from './ui/builder';
 import { createGameOverScreen } from './ui/game-over';
 import { DrivingSystem, TRUCK_HALF_HEIGHT } from './systems/driving-system';
-import { TRUCK_CONTACT_RADIUS } from './core/driving/config';
+import { DEFAULT_CLIMB_CONFIG, TRUCK_CONTACT_RADIUS } from './core/driving/config';
+import { computeClimbTransform } from './core/driving/obstacle-climb';
 import { AnimalSystem } from './systems/animal-system';
 import { GasSystem } from './systems/gas-system';
 import { FarmerSystem, type FarmerRunState } from './systems/farmer-system';
@@ -115,7 +116,7 @@ function startDriving(
 ) {
   // Obstacle clearance is fixed for the run: partition once against the
   // truck's wheel tier (drive AC6-AC9), only blocking obstacles get colliders.
-  const { blocking } = partitionObstacles(STUB_OBSTACLES, spec.clearance);
+  const { blocking, passable } = partitionObstacles(STUB_OBSTACLES, spec.clearance);
   const obstacleBodies = createObstacleColliders(world, blocking);
 
   const truckStart = { x: 0, z: 6 };
@@ -158,7 +159,11 @@ function startDriving(
     drivingSystem.setTopSpeed(effectiveTopSpeed);
 
     const { position, heading } = drivingSystem.update(intent, dt);
-    scene.setTruckTransform(position, heading);
+    // Obstacle climb (issue #42, ADR 0013): purely visual lift/tilt over
+    // `passable` obstacles, derived statelessly from this frame's position --
+    // never touches the physics collider or the clearance rule above.
+    const climb = computeClimbTransform(position, heading, passable, DEFAULT_CLIMB_CONFIG);
+    scene.setTruckTransform(position, heading, climb);
     // Wheel roll + front-wheel steer-yaw (issue #40): purely visual, reads
     // this frame's already-computed speed/steer intent rather than a second
     // source of truth -- see scene.ts's setTruckWheelMotion doc comment.
