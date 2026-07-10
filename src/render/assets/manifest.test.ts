@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { ASSET_MANIFEST, bodyAssetKey, engineCueAssetKey, gasCueAssetKey, truckAssetKeysForBuild, wheelAssetKey } from './manifest';
+import {
+  ASSET_MANIFEST,
+  bodyAssetKey,
+  CHICKEN_ASSET_KEY,
+  engineCueAssetKey,
+  gasCueAssetKey,
+  truckAssetKeysForBuild,
+  wheelAssetKey,
+} from './manifest';
 
 describe('truck asset key helpers (ADR 0011 §1/§4)', () => {
   it('bodyAssetKey/wheelAssetKey/engineCueAssetKey/gasCueAssetKey resolve every tier index 0-2 to a real manifest entry', () => {
@@ -28,5 +36,19 @@ describe('truckAssetKeysForBuild (ADR 0010 §4.3 gate list, ADR 0011 pass replac
     for (const key of keys) {
       expect(ASSET_MANIFEST[key]).toBeDefined();
     }
+  });
+
+  it('never includes the chicken asset key -- the chicken is not one of the player\'s own truck parts (ADR 0010 §4.4), so it must never gate the DRIVING-start wait', () => {
+    const keys = truckAssetKeysForBuild({ body: 1, wheels: 1, engine: 1, gasTank: 1 });
+    expect(keys).not.toContain(CHICKEN_ASSET_KEY);
+  });
+});
+
+describe('chicken asset entry (issue #28)', () => {
+  it('is registered in the manifest with a real URL and a positive measured gzip size', () => {
+    const entry = ASSET_MANIFEST[CHICKEN_ASSET_KEY];
+    expect(entry).toBeDefined();
+    expect(entry.url).toBeInstanceOf(URL);
+    expect(entry.approxGzipBytes).toBeGreaterThan(0);
   });
 });

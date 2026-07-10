@@ -3,7 +3,8 @@ import type { ObstacleInstance, TruckBuild, TruckCosmetics, Vec2 } from '../core
 import type { TerrainBounds } from '../core/terrain';
 import { clampCameraToBounds } from '../core/driving/boundary';
 import type { AssetRegistry } from './assets/asset-registry';
-import { truckAssetKeysForBuild } from './assets/manifest';
+import { CHICKEN_ASSET_KEY, truckAssetKeysForBuild } from './assets/manifest';
+import { createUpgradableObject, type UpgradableObject } from './assets/upgradable-object';
 import { buildTruckRig, type TruckWheelPivots } from './truck-rig';
 import { WHEEL_RADIUS_BY_TIER } from './truck-sockets';
 
@@ -90,6 +91,59 @@ function createObstacleMesh(obstacle: ObstacleInstance): THREE.Object3D {
   return mesh;
 }
 
+// Chicken sourced-art (issue #28): the sourced "Hen" glTF's raw geometry is
+// baked at an unusual scale with no corrective node transform (measured raw
+// bounding-box height ~77 units -- not meters, and not any tidy round
+// number), so the corrective scale is *derived from the model's own
+// measured bounding box* at load time (buildChickenDisplayModel below)
+// rather than hand-picked as a magic constant -- robust if the asset is
+// ever swapped for a different sourced model with different raw units.
+// CHICKEN_TARGET_HEIGHT is the one tuned number: chosen to roughly match
+// the previous BoxGeometry(0.5,0.5,0.5) primitive's footprint next to the
+// truck/terrain -- confirmed by a live screenshot in the driving scene
+// (small, farm-appropriately-sized, not clipping/floating/oversized).
+const CHICKEN_TARGET_HEIGHT = 0.5;
+
+/**
+ * Wraps a freshly-cloned chicken source model (from `AssetRegistry.get`) in
+ * a corrective group: re-centered and scaled (from the model's own measured
+ * bounding box) so it renders at `CHICKEN_TARGET_HEIGHT` with its bounding
+ * center at the wrapper's local origin -- matching how the primitive
+ * `BoxGeometry(0.5,0.5,0.5)` it replaces is itself centered at its own
+ * local origin. That means `upsertAnimal`'s existing
+ * `mesh.position.set(x, 0.3, z)` call (made on the primitive, which
+ * `UpgradableObject.upgrade()` then copies onto the object returned here)
+ * needs no change to keep the chicken resting on the ground the same way
+ * the box did.
+ *
+ * The correction lives on an *inner* group, not the returned outer one,
+ * deliberately: `UpgradableObject.upgrade()` overwrites the position/
+ * rotation/scale of whatever object it's given with the outgoing
+ * primitive's own transform (see upgradable-object.ts), so a correction
+ * applied directly to the returned object would be clobbered the instant
+ * `upgrade()` runs.
+ */
+export function buildChickenDisplayModel(source: THREE.Object3D): THREE.Object3D {
+  const box = new THREE.Box3().setFromObject(source);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  const center = new THREE.Vector3();
+  box.getCenter(center);
+
+  source.position.sub(center);
+
+  const scaleFactor = size.y > 0 ? CHICKEN_TARGET_HEIGHT / size.y : 1;
+  const inner = new THREE.Group();
+  inner.name = 'ChickenDisplayScale';
+  inner.scale.setScalar(scaleFactor);
+  inner.add(source);
+
+  const outer = new THREE.Group();
+  outer.name = 'ChickenModel';
+  outer.add(inner);
+  return outer;
+}
+
 export function createGameScene(
   container: HTMLElement,
   bounds: TerrainBounds,
@@ -141,7 +195,14 @@ export function createGameScene(
   scene.add(truckRig.group);
   const bumpFlashes: { mesh: THREE.Mesh; material: THREE.MeshBasicMaterial; remaining: number }[] = [];
 
-  const animalMeshes = new Map<string, THREE.Object3D>();
+  // Each animal instance gets its own UpgradableObject (issue #28): starts
+  // as the permanent-baseline primitive box (AC13's "never crash, falls
+  // back to existing primitive" -- unchanged even after the chicken model
+  // ships), upgraded in place to its own clone of the sourced chicken model
+  // the moment AssetRegistry reports it ready (AssetRegistry.get() returns
+  // a fresh clone per call, per its own doc comment -- required here since
+  // multiple animals can be on screen at once).
+  const animalSlots = new Map<string, UpgradableObject>();
   let farmerMesh: THREE.Mesh | undefined;
   let farmerMaterial: THREE.MeshStandardMaterial | undefined;
   const fuelMeshes = new Map<string, THREE.Object3D>();
@@ -238,23 +299,44 @@ export function createGameScene(
   }
 
   function upsertAnimal(id: string, position: Vec2): void {
-    let mesh = animalMeshes.get(id);
-    if (!mesh) {
-      mesh = new THREE.Mesh(
+    let slot = animalSlots.get(id);
+    if (!slot) {
+      const primitive = new THREE.Mesh(
         new THREE.BoxGeometry(0.5, 0.5, 0.5),
         new THREE.MeshStandardMaterial({ color: 0xfff2a8 }),
       );
-      scene.add(mesh);
-      animalMeshes.set(id, mesh);
+      scene.add(primitive);
+      slot = createUpgradableObject(scene, primitive);
+      animalSlots.set(id, slot);
     }
-    mesh.position.set(position.x, 0.3, position.z);
+    slot.current.position.set(position.x, 0.3, position.z);
+
+    // Chicken sourced-art upgrade-in-place (issue #28, ADR 0010 §4/§7):
+    // status() is a cheap map lookup -- checked every call while not yet
+    // upgraded, but a clone (assetRegistry.get()) is only ever taken once
+    // it's actually ready, and this stops checking entirely the moment
+    // `slot.upgraded` flips true (mirrors this module's own
+    // `rigNeedsRecheck` pattern for the truck rig, below).
+    if (!slot.upgraded && assetRegistry?.status(CHICKEN_ASSET_KEY) === 'ready') {
+      const source = assetRegistry.get(CHICKEN_ASSET_KEY);
+      if (source) slot.upgrade(buildChickenDisplayModel(source));
+    }
   }
 
   function removeAnimal(id: string): void {
-    const mesh = animalMeshes.get(id);
-    if (!mesh) return;
-    scene.remove(mesh);
-    animalMeshes.delete(id);
+    const slot = animalSlots.get(id);
+    if (!slot) return;
+    // No dispose() call here -- a pre-existing gap for the primitive case
+    // (see this module's dispose() doc comment on "other primitive meshes
+    // elsewhere in this module aren't individually disposed"), and
+    // deliberately *not* extended to the upgraded case either: an upgraded
+    // slot's `current` is a clone whose geometry/material are shared by
+    // reference with every other clone of the same loaded source (see
+    // truck-rig.ts's TruckRigResult.dispose doc comment for the same
+    // hazard) -- disposing them here would free GPU resources still in use
+    // by any other animal's own chicken clone.
+    scene.remove(slot.current);
+    animalSlots.delete(id);
   }
 
   /** Places (creating on first call) the farmer mesh at its current position (farmer AC1/AC2). */

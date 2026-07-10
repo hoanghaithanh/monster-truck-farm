@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import * as THREE from 'three';
 import { buildTruckRig } from './truck-rig';
-import { carryOverWheelRotations } from './scene';
+import { buildChickenDisplayModel, carryOverWheelRotations } from './scene';
 import type { TruckBuild, TruckCosmetics } from '../core/types';
 
 // carryOverWheelRotations (issue #44) is exercised directly here rather than
@@ -62,5 +63,63 @@ describe('carryOverWheelRotations (issue #44, wheel-roll continuity across the i
     expect(rebuilt.wheels.frontRight.steer.position.toArray()).toEqual(beforePositions.frontRight.toArray());
     expect(rebuilt.wheels.rearLeft.steer.position.toArray()).toEqual(beforePositions.rearLeft.toArray());
     expect(rebuilt.wheels.rearRight.steer.position.toArray()).toEqual(beforePositions.rearRight.toArray());
+  });
+});
+
+describe('buildChickenDisplayModel (issue #28, chicken sourced-art scale/centering)', () => {
+  // A stand-in for AssetRegistry.get('chicken')'s clone: an arbitrarily
+  // large, off-center box, mimicking the real sourced "Hen" glTF's own
+  // unusually-scaled, off-origin raw geometry (measured raw bounding height
+  // ~77 units, not meters) closely enough to exercise the same
+  // measure-then-correct logic without needing the real .glb in a Node test
+  // environment.
+  function offCenterRawModel(): THREE.Object3D {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(20, 80, 60), new THREE.MeshStandardMaterial());
+    mesh.position.set(5, 10, -3); // off-origin, like the real model's measured min/max not being symmetric about 0
+    return mesh;
+  }
+
+  it('derives the corrective scale from the source\'s own measured bounding-box height, not a hardcoded number', () => {
+    const model = buildChickenDisplayModel(offCenterRawModel());
+
+    const box = new THREE.Box3().setFromObject(model);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+
+    // Raw height was 80 -- whatever CHICKEN_TARGET_HEIGHT is tuned to today,
+    // the *rendered* height after correction must match it exactly.
+    expect(size.y).toBeCloseTo(0.5, 5);
+  });
+
+  it('re-centers the model so its bounding-box center lands at the returned object\'s local origin', () => {
+    const model = buildChickenDisplayModel(offCenterRawModel());
+
+    const box = new THREE.Box3().setFromObject(model);
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+
+    expect(center.x).toBeCloseTo(0, 5);
+    expect(center.y).toBeCloseTo(0, 5);
+    expect(center.z).toBeCloseTo(0, 5);
+  });
+
+  it('keeps the corrective scale/centering on an inner group, not the returned outer object -- so UpgradableObject.upgrade() overwriting the outer object\'s transform can never clobber it', () => {
+    const model = buildChickenDisplayModel(offCenterRawModel());
+
+    // The outer object itself must start with an identity transform: it's
+    // the one UpgradableObject.upgrade() will overwrite with the outgoing
+    // primitive's position/rotation/scale (scene.ts's own doc comment on
+    // buildChickenDisplayModel explains why).
+    expect(model.position.toArray()).toEqual([0, 0, 0]);
+    expect(model.scale.toArray()).toEqual([1, 1, 1]);
+
+    // Simulate upgrade()'s overwrite (copies the primitive's transform onto
+    // the outer object) and confirm the correction still holds afterward.
+    model.position.set(3, 0.3, -7);
+    model.scale.set(1, 1, 1);
+    const box = new THREE.Box3().setFromObject(model);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    expect(size.y).toBeCloseTo(0.5, 5);
   });
 });

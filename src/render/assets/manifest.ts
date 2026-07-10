@@ -17,6 +17,14 @@
 // measured directly (`gzip -9`) against the committed files, not estimated.
 // engine-cue-*/gas-cue-* are unchanged (still scripts/generate-truck-art.mjs
 // procedural props -- this pass didn't touch them).
+//
+// Chicken pass (issue #28, 2026-07-10): 'chicken' added as the first real
+// sourced-art *animal* entry (previously animals were the raw
+// BoxGeometry(0.5,0.5,0.5) primitive only, in render/scene.ts). "Hen" by Poly
+// by Google (CC-BY 3.0, see repo-root CREDITS.md), a single static mesh with
+// one baked-texture material -- no tiers, no cosmetics, no animation clips.
+// approxGzipBytes is measured directly (`gzip -9`) against the committed
+// file, same as the body/wheel sourced-art entries above.
 import type { TruckBuild } from '../../core/types';
 
 export interface AssetManifestEntry {
@@ -47,6 +55,7 @@ const GAS_CUE_URLS = [
   new URL('./models/gas-cue-tier-1.glb', import.meta.url),
   new URL('./models/gas-cue-tier-2.glb', import.meta.url),
 ];
+const CHICKEN_URL = new URL('./models/chicken.glb', import.meta.url);
 
 // Real measured gzip sizes. body-tier-*/wheel-tier-* are the sourced-art
 // models (`gzip -9` against the committed files, 2026-07-09 -- see repo-root
@@ -70,6 +79,7 @@ const BODY_GZIP_BYTES = [111372, 225331, 263091];
 const WHEEL_GZIP_BYTES = [10408, 10833, 10833];
 const ENGINE_CUE_GZIP_BYTES = [740, 789, 1371];
 const GAS_CUE_GZIP_BYTES = [1233, 1398, 3366];
+const CHICKEN_GZIP_BYTES = 15821;
 
 export const ASSET_MANIFEST = {
   // PASS-1 test fixture (ADR 0010 infrastructure) -- kept registered so the
@@ -93,6 +103,12 @@ export const ASSET_MANIFEST = {
   'gas-cue-tier-0': { url: GAS_CUE_URLS[0], approxGzipBytes: GAS_CUE_GZIP_BYTES[0] },
   'gas-cue-tier-1': { url: GAS_CUE_URLS[1], approxGzipBytes: GAS_CUE_GZIP_BYTES[1] },
   'gas-cue-tier-2': { url: GAS_CUE_URLS[2], approxGzipBytes: GAS_CUE_GZIP_BYTES[2] },
+
+  // Issue #28: not gated by truckAssetKeysForBuild (chicken is not one of
+  // the player's own truck parts, ADR 0010 §4.4) -- prefetched here like
+  // everything else in the manifest, loaded progressively/in-place via
+  // UpgradableObject in scene.ts's upsertAnimal.
+  chicken: { url: CHICKEN_URL, approxGzipBytes: CHICKEN_GZIP_BYTES },
 } satisfies Record<string, AssetManifestEntry>;
 
 export type AssetKey = keyof typeof ASSET_MANIFEST;
@@ -110,6 +126,9 @@ export function engineCueAssetKey(tier: number): AssetKey {
 export function gasCueAssetKey(tier: number): AssetKey {
   return `gas-cue-tier-${tier}` as AssetKey;
 }
+
+/** The (single, non-tiered) manifest key for the chicken model (issue #28) -- exported so scene.ts's upsertAnimal doesn't hardcode the string. */
+export const CHICKEN_ASSET_KEY: AssetKey = 'chicken';
 
 /**
  * The asset keys the ADR 0010 §4.3 bounded gate waits on before DRIVING
