@@ -113,6 +113,62 @@ describe('computeClimbTransform (obstacle climb, ADR 0013 / issue #42)', () => {
     expect(result.roll).toBe(0);
   });
 
+  // Follow-up per code review on commit c3c69a8: DEFAULT_CLIMB_CONFIG.maxRoll
+  // is 0, so the test above only exercises clamp()'s hard-zero short-circuit
+  // -- it never touches the lateralSlope/right-vector math at all. These two
+  // tests override maxRoll to a nonzero value (mirroring the aggressiveConfig
+  // pattern used for the pitch-clamp test above) so the roll computation
+  // itself -- not just the default-config clamp -- is actually exercised.
+  it('produces nonzero, correctly-signed roll for a purely lateral offset from the obstacle center', () => {
+    const obstacle = bush();
+    const combinedRadius = obstacle.radius + TRUCK_CONTACT_RADIUS;
+    const rollConfig: ClimbConfig = { ...DEFAULT_CLIMB_CONFIG, maxRoll: 0.2 };
+    // Heading 0 => forward = (0,1), right = (1,0). Offsetting the truck along
+    // X only (same z as the obstacle) makes `outward` point purely along
+    // `right`, so this isolates the lateral-slope/roll math from pitch: the
+    // along-heading slope is exactly zero here, so pitch should stay ~0.
+    const rightOfCenter = computeClimbTransform({ x: combinedRadius * 0.5, z: 0 }, 0, [obstacle], rollConfig);
+    const leftOfCenter = computeClimbTransform({ x: -combinedRadius * 0.5, z: 0 }, 0, [obstacle], rollConfig);
+    expect(rightOfCenter.pitch).toBeCloseTo(0);
+    expect(leftOfCenter.pitch).toBeCloseTo(0);
+    expect(rightOfCenter.roll).not.toBe(0);
+    // Sign convention (matches render/scene.ts's group.rotation.set(pitch, heading,
+    // roll, 'YXZ') applied verbatim): with the obstacle sitting under the
+    // truck's physical right side, the rig rolls the opposite way from when
+    // it's under the truck's physical left side -- the two offsets must
+    // produce equal-and-opposite roll, never the same sign.
+    expect(leftOfCenter.roll).toBeLessThan(0);
+    expect(rightOfCenter.roll).toBeGreaterThan(0);
+    expect(rightOfCenter.roll).toBeCloseTo(-leftOfCenter.roll);
+  });
+
+  it('roll sign convention holds under a rotated heading (right vector follows heading, not world X)', () => {
+    // At heading = PI/2, forward = (1,0) and right = (0,-1) (per the
+    // TruckMotionState heading convention: increasing heading swings the
+    // nose toward +X). Offsetting the truck along Z only (same x as the
+    // obstacle) now isolates the lateral-slope math the same way the
+    // straight-ahead test above does for heading 0 -- confirming the roll
+    // math tracks the truck's own body frame, not a hardcoded world axis.
+    const obstacle = bush();
+    const combinedRadius = obstacle.radius + TRUCK_CONTACT_RADIUS;
+    const rollConfig: ClimbConfig = { ...DEFAULT_CLIMB_CONFIG, maxRoll: 0.2 };
+    const heading = Math.PI / 2;
+    const a = computeClimbTransform({ x: 0, z: combinedRadius * 0.5 }, heading, [obstacle], rollConfig);
+    const b = computeClimbTransform({ x: 0, z: -combinedRadius * 0.5 }, heading, [obstacle], rollConfig);
+    expect(a.pitch).toBeCloseTo(0);
+    expect(b.pitch).toBeCloseTo(0);
+    expect(a.roll).not.toBe(0);
+    expect(a.roll).toBeCloseTo(-b.roll);
+  });
+
+  it('clamps roll to maxRoll even with an aggressive tiltGain', () => {
+    const obstacle = bush();
+    const combinedRadius = obstacle.radius + TRUCK_CONTACT_RADIUS;
+    const aggressiveConfig: ClimbConfig = { ...DEFAULT_CLIMB_CONFIG, tiltGain: 1000, maxRoll: 0.2 };
+    const result = computeClimbTransform({ x: combinedRadius * 0.5, z: 0 }, 0, [obstacle], aggressiveConfig);
+    expect(Math.abs(result.roll)).toBeLessThanOrEqual(0.2 + 1e-9);
+  });
+
   it('a passable-only obstacle list needs no special-casing for a blocking-class obstacle -- the function only ever reads position/radius from whatever it is handed', () => {
     // Confirms computeClimbTransform has no notion of blocking vs. passable at
     // all: partitioning happens upstream (core/clearance.ts). Passing any
