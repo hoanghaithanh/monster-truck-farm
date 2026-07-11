@@ -28,6 +28,7 @@ Write a markdown file (e.g. `docs/requirements/<feature-slug>.md`) containing:
 - If the request is already a clear, small, well-scoped task, say so plainly instead of padding it into a full document.
 - Surface conflicting or missing requirements instead of resolving them yourself with assumptions.
 - If the request is really several sprints of work bundled together, say so explicitly and propose how to split it into independently shippable stories rather than writing one monolithic doc — small vertical slices are the point of working in sprints.
+- For any story about a moving, animated, or AI-controlled character/object, state explicitly whether it must visually face its direction of travel/target, not just which pose or animation plays per state — don't leave orientation as an assumed default. (Sprint 4, #29: the farmer's acceptance criteria specified pose/animation had to distinguish FSM states, but never stated the model had to face its direction of movement; the resulting bug shipped through implementation, code review, and two live-verification passes before a human caught it by eye.)
 
 ## Backlog
 After writing (or updating) a requirements doc, append the resulting user stories to `docs/backlog.md` (create it if missing) so the project-manager can prioritize and pull them into a sprint. Add each as a short entry linking back to the full doc — you append and describe scope/size, but ordering/prioritization is the project-manager's (and ultimately the human's) call, not yours.
