@@ -5,13 +5,14 @@
 import { updateSpawnTimer, initialSpawnTimerState, type SpawnTimerState } from '../core/spawn/spawn-timer';
 import { pickSpawnPosition, structureKeepouts, type Rng } from '../core/spawn/spawn-position';
 import { spawnAnimal } from '../core/spawn/spawn-animal';
+import { pickSpecies } from '../core/spawn/pick-species';
 import { ANIMAL_SPECIES } from '../core/spawn/species';
 import { SPAWN_INTERVAL_SECONDS, MAX_CONCURRENT_ANIMALS, MIN_SPAWN_DISTANCE_FROM_TRUCK } from '../core/spawn/config';
 import { isBoopContact, resolveBoop } from '../core/boop';
 import { isScatterDone, startScatter, tickScatter, type ScatterState } from '../core/scatter';
 import { TERRAIN_BOUNDS, STUB_OBSTACLES, STUB_STRUCTURES } from '../core/terrain';
 import { TRUCK_CONTACT_RADIUS } from '../core/driving/config';
-import type { AnimalState, Vec2 } from '../core/types';
+import type { AnimalSpecies, AnimalState, Vec2 } from '../core/types';
 import type { GameStore } from '../core/game-state';
 
 // Spawn keep-out (issue #46, ADR 0012 §5, AC6): the existing obstacles plus
@@ -20,7 +21,8 @@ import type { GameStore } from '../core/game-state';
 const SPAWN_KEEPOUTS = [...STUB_OBSTACLES, ...structureKeepouts(STUB_STRUCTURES)];
 
 export interface AnimalSystemCallbacks {
-  onSpawn(id: string, position: Vec2): void;
+  /** `species` is fixed at spawn (issue #48, ADR 0016 §1) -- render/ needs it once here to pick the right asset key/builder; `onScatter`/`onRemove` don't need it since scene.ts already remembers species per-slot (`AnimalRecord`). */
+  onSpawn(id: string, position: Vec2, species: AnimalSpecies): void;
   /** Fired each frame a booped animal is fleeing (animal AC4a), so render/ can move its mesh. */
   onScatter(id: string, position: Vec2): void;
   onRemove(id: string): void;
@@ -51,9 +53,14 @@ export class AnimalSystem {
         rng: this.rng,
       });
       if (position) {
-        const id = `chicken-${this.nextId++}`;
-        this.animals.push(spawnAnimal(id, 'chicken', position));
-        callbacks.onSpawn(id, position);
+        // Species picker (issue #48, ADR 0016 §1) -- the only behavioral
+        // change in this module. Reuses `this.rng` (the same seedable Rng
+        // already injected for spawn positions) rather than a second,
+        // independent random source.
+        const species = pickSpecies(this.rng);
+        const id = `${species}-${this.nextId++}`;
+        this.animals.push(spawnAnimal(id, species, position));
+        callbacks.onSpawn(id, position, species);
       }
     }
 

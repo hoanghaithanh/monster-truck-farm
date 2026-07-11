@@ -25,7 +25,7 @@
 // one baked-texture material -- no tiers, no cosmetics, no animation clips.
 // approxGzipBytes is measured directly (`gzip -9`) against the committed
 // file, same as the body/wheel sourced-art entries above.
-import type { TruckBuild } from '../../core/types';
+import type { AnimalSpecies, TruckBuild } from '../../core/types';
 
 export interface AssetManifestEntry {
   url: URL;
@@ -98,6 +98,15 @@ const MOUNTAIN_B_URL = new URL('./models/mountain-b.glb', import.meta.url);
 // as every other sourced-art entry above.
 const FARMER_URL = new URL('./models/farmer.glb', import.meta.url);
 
+// Pig/cow pass (issue #48, ADR 0016 §1): 'pig'/'cow' are the second and
+// third *animated* manifest entries (after farmer) -- both ship a rigged
+// SkinnedMesh + Armature skeleton, consumed via AssetRegistry.getAnimated()
+// like the farmer, not get() (see repo-root CREDITS.md for full sourcing/
+// clip notes). Same "not gated by truckAssetKeysForBuild" rationale as
+// chicken/structures/farmer above.
+const PIG_URL = new URL('./models/pig.glb', import.meta.url);
+const COW_URL = new URL('./models/cow.glb', import.meta.url);
+
 // Real measured gzip sizes. body-tier-*/wheel-tier-* are the sourced-art
 // models (`gzip -9` against the committed files, 2026-07-09 -- see repo-root
 // CREDITS.md's budget table); engine-cue-*/gas-cue-* are still the
@@ -131,6 +140,13 @@ const MOUNTAIN_B_GZIP_BYTES = 6561;
 // Measured directly (`gzip -9`) against the committed file (issue #29) --
 // matches ADR 0015 §5's measured figure exactly.
 const FARMER_GZIP_BYTES = 324927;
+// Measured directly (`gzip -9`) against the committed files (issue #48).
+// Close to (within ~11 bytes of) CREDITS.md's 59430/135299 figures -- that
+// doc's numbers were captured in a slightly different gzip invocation; these
+// are the ones actually re-measured against the committed files at
+// implementation time and are what the budget check below uses.
+const PIG_GZIP_BYTES = 59419;
+const COW_GZIP_BYTES = 135288;
 
 export const ASSET_MANIFEST = {
   // PASS-1 test fixture (ADR 0010 infrastructure) -- kept registered so the
@@ -180,6 +196,13 @@ export const ASSET_MANIFEST = {
   // part, so it loads progressively per ADR 0010 §4.4. Consumed via
   // AssetRegistry.getAnimated() (ADR 0015 §1), not get().
   farmer: { url: FARMER_URL, approxGzipBytes: FARMER_GZIP_BYTES },
+
+  // Issue #48: same "not gated by truckAssetKeysForBuild" rationale as the
+  // chicken/structures/farmer above -- pig/cow are not player truck parts,
+  // so they load progressively per ADR 0010 §4.4. Consumed via
+  // AssetRegistry.getAnimated() (ADR 0016 §1), like the farmer.
+  pig: { url: PIG_URL, approxGzipBytes: PIG_GZIP_BYTES },
+  cow: { url: COW_URL, approxGzipBytes: COW_GZIP_BYTES },
 } satisfies Record<string, AssetManifestEntry>;
 
 export type AssetKey = keyof typeof ASSET_MANIFEST;
@@ -203,6 +226,19 @@ export function gasCueAssetKey(tier: number): AssetKey {
 
 /** The (single, non-tiered) manifest key for the chicken model (issue #28) -- exported so scene.ts's upsertAnimal doesn't hardcode the string. */
 export const CHICKEN_ASSET_KEY: AssetKey = 'chicken';
+
+/**
+ * Manifest keys for every `AnimalSpecies`, keyed by species (issue #48, ADR
+ * 0016 §1) -- mirroring `STRUCTURE_ASSET_KEYS`'s pattern so scene.ts never
+ * hardcodes a species->key string. `CHICKEN_ASSET_KEY` above is kept
+ * (existing test coverage depends on it) but scene.ts's animal-rendering
+ * code reaches chicken's key through this map too, same as pig/cow.
+ */
+export const ANIMAL_ASSET_KEYS: Record<AnimalSpecies, AssetKey> = {
+  chicken: 'chicken',
+  pig: 'pig',
+  cow: 'cow',
+};
 
 /**
  * Manifest keys for the four structure models, keyed by `StructureKind` --

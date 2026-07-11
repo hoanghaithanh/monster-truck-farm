@@ -57,6 +57,8 @@ This replaces the placeholder "~5 MB gzipped combined" from vehicle-art AC10, wh
 
 **Assets are never inlined into the JS chunk** — so the first-paint budget is protected structurally, not by discipline. `manualChunks`/asset handling keeps `.glb` out of `index-*.js`.
 
+**Addendum (2026-07-10, issue #48/ADR 0016, running-total tracking):** the non-truck-tier "driving-scene" prefetched total (chicken + barn + windmill + farmhouse + mountain-a/b + farmer, excluding truck body/wheel/engine-cue/gas-cue tiers since only one of each loads per player build via `truckAssetKeysForBuild`, not all three) stood at ≈ 656 KB gzipped after the farmer pass (ADR 0015 §5). Adding pig (59,419 bytes) and cow (135,288 bytes) gzipped — both measured directly via `gzip -9` against the committed files, per this ADR's own §3 discipline — brings that running total to ≈ 867 KB gzipped, comfortably under the 1.5 MB target with no clip-trimming or texture downscaling needed (ADR 0016 Risks).
+
 ### 4. Loading strategy: prefetch during the builder + progressive in-place upgrade over a permanent primitive baseline
 
 The key realization: **the current scene already renders everything as primitives, and that is exactly the fallback the NFR asks for.** So the strategy is not "load, then show" — it is "always render primitives immediately, upgrade each object in place the moment its real model arrives." This makes fallback the *default code path*, not a special case, and eliminates most of the loading-screen problem.

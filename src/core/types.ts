@@ -51,7 +51,7 @@ export interface ObstacleInstance {
 
 export type SizeTier = 'small' | 'medium' | 'large';
 export type SpeedTier = 'slow' | 'medium' | 'fast';
-export type AnimalSpecies = 'chicken';
+export type AnimalSpecies = 'chicken' | 'pig' | 'cow';
 
 /** Animal run state (animal AC1-AC8). */
 export interface AnimalState {

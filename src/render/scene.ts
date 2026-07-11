@@ -1,9 +1,9 @@
 import * as THREE from 'three';
-import type { ObstacleInstance, TruckBuild, TruckCosmetics, Vec2 } from '../core/types';
+import type { AnimalSpecies, ObstacleInstance, TruckBuild, TruckCosmetics, Vec2 } from '../core/types';
 import type { StructureInstance, TerrainBounds } from '../core/terrain';
 import { clampCameraToBounds } from '../core/driving/boundary';
 import type { AssetRegistry } from './assets/asset-registry';
-import { CHICKEN_ASSET_KEY, FARMER_ASSET_KEY, STRUCTURE_ASSET_KEYS, truckAssetKeysForBuild } from './assets/manifest';
+import { ANIMAL_ASSET_KEYS, FARMER_ASSET_KEY, STRUCTURE_ASSET_KEYS, truckAssetKeysForBuild } from './assets/manifest';
 import { createUpgradableObject, type UpgradableObject } from './assets/upgradable-object';
 import { buildTruckRig, type TruckWheelPivots } from './truck-rig';
 import { WHEEL_RADIUS_BY_TIER } from './truck-sockets';
@@ -79,6 +79,29 @@ const FARMER_TARGET_HEIGHT = 1.7;
 // from the tint-target list so the face stays untinted.
 const FARMER_TINT_EXCLUDED_MATERIAL_NAMES = new Set(['Eye', 'Eyebrows']);
 
+// Pig/cow skeletal models (issue #48, ADR 0016 §3/§6). Clip names are the
+// ONLY two ever referenced per species out of each sourced .glb's clip
+// library -- deliberately: cow's unused `Walk`/`WalkSlow`/`Death` and pig's
+// unused clips beyond `Idle`/`Jump` are never wired up, matching the
+// kid-safe clip-exclusion discipline the farmer's unused combat clips
+// already established (CREDITS.md's "Pig and cow models" section).
+const PIG_CLIP_IDLE = 'Armature|Idle';
+const PIG_CLIP_JUMP = 'Armature|Jump';
+const COW_CLIP_IDLE = 'Armature|Idle';
+const COW_CLIP_RUN = 'Armature|Run';
+// Short crossfade so the Idle->scatter-clip switch reads promptly within the
+// brief SCATTER_DURATION_SECONDS (0.4s) flee window (ADR 0016 Risks) --
+// shorter than the farmer's 0.25s since the whole scatter is itself shorter
+// than a farmer FSM beat.
+const ANIMAL_CROSSFADE_SECONDS = 0.15;
+// Target standing heights (meters), tuned proportionate to the confirmed
+// medium/large size tiers and CHICKEN_TARGET_HEIGHT (0.5)/FARMER_TARGET_HEIGHT
+// (1.7) above -- a pig reads as roughly waist-high, a cow roughly
+// shoulder-to-chest-high next to the farmer, confirmed by a live screenshot
+// in the driving scene per ADR 0016 §7's mandate.
+const PIG_TARGET_HEIGHT = 0.9;
+const COW_TARGET_HEIGHT = 1.4;
+
 // Fuel pickup (ADR 0008 §3): a recognizable jerry-can-ish color, and a brief
 // positive glow burst on collection -- no scatter (fuel AC13), just a
 // friendly sparkle then gone.
@@ -117,7 +140,7 @@ function createObstacleMesh(obstacle: ObstacleInstance): THREE.Object3D {
 // baked at an unusual scale with no corrective node transform (measured raw
 // bounding-box height ~77 units -- not meters, and not any tidy round
 // number), so the corrective scale is *derived from the model's own
-// measured bounding box* at load time (buildChickenDisplayModel below)
+// measured bounding box* at load time (buildStaticAnimalDisplayModel below)
 // rather than hand-picked as a magic constant -- robust if the asset is
 // ever swapped for a different sourced model with different raw units.
 // CHICKEN_TARGET_HEIGHT is the one tuned number: chosen to roughly match
@@ -127,16 +150,23 @@ function createObstacleMesh(obstacle: ObstacleInstance): THREE.Object3D {
 const CHICKEN_TARGET_HEIGHT = 0.5;
 
 /**
- * Wraps a freshly-cloned chicken source model (from `AssetRegistry.get`) in
- * a corrective group: re-centered and scaled (from the model's own measured
- * bounding box) so it renders at `CHICKEN_TARGET_HEIGHT` with its bounding
- * center at the wrapper's local origin -- matching how the primitive
- * `BoxGeometry(0.5,0.5,0.5)` it replaces is itself centered at its own
- * local origin. That means `upsertAnimal`'s existing
+ * Wraps a freshly-cloned static-mesh animal source model (from
+ * `AssetRegistry.get`) in a corrective group: re-centered and scaled (from
+ * the model's own measured bounding box) so it renders at `targetHeight`
+ * with its bounding center at the wrapper's local origin -- matching how the
+ * primitive `BoxGeometry(0.5,0.5,0.5)` it replaces is itself centered at its
+ * own local origin. That means `upsertAnimal`'s existing
  * `mesh.position.set(x, 0.3, z)` call (made on the primitive, which
  * `UpgradableObject.upgrade()` then copies onto the object returned here)
- * needs no change to keep the chicken resting on the ground the same way
- * the box did.
+ * needs no change to keep the animal resting on the ground the same way the
+ * box did.
+ *
+ * Generalized from the issue #28-era `buildChickenDisplayModel` (issue #48,
+ * ADR 0016 §3) so it's parameterized on target height rather than
+ * chicken-hardcoded -- chicken remains its only caller (pig/cow are rigged
+ * `SkinnedMesh` models with animation clips and go through
+ * `buildAnimatedAnimalDisplayModel` below instead, per ADR 0016 §3's
+ * "neither species is bent through the other's code" split).
  *
  * The correction lives on an *inner* group, not the returned outer one,
  * deliberately: `UpgradableObject.upgrade()` overwrites the position/
@@ -145,7 +175,7 @@ const CHICKEN_TARGET_HEIGHT = 0.5;
  * applied directly to the returned object would be clobbered the instant
  * `upgrade()` runs.
  */
-export function buildChickenDisplayModel(source: THREE.Object3D): THREE.Object3D {
+export function buildStaticAnimalDisplayModel(source: THREE.Object3D, targetHeight: number): THREE.Object3D {
   const box = new THREE.Box3().setFromObject(source);
   const size = new THREE.Vector3();
   box.getSize(size);
@@ -154,14 +184,14 @@ export function buildChickenDisplayModel(source: THREE.Object3D): THREE.Object3D
 
   source.position.sub(center);
 
-  const scaleFactor = size.y > 0 ? CHICKEN_TARGET_HEIGHT / size.y : 1;
+  const scaleFactor = size.y > 0 ? targetHeight / size.y : 1;
   const inner = new THREE.Group();
-  inner.name = 'ChickenDisplayScale';
+  inner.name = 'AnimalDisplayScale';
   inner.scale.setScalar(scaleFactor);
   inner.add(source);
 
   const outer = new THREE.Group();
-  outer.name = 'ChickenModel';
+  outer.name = 'AnimalModel';
   outer.add(inner);
   return outer;
 }
@@ -468,6 +498,75 @@ export function buildFarmerDisplayModel(source: THREE.Object3D): FarmerDisplayMo
   return { model: outer, tintTargets, ownedMaterials };
 }
 
+/** What `buildAnimatedAnimalDisplayModel` hands back for a fresh per-instance pig/cow clone (ADR 0016 §3). */
+export interface AnimatedAnimalDisplayModel {
+  /** The corrected, ready-to-add-to-scene model -- base at its local origin (y=0), same ground-contact convention as `buildFarmerDisplayModel`/`buildStructureDisplayModel` since pig/cow are standing figures. */
+  model: THREE.Object3D;
+  /** Every material this function cloned, for `removeAnimal` to dispose on despawn (ADR 0016 §8) -- deliberately NOT the model's geometry (shared by reference with the app-lifetime cached source via `SkeletonUtils.clone`, same hazard `farmerDespawn`'s doc comment documents). */
+  ownedMaterials: THREE.Material[];
+}
+
+/**
+ * The animated sibling of `buildStaticAnimalDisplayModel` (ADR 0016 §3) --
+ * `buildFarmerDisplayModel` minus the tint-target/amber-tint machinery,
+ * since pig/cow have no state-tint requirement (they're either standing
+ * still or fleeing, never a farmer-style FSM pose). Clones every material
+ * (so this instance owns them, required because `SkeletonUtils.clone`
+ * shares materials by reference with the app-lifetime cached source), forces
+ * `metalness = 0` (Quaternius ships `metallicFactor` with no scene `envMap`,
+ * the same near-black fix already applied to structures/farmer), and
+ * measures with the skinned-safe `Box3.setFromObject(source, true)` after
+ * `updateMatrixWorld(true)` -- the exact issue #57 fix (see
+ * `buildFarmerDisplayModel`'s doc comment for the full rationale), applied
+ * here from the start rather than repeating that bug on a second animated
+ * asset. Base-on-ground (only x/z re-centered, `y -= box.min.y`) like the
+ * farmer/structures, since pig/cow are standing figures, not small centered
+ * animals like the chicken.
+ */
+export function buildAnimatedAnimalDisplayModel(source: THREE.Object3D, targetHeight: number): AnimatedAnimalDisplayModel {
+  const ownedMaterials: THREE.Material[] = [];
+
+  const cloneAndPrepare = (material: THREE.Material): THREE.Material => {
+    const clone = material.clone();
+    ownedMaterials.push(clone);
+    if (clone instanceof THREE.MeshStandardMaterial) clone.metalness = 0;
+    return clone;
+  };
+
+  source.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    const material = child.material;
+    if (Array.isArray(material)) {
+      child.material = material.map(cloneAndPrepare);
+    } else {
+      child.material = cloneAndPrepare(material);
+    }
+  });
+
+  source.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(source, true);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  const center = new THREE.Vector3();
+  box.getCenter(center);
+
+  source.position.x -= center.x;
+  source.position.z -= center.z;
+  source.position.y -= box.min.y;
+
+  const scaleFactor = size.y > 0 ? targetHeight / size.y : 1;
+  const inner = new THREE.Group();
+  inner.name = 'AnimatedAnimalDisplayScale';
+  inner.scale.setScalar(scaleFactor);
+  inner.add(source);
+
+  const outer = new THREE.Group();
+  outer.name = 'AnimatedAnimalModel';
+  outer.add(inner);
+
+  return { model: outer, ownedMaterials };
+}
+
 // River (issue #47, ADR 0012 §3): a procedural flat ribbon following a
 // simple polyline -- built entirely here, no external asset, no collider,
 // no AssetRegistry involvement. Runs roughly along the terrain's north edge
@@ -618,11 +717,63 @@ export function createGameScene(
   // Each animal instance gets its own UpgradableObject (issue #28): starts
   // as the permanent-baseline primitive box (AC13's "never crash, falls
   // back to existing primitive" -- unchanged even after the chicken model
-  // ships), upgraded in place to its own clone of the sourced chicken model
-  // the moment AssetRegistry reports it ready (AssetRegistry.get() returns
-  // a fresh clone per call, per its own doc comment -- required here since
-  // multiple animals can be on screen at once).
-  const animalSlots = new Map<string, UpgradableObject>();
+  // ships), upgraded in place to its own clone of the sourced species model
+  // the moment AssetRegistry reports it ready (AssetRegistry.get()/
+  // getAnimated() return a fresh clone per call, per their own doc
+  // comments -- required here since multiple animals can be on screen at
+  // once).
+  //
+  // Issue #48 (ADR 0016 §2): `animalSlots` widens from a raw
+  // `Map<string, UpgradableObject>` to `Map<string, AnimalRecord>` -- the
+  // mixer/actions/ownedMaterials live *beside* the slot as sibling fields,
+  // not inside it (UpgradableObject stays the same generic single-mesh-swap
+  // abstraction the truck/structures also use). For a chicken (or any
+  // not-yet-upgraded primitive), the animation fields simply stay
+  // `undefined` -- chicken is never forced through the animated machinery.
+  interface AnimalRecord {
+    slot: UpgradableObject;
+    species: AnimalSpecies;
+    mixer?: THREE.AnimationMixer;
+    idleAction?: THREE.AnimationAction;
+    scatterAction?: THREE.AnimationAction;
+    currentAction?: THREE.AnimationAction;
+    /** Per-instance cloned materials to dispose on despawn (pig/cow only, ADR 0016 §8) -- undefined for chicken/primitives, which share materials by reference with the cached source and must NOT be disposed per-instance. */
+    ownedMaterials?: THREE.Material[];
+    /** The position passed to the last `upsertAnimal`/`scatterAnimal` call for this animal (facing-direction fix, ADR 0016 §7, same idiom as `FarmerRecord.previousPosition`). */
+    previousPosition?: Vec2;
+  }
+  const animalSlots = new Map<string, AnimalRecord>();
+
+  /** Fallback primitive color per species (ADR 0016 §1 "per-species placeholder primitive color") -- differentiates species even before their real model loads, rather than every animal starting as the same chicken-yellow box. */
+  const ANIMAL_PRIMITIVE_COLORS: Record<AnimalSpecies, number> = {
+    chicken: 0xfff2a8,
+    pig: 0xf4a6c1,
+    cow: 0x4a4640,
+  };
+
+  /**
+   * Looks up `key`/`clip` clips by exact name via `THREE.AnimationClip.findByName`
+   * -- a missing clip degrades to no action rather than throwing, mirroring
+   * `buildFarmerActions`'s discipline (ADR 0015 §3/ADR 0016 §6). Each found
+   * action loops.
+   */
+  function findAnimalAction(mixer: THREE.AnimationMixer, clips: THREE.AnimationClip[], clipName: string): THREE.AnimationAction | undefined {
+    const clip = THREE.AnimationClip.findByName(clips, clipName);
+    return clip ? mixer.clipAction(clip).setLoop(THREE.LoopRepeat, Infinity) : undefined;
+  }
+
+  /** Crossfades `record`'s currently-playing action to `next` -- idempotent (a no-op once `next` is already playing, ADR 0016 §5) so calling it every scatter tick is safe. A no-op if `next` is missing (its clip wasn't found) too. */
+  function crossfadeAnimalAction(record: AnimalRecord, next: THREE.AnimationAction | undefined): void {
+    if (!next || record.currentAction === next) return;
+    const current = record.currentAction;
+    next.reset().play();
+    if (current) {
+      current.crossFadeTo(next, ANIMAL_CROSSFADE_SECONDS, false);
+    } else {
+      next.fadeIn(ANIMAL_CROSSFADE_SECONDS);
+    }
+    record.currentAction = next;
+  }
 
   // Farmer (issue #29, ADR 0015 §3): a farmer exists for one
   // PURSUING->TIRED->LEAVING cycle and is fully torn down on despawn
@@ -745,44 +896,85 @@ export function createGameScene(
     frontRight.steer.rotation.y = steerAngle;
   }
 
-  function upsertAnimal(id: string, position: Vec2): void {
-    let slot = animalSlots.get(id);
-    if (!slot) {
+  /**
+   * Creates (on first call) or repositions an animal's record (animal
+   * AC1-AC3; issue #48, ADR 0016 §4). `species` is fixed at creation --
+   * a re-`upsert` of an existing id (e.g. the boop contact loop repositioning
+   * before a scatter starts) never changes it. Asset upgrade-in-place and
+   * mixer construction are NOT done here (moved to `tickEffects`, ADR 0016
+   * §4) -- this closes the latent gap where an animal that's only
+   * `upsertAnimal`-ed at spawn (then not again until it scatters) would never
+   * upgrade during its stationary pre-boop window if the asset was still
+   * loading at spawn time.
+   */
+  function upsertAnimal(id: string, position: Vec2, species: AnimalSpecies): void {
+    let record = animalSlots.get(id);
+    if (!record) {
       const primitive = new THREE.Mesh(
         new THREE.BoxGeometry(0.5, 0.5, 0.5),
-        new THREE.MeshStandardMaterial({ color: 0xfff2a8 }),
+        new THREE.MeshStandardMaterial({ color: ANIMAL_PRIMITIVE_COLORS[species] }),
       );
       scene.add(primitive);
-      slot = createUpgradableObject(scene, primitive);
-      animalSlots.set(id, slot);
+      record = { slot: createUpgradableObject(scene, primitive), species };
+      animalSlots.set(id, record);
     }
-    slot.current.position.set(position.x, 0.3, position.z);
-
-    // Chicken sourced-art upgrade-in-place (issue #28, ADR 0010 §4/§7):
-    // status() is a cheap map lookup -- checked every call while not yet
-    // upgraded, but a clone (assetRegistry.get()) is only ever taken once
-    // it's actually ready, and this stops checking entirely the moment
-    // `slot.upgraded` flips true (mirrors this module's own
-    // `rigNeedsRecheck` pattern for the truck rig, below).
-    if (!slot.upgraded && assetRegistry?.status(CHICKEN_ASSET_KEY) === 'ready') {
-      const source = assetRegistry.get(CHICKEN_ASSET_KEY);
-      if (source) slot.upgrade(buildChickenDisplayModel(source));
-    }
+    const y = record.mixer ? 0 : 0.3;
+    record.slot.current.position.set(position.x, y, position.z);
+    record.previousPosition = { x: position.x, z: position.z };
   }
 
+  /**
+   * Repositions a fleeing animal (animal AC4a), faces it toward its flee
+   * direction, and crossfades to its species' scatter clip (pig -> Jump, cow
+   * -> Run) -- a purely cosmetic overlay on top of `core/scatter.ts`'s
+   * unchanged position/velocity physics (ADR 0016 §5). Chicken (no
+   * `scatterAction`, since it was never upgraded through the animated path)
+   * just repositions -- its behavior is byte-for-byte unchanged from before
+   * this feature.
+   */
+  function scatterAnimal(id: string, position: Vec2): void {
+    const record = animalSlots.get(id);
+    if (!record) return;
+    const y = record.mixer ? 0 : 0.3;
+    record.slot.current.position.set(position.x, y, position.z);
+
+    // Facing direction (ADR 0016 §7, issue #57-class fix designed in from
+    // the start): reuses computeFarmerHeading's (sin, cos)/atan2 convention
+    // -- a scatter always has a prior position to diff against (this animal
+    // was just standing still or already fleeing), so no truck-reference
+    // fallback is needed the way the farmer's onAppear case needs one.
+    const heading = computeFarmerHeading(record.previousPosition, position);
+    if (heading !== undefined) record.slot.current.rotation.y = heading;
+    record.previousPosition = { x: position.x, z: position.z };
+
+    crossfadeAnimalAction(record, record.scatterAction);
+  }
+
+  /**
+   * Removes an animal (animal AC4c). Animated pig/cow instances own
+   * per-instance cloned materials (`buildAnimatedAnimalDisplayModel`) that
+   * must be disposed here -- with up to `MAX_CONCURRENT_ANIMALS` concurrent
+   * and continuous spawn/despawn, an undisposed-material leak accumulates
+   * fast (ADR 0016 §8, the churn-amplified version of the exact missed-
+   * dispose bug code review caught on the farmer). Chicken/primitive
+   * instances are unchanged from before this feature: no dispose, because an
+   * upgraded chicken slot's `current` is a clone whose geometry/material are
+   * shared by reference with every other clone of the same loaded source
+   * (see truck-rig.ts's TruckRigResult.dispose doc comment for the same
+   * hazard) -- disposing them here would free GPU resources still in use by
+   * any other animal's own chicken clone.
+   */
   function removeAnimal(id: string): void {
-    const slot = animalSlots.get(id);
-    if (!slot) return;
-    // No dispose() call here -- a pre-existing gap for the primitive case
-    // (see this module's dispose() doc comment on "other primitive meshes
-    // elsewhere in this module aren't individually disposed"), and
-    // deliberately *not* extended to the upgraded case either: an upgraded
-    // slot's `current` is a clone whose geometry/material are shared by
-    // reference with every other clone of the same loaded source (see
-    // truck-rig.ts's TruckRigResult.dispose doc comment for the same
-    // hazard) -- disposing them here would free GPU resources still in use
-    // by any other animal's own chicken clone.
-    scene.remove(slot.current);
+    const record = animalSlots.get(id);
+    if (!record) return;
+    record.mixer?.stopAllAction();
+    scene.remove(record.slot.current);
+    if (record.ownedMaterials) {
+      // Deliberately NOT the model's geometry -- SkeletonUtils.clone shares
+      // it by reference with the app-lifetime cached source (same narrower-
+      // than-ADR-0015-§3-wording deviation farmerDespawn already documents).
+      for (const material of record.ownedMaterials) material.dispose();
+    }
     animalSlots.delete(id);
   }
 
@@ -982,6 +1174,58 @@ export function createGameScene(
   function tickEffects(dt: number): void {
     farmer?.mixer?.update(dt);
 
+    // Animal sourced-art upgrade-in-place + mixer update (issue #48, ADR
+    // 0016 §4): moved out of upsertAnimal so a slow-loading pig/cow asset
+    // still upgrades during the stationary pre-boop window (upsertAnimal
+    // isn't called again until a scatter starts). Same cheap
+    // status()-check-then-upgrade-once pattern as the structure loop below --
+    // stops checking a given animal the moment its slot is upgraded. For
+    // chicken, `buildStaticAnimalDisplayModel` is used and no mixer/actions
+    // are created (chicken never goes through the animated path). For
+    // pig/cow, upgrading also constructs the AnimationMixer + Idle/scatter
+    // actions and starts Idle playing (ADR 0016 §4/§6).
+    if (assetRegistry) {
+      for (const record of animalSlots.values()) {
+        if (!record.slot.upgraded) {
+          const assetKey = ANIMAL_ASSET_KEYS[record.species];
+          if (assetRegistry.status(assetKey) === 'ready') {
+            if (record.species === 'chicken') {
+              const source = assetRegistry.get(assetKey);
+              if (source) record.slot.upgrade(buildStaticAnimalDisplayModel(source, CHICKEN_TARGET_HEIGHT));
+            } else {
+              const animated = assetRegistry.getAnimated(assetKey);
+              if (animated) {
+                const targetHeight = record.species === 'pig' ? PIG_TARGET_HEIGHT : COW_TARGET_HEIGHT;
+                const { model, ownedMaterials } = buildAnimatedAnimalDisplayModel(animated.scene, targetHeight);
+                record.slot.upgrade(model);
+                record.ownedMaterials = ownedMaterials;
+                const mixer = new THREE.AnimationMixer(model);
+                record.mixer = mixer;
+                const idleClipName = record.species === 'pig' ? PIG_CLIP_IDLE : COW_CLIP_IDLE;
+                const scatterClipName = record.species === 'pig' ? PIG_CLIP_JUMP : COW_CLIP_RUN;
+                record.idleAction = findAnimalAction(mixer, animated.animations, idleClipName);
+                record.scatterAction = findAnimalAction(mixer, animated.animations, scatterClipName);
+                // Just-upgraded model's base sits at y=0 (ground-contact
+                // convention) -- the primitive it replaces was centered at
+                // y=0.3, so re-apply the animated y offset now rather than
+                // waiting for the next upsertAnimal/scatterAnimal call.
+                model.position.y = 0;
+                if (record.idleAction) {
+                  record.idleAction.reset().play();
+                  record.currentAction = record.idleAction;
+                }
+              }
+            }
+          }
+        }
+        record.mixer?.update(dt);
+      }
+    } else {
+      for (const record of animalSlots.values()) {
+        record.mixer?.update(dt);
+      }
+    }
+
     // Structure sourced-art upgrade-in-place (issue #46, ADR 0010 §4/§7):
     // same cheap status()-check-then-upgrade-once pattern as upsertAnimal's
     // chicken check -- stops checking a given structure the moment its slot
@@ -1066,6 +1310,14 @@ export function createGameScene(
     // teardown rather than duplicating it here; re-nulling `farmer` is
     // harmless even though the whole scene is going away right after.
     farmerDespawn();
+    // Animals (pig/cow/chicken) are the highest-churn owner of per-instance
+    // cloned materials in the app (ADR 0016 §8/Risks) -- up to
+    // MAX_CONCURRENT_ANIMALS concurrently, continuously spawning/despawning
+    // -- so a live slot at teardown time is the common case, not a corner
+    // case. Reuse removeAnimal's existing mixer-stop/scene-remove/material-
+    // dispose teardown per id rather than duplicating it here. Snapshot the
+    // keys first since removeAnimal mutates animalSlots as it goes.
+    for (const id of [...animalSlots.keys()]) removeAnimal(id);
     // Per-session rig clones are disposed with the scene (ADR 0010 §6 /
     // 0011 Consequences) -- only the resources truckRig.dispose() actually
     // owns (fallback primitives + decal geometry); the shared cached source
@@ -1083,6 +1335,7 @@ export function createGameScene(
     setTruckTransform,
     setTruckWheelMotion,
     upsertAnimal,
+    scatterAnimal,
     removeAnimal,
     setFarmerTransform,
     farmerTired,

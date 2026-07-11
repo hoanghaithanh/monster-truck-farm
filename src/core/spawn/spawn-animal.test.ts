@@ -23,4 +23,30 @@ describe('spawnAnimal', () => {
     const animal = spawnAnimal('animal-1', 'chicken', { x: 0, z: 0 });
     expect(animal.alive).toBe(true);
   });
+
+  // Issue #48 (ADR 0016 §1): pig/cow are additive rows in the same species
+  // table -- spawnAnimal itself needed no change, but these parallel cases
+  // confirm the two new species resolve correctly through it.
+  it('pulls sizeTier and speedTier from the species table (pig = medium/medium)', () => {
+    const animal = spawnAnimal('animal-2', 'pig', { x: 1, z: 1 });
+    expect(animal.species).toBe('pig');
+    expect(animal.sizeTier).toBe(ANIMAL_SPECIES.pig.sizeTier);
+    expect(animal.speedTier).toBe(ANIMAL_SPECIES.pig.speedTier);
+    expect(animal.sizeTier).toBe('medium');
+    expect(animal.speedTier).toBe('medium');
+  });
+
+  it('pulls sizeTier and speedTier from the species table (cow = large/medium)', () => {
+    const animal = spawnAnimal('animal-3', 'cow', { x: -1, z: 2 });
+    expect(animal.species).toBe('cow');
+    expect(animal.sizeTier).toBe(ANIMAL_SPECIES.cow.sizeTier);
+    expect(animal.speedTier).toBe(ANIMAL_SPECIES.cow.speedTier);
+    expect(animal.sizeTier).toBe('large');
+    expect(animal.speedTier).toBe('medium');
+  });
+
+  it('pig and cow spawn alive too', () => {
+    expect(spawnAnimal('animal-2', 'pig', { x: 0, z: 0 }).alive).toBe(true);
+    expect(spawnAnimal('animal-3', 'cow', { x: 0, z: 0 }).alive).toBe(true);
+  });
 });

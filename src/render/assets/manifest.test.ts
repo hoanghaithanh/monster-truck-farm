@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ANIMAL_ASSET_KEYS,
   ASSET_MANIFEST,
   bodyAssetKey,
   CHICKEN_ASSET_KEY,
@@ -52,6 +53,29 @@ describe('chicken asset entry (issue #28)', () => {
     expect(entry).toBeDefined();
     expect(entry.url).toBeInstanceOf(URL);
     expect(entry.approxGzipBytes).toBeGreaterThan(0);
+  });
+});
+
+describe('pig/cow asset entries (issue #48, ADR 0016 §1)', () => {
+  it('pig and cow are each registered in the manifest with a real URL and a positive measured gzip size', () => {
+    for (const key of ['pig', 'cow'] as const) {
+      const entry = ASSET_MANIFEST[key];
+      expect(entry).toBeDefined();
+      expect(entry.url).toBeInstanceOf(URL);
+      expect(entry.approxGzipBytes).toBeGreaterThan(0);
+    }
+  });
+
+  it('are never included in truckAssetKeysForBuild -- pig/cow are not one of the player\'s own truck parts (ADR 0010 §4.4)', () => {
+    const keys = truckAssetKeysForBuild({ body: 1, wheels: 1, engine: 1, gasTank: 1 });
+    expect(keys).not.toContain(ANIMAL_ASSET_KEYS.pig);
+    expect(keys).not.toContain(ANIMAL_ASSET_KEYS.cow);
+  });
+
+  it('ANIMAL_ASSET_KEYS maps every AnimalSpecies to its manifest key, chicken included', () => {
+    expect(ANIMAL_ASSET_KEYS.chicken).toBe(CHICKEN_ASSET_KEY);
+    expect(ANIMAL_ASSET_KEYS.pig).toBe('pig');
+    expect(ANIMAL_ASSET_KEYS.cow).toBe('cow');
   });
 });
 

@@ -176,3 +176,36 @@ hit and fixed for the mountain landmark above) — needs the same
 `metalness = 0` force-override this project already applies in
 `buildStructureDisplayModel`, since the scene has no `envMap` for metallic
 surfaces to reflect.
+
+## Pig and cow models (issue #48)
+
+Two low-poly animal models (`src/render/assets/models/{pig,cow}.glb`),
+downloaded via [poly.pizza](https://poly.pizza) on 2026-07-10, per
+`docs/requirements/farm-animals-pig-cow.md` AC9/AC10. Add pig and cow as new
+chaseable species alongside the existing chicken.
+
+| Model | Source |
+|---|---|
+| "Pig" by Quaternius | https://poly.pizza/m/TNvG3QUFlp |
+| "Cow" by Quaternius | https://poly.pizza/m/5XSc2Fka3F |
+
+License: [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/)
+— public domain, no credit required. Credited here anyway as good practice.
+Same author/pack family as the truck body, barn, windmill, mountain, and
+farmer models above.
+
+Unlike the chicken (a plain static mesh), both models are rigged
+(`SkinnedMesh`, `Armature` skeleton) with real animation libraries — pig
+ships `Idle`/`Jump`; cow ships `Idle`/`Walk`/`Run`/`WalkSlow`/`Death`. Per
+ADR 0016, only `Idle` (standing) and one flee clip per species (`Jump` for
+pig, `Run` for cow) are ever referenced — `Death` and cow's unused
+`Walk`/`WalkSlow` are never wired up, matching the kid-safe clip-exclusion
+discipline already established for the farmer's unused combat/gun clips.
+Measured sizes (re-measured at implementation time, `gzip -9` against the
+committed files, matching `manifest.ts`'s `PIG_GZIP_BYTES`/`COW_GZIP_BYTES`
+exactly): pig 59,419 bytes gzipped, cow 135,288 bytes gzipped — combined with
+the existing driving-scene total (~656KB: chicken, barn, windmill, farmhouse,
+mountains, farmer), the new total is ~0.87MB against ADR 0010 §3's 1.5MB
+target, comfortably within budget with no clip-trimming needed. (Off by ~11
+bytes each from this section's original sourcing-time figures — a rounding/
+gzip-invocation difference, not a file change; negligible either way.)

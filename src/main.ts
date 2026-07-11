@@ -194,10 +194,13 @@ function startDriving(
     scene.setTruckWheelMotion(drivingSystem.speed, intent.steer, dt);
 
     animalSystem.update(dt, position, {
-      onSpawn: (id, animalPosition) => scene.upsertAnimal(id, animalPosition),
-      // Booped animal fleeing (animal AC4a): reuse upsertAnimal to move the
-      // existing mesh -- it's already the create-or-reposition primitive.
-      onScatter: (id, animalPosition) => scene.upsertAnimal(id, animalPosition),
+      onSpawn: (id, animalPosition, species) => scene.upsertAnimal(id, animalPosition, species),
+      // Booped animal fleeing (animal AC4a, issue #48/ADR 0016 §5): routes to
+      // the dedicated scatterAnimal (reposition + face flee direction +
+      // crossfade to the species' scatter clip), not upsertAnimal -- species
+      // never changes mid-flight, so onScatter doesn't need it threaded
+      // through (scene.ts already remembers it per-slot).
+      onScatter: (id, animalPosition) => scene.scatterAnimal(id, animalPosition),
       onRemove: (id) => scene.removeAnimal(id),
     });
 

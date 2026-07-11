@@ -1,15 +1,43 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { buildTruckRig } from './truck-rig';
 import {
-  buildChickenDisplayModel,
+  buildAnimatedAnimalDisplayModel,
   buildFarmerDisplayModel,
   buildRiverMesh,
+  buildStaticAnimalDisplayModel,
   buildStructureDisplayModel,
   carryOverWheelRotations,
   computeFarmerHeading,
 } from './scene';
+import { AssetRegistry, type GltfLoaderLike } from './assets/asset-registry';
+import type { TerrainBounds } from '../core/terrain';
 import type { TruckBuild, TruckCosmetics } from '../core/types';
+
+// `createGameScene` itself needs a real `THREE.WebGLRenderer` (browser
+// canvas/GL context) -- every other describe in this file sidesteps that by
+// testing extracted pure helpers (see the comment above
+// `carryOverWheelRotations`'s describe block). The one describe below
+// ("Scene animal lifecycle...") is the exception: the material-dispose
+// (ADR 0016 §8) and scatter-orientation (ADR 0016 §7) wiring live entirely
+// inside the closure with no pure-function escape hatch, so this reuses
+// `builder.test.ts`'s already-established `vi.mock('three', ...)`
+// FakeWebGLRenderer technique (swap out only the one non-Node-safe export,
+// keep every other THREE class real) rather than leaving that wiring
+// completely uncovered. `vi.mock` is file-scoped/hoisted, but since it only
+// replaces `WebGLRenderer` (never constructed by any of the pure-function
+// tests above), it has no effect on them.
+vi.mock('three', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('three')>();
+  class FakeWebGLRenderer {
+    domElement = { tagName: 'canvas' };
+    setSize(): void {}
+    setPixelRatio(): void {}
+    render(): void {}
+    dispose(): void {}
+  }
+  return { ...actual, WebGLRenderer: FakeWebGLRenderer };
+});
 
 // carryOverWheelRotations (issue #44) is exercised directly here rather than
 // through `createGameScene`/`tickEffects`'s full rig-rebuild path: this
@@ -73,7 +101,7 @@ describe('carryOverWheelRotations (issue #44, wheel-roll continuity across the i
   });
 });
 
-describe('buildChickenDisplayModel (issue #28, chicken sourced-art scale/centering)', () => {
+describe('buildStaticAnimalDisplayModel (issue #28, chicken sourced-art scale/centering; generalized issue #48/ADR 0016 §3 -- chicken remains its only caller)', () => {
   // A stand-in for AssetRegistry.get('chicken')'s clone: an arbitrarily
   // large, off-center box, mimicking the real sourced "Hen" glTF's own
   // unusually-scaled, off-origin raw geometry (measured raw bounding height
@@ -87,19 +115,19 @@ describe('buildChickenDisplayModel (issue #28, chicken sourced-art scale/centeri
   }
 
   it('derives the corrective scale from the source\'s own measured bounding-box height, not a hardcoded number', () => {
-    const model = buildChickenDisplayModel(offCenterRawModel());
+    const model = buildStaticAnimalDisplayModel(offCenterRawModel(), 0.5);
 
     const box = new THREE.Box3().setFromObject(model);
     const size = new THREE.Vector3();
     box.getSize(size);
 
-    // Raw height was 80 -- whatever CHICKEN_TARGET_HEIGHT is tuned to today,
-    // the *rendered* height after correction must match it exactly.
+    // Raw height was 80 -- the rendered height after correction must match
+    // the requested targetHeight exactly.
     expect(size.y).toBeCloseTo(0.5, 5);
   });
 
   it('re-centers the model so its bounding-box center lands at the returned object\'s local origin', () => {
-    const model = buildChickenDisplayModel(offCenterRawModel());
+    const model = buildStaticAnimalDisplayModel(offCenterRawModel(), 0.5);
 
     const box = new THREE.Box3().setFromObject(model);
     const center = new THREE.Vector3();
@@ -110,13 +138,21 @@ describe('buildChickenDisplayModel (issue #28, chicken sourced-art scale/centeri
     expect(center.z).toBeCloseTo(0, 5);
   });
 
+  it('respects a different targetHeight than chicken\'s (parameterized, not chicken-hardcoded)', () => {
+    const model = buildStaticAnimalDisplayModel(offCenterRawModel(), 2);
+    const box = new THREE.Box3().setFromObject(model);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    expect(size.y).toBeCloseTo(2, 5);
+  });
+
   it('keeps the corrective scale/centering on an inner group, not the returned outer object -- so UpgradableObject.upgrade() overwriting the outer object\'s transform can never clobber it', () => {
-    const model = buildChickenDisplayModel(offCenterRawModel());
+    const model = buildStaticAnimalDisplayModel(offCenterRawModel(), 0.5);
 
     // The outer object itself must start with an identity transform: it's
     // the one UpgradableObject.upgrade() will overwrite with the outgoing
     // primitive's position/rotation/scale (scene.ts's own doc comment on
-    // buildChickenDisplayModel explains why).
+    // buildStaticAnimalDisplayModel explains why).
     expect(model.position.toArray()).toEqual([0, 0, 0]);
     expect(model.scale.toArray()).toEqual([1, 1, 1]);
 
@@ -128,6 +164,95 @@ describe('buildChickenDisplayModel (issue #28, chicken sourced-art scale/centeri
     const size = new THREE.Vector3();
     box.getSize(size);
     expect(size.y).toBeCloseTo(0.5, 5);
+  });
+});
+
+describe('buildAnimatedAnimalDisplayModel (issue #48, ADR 0016 §3 -- pig/cow animated sourced-art scale/centering/material isolation)', () => {
+  // A stand-in for AssetRegistry.getAnimated('pig'|'cow')'s clone: reuses
+  // the exact same SkinnedMesh + tiny-raw-height/skin-matrix-scale repro
+  // shape scene.test.ts's buildFarmerDisplayModel fixture (below) already
+  // established for issue #57 -- this function shares that function's
+  // skinned-safe measurement code, so the same fixture shape exercises it.
+  function rawAnimatedAnimalModel(): THREE.Object3D {
+    const root = new THREE.Group();
+
+    const rawHeight = 0.002;
+    const skinScale = 1000; // posed height = rawHeight * skinScale = 2.
+    const bodyGeometry = new THREE.CylinderGeometry(rawHeight / 4, rawHeight / 4, rawHeight, 6);
+    const vertexCount = bodyGeometry.attributes.position.count;
+    const skinIndices: number[] = [];
+    const skinWeights: number[] = [];
+    for (let i = 0; i < vertexCount; i++) {
+      skinIndices.push(0, 0, 0, 0);
+      skinWeights.push(1, 0, 0, 0);
+    }
+    bodyGeometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(skinIndices, 4));
+    bodyGeometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute(skinWeights, 4));
+
+    const body = new THREE.SkinnedMesh(
+      bodyGeometry,
+      new THREE.MeshStandardMaterial({ name: 'Body', color: 0xd2a679, metalness: 0.4, roughness: 0.5 }),
+    );
+    const bone = new THREE.Bone();
+    const boneInverses = [new THREE.Matrix4().makeScale(skinScale, skinScale, skinScale)];
+    const skeleton = new THREE.Skeleton([bone], boneInverses);
+    body.add(bone);
+    body.bind(skeleton, new THREE.Matrix4());
+
+    root.add(body);
+    root.position.set(4, 12.5, -2); // off-origin, base not at y=0
+    return root;
+  }
+
+  it('derives the corrective scale from the source\'s own measured POSED (skinned) height, landing on the requested targetHeight (issue #57 regression guard, applied from the start per ADR 0016 §3)', () => {
+    const { model } = buildAnimatedAnimalDisplayModel(rawAnimatedAnimalModel(), 1.4);
+
+    const box = new THREE.Box3().setFromObject(model, true);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+
+    // Posed body height was 2 (rawHeight * skinScale) -- the rendered height
+    // after correction must match the requested targetHeight, not the tiny
+    // 0.002 a non-precise Box3.setFromObject would read.
+    expect(size.y).toBeCloseTo(1.4, 5);
+  });
+
+  it('re-centers the model horizontally (x/z) but keeps its base at the wrapper\'s local origin (y=0), like the farmer/structures -- not vertically centered like the chicken', () => {
+    const { model } = buildAnimatedAnimalDisplayModel(rawAnimatedAnimalModel(), 1.4);
+
+    const box = new THREE.Box3().setFromObject(model, true);
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+
+    expect(center.x).toBeCloseTo(0, 5);
+    expect(center.z).toBeCloseTo(0, 5);
+    expect(box.min.y).toBeCloseTo(0, 5);
+  });
+
+  it('clones every material rather than mutating the source in place -- required so this instance\'s materials never bleed into the app-lifetime cached source', () => {
+    const source = rawAnimatedAnimalModel();
+    const sourceMaterial = (source.children[0] as THREE.Mesh).material as THREE.MeshStandardMaterial;
+    const { model } = buildAnimatedAnimalDisplayModel(source, 1.4);
+
+    const cloneMaterial = (model.children[0].children[0].children[0] as THREE.Mesh).material as THREE.MeshStandardMaterial;
+    expect(cloneMaterial).not.toBe(sourceMaterial);
+
+    cloneMaterial.color.setHex(0xff0000);
+    expect(sourceMaterial.color.getHex()).not.toBe(0xff0000);
+  });
+
+  it('forces metalness to 0 on every cloned MeshStandardMaterial, leaving roughness/color untouched (same near-black-under-no-envMap fix as buildStructureDisplayModel/buildFarmerDisplayModel)', () => {
+    const { ownedMaterials } = buildAnimatedAnimalDisplayModel(rawAnimatedAnimalModel(), 1.4);
+    expect(ownedMaterials).toHaveLength(1);
+    const material = ownedMaterials[0] as THREE.MeshStandardMaterial;
+    expect(material.metalness).toBe(0);
+    expect(material.roughness).toBeCloseTo(0.5, 5);
+  });
+
+  it('keeps the corrective scale/centering on an inner group, not the returned outer object', () => {
+    const { model } = buildAnimatedAnimalDisplayModel(rawAnimatedAnimalModel(), 1.4);
+    expect(model.position.toArray()).toEqual([0, 0, 0]);
+    expect(model.scale.toArray()).toEqual([1, 1, 1]);
   });
 });
 
@@ -447,5 +572,180 @@ describe('computeFarmerHeading (issue #57 follow-up -- farmer facing-direction f
 
   it('returns undefined, not a stale heading toward an unmoving referencePosition, when the farmer has no previous position and is already coincident with referencePosition', () => {
     expect(computeFarmerHeading(undefined, { x: 2, z: 2 }, { x: 2, z: 2 })).toBeUndefined();
+  });
+});
+
+// Minimal fake DOM surface `createGameScene` actually touches: a container
+// with numeric client dimensions + appendChild/removeChild, and a window
+// with addEventListener/removeEventListener (the resize listener) plus
+// devicePixelRatio. Same idiom as builder.test.ts's FakeElement/FakeWindow,
+// trimmed to what scene.ts needs (no click/keydown dispatch required here).
+class FakeContainer {
+  clientWidth = 800;
+  clientHeight = 600;
+  appendChild(_child: unknown): void {}
+  removeChild(_child: unknown): void {}
+}
+
+class FakeWindow {
+  devicePixelRatio = 1;
+  private listeners = new Map<string, Array<(e: unknown) => void>>();
+  addEventListener(type: string, fn: (e: unknown) => void): void {
+    const arr = this.listeners.get(type) ?? [];
+    arr.push(fn);
+    this.listeners.set(type, arr);
+  }
+  removeEventListener(type: string, fn: (e: unknown) => void): void {
+    const arr = this.listeners.get(type);
+    if (!arr) return;
+    const idx = arr.indexOf(fn);
+    if (idx >= 0) arr.splice(idx, 1);
+  }
+}
+
+const LIFECYCLE_BOUNDS: TerrainBounds = { minX: -20, maxX: 20, minZ: -20, maxZ: 20 };
+const LIFECYCLE_BUILD: TruckBuild = { body: 0, wheels: 0, engine: 0, gasTank: 0 };
+const LIFECYCLE_COSMETICS: TruckCosmetics = { wheelLook: 'standard' };
+
+/** A rigged pig-shaped fixture (one SkinnedMesh + one bone), carrying real
+ * `Idle`/`Jump` clips under the exact names scene.ts looks up by -- the
+ * shape `AssetRegistry.getAnimated('pig')` would hand back for a real
+ * pig.glb, per the fake-loader technique asset-registry.test.ts's
+ * `fakeSkinnedScene` already established for the farmer's equivalent case. */
+function fakePigGltf(): { scene: THREE.Object3D; animations: THREE.AnimationClip[] } {
+  const bone = new THREE.Bone();
+  const skeleton = new THREE.Skeleton([bone]);
+  const geometry = new THREE.CylinderGeometry(0.2, 0.2, 1, 4);
+  const skinIndices: number[] = [];
+  const skinWeights: number[] = [];
+  for (let i = 0; i < geometry.attributes.position.count; i++) {
+    skinIndices.push(0, 0, 0, 0);
+    skinWeights.push(1, 0, 0, 0);
+  }
+  geometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(skinIndices, 4));
+  geometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute(skinWeights, 4));
+  const mesh = new THREE.SkinnedMesh(geometry, new THREE.MeshStandardMaterial());
+  mesh.add(bone);
+  mesh.bind(skeleton);
+  const root = new THREE.Group();
+  root.add(mesh);
+  return {
+    scene: root,
+    animations: [new THREE.AnimationClip('Armature|Idle', 1, []), new THREE.AnimationClip('Armature|Jump', 1, [])],
+  };
+}
+
+describe('Scene animal lifecycle -- pig/cow animated dispose/orientation wiring (issue #48, ADR 0016 §7/§8)', () => {
+  let fakeWindow: FakeWindow;
+  let scene: ReturnType<typeof import('./scene').createGameScene>;
+  let registry: AssetRegistry;
+
+  beforeEach(async () => {
+    fakeWindow = new FakeWindow();
+    vi.stubGlobal('window', fakeWindow);
+
+    const loader: GltfLoaderLike = { loadAsync: () => Promise.resolve(fakePigGltf()) };
+    registry = new AssetRegistry(loader);
+    registry.load('pig', 'fake://pig.glb');
+    await registry.waitFor(['pig'], 1000); // settles synchronously-fast since the fake loader never actually waits
+
+    const { createGameScene } = await import('./scene');
+    scene = createGameScene(
+      new FakeContainer() as unknown as HTMLElement,
+      LIFECYCLE_BOUNDS,
+      [],
+      [],
+      LIFECYCLE_BUILD,
+      LIFECYCLE_COSMETICS,
+      registry,
+    );
+  });
+
+  afterEach(() => {
+    scene.dispose();
+    vi.unstubAllGlobals();
+  });
+
+  /** Spawns 'pig-1' at `spawnPos` and ticks once so `tickEffects`'s
+   * upgrade-in-place check (ADR 0016 §4) swaps the primitive for the real
+   * animated model, builds its mixer, and starts Idle -- mirroring exactly
+   * what main.ts's onSpawn -> tickEffects sequence does each frame. Returns
+   * the live `AnimatedAnimalModel` object3D via a `THREE.Group.prototype.add`
+   * spy (record's internal state isn't otherwise reachable from outside the
+   * closure), so assertions below check the real object the production code
+   * manipulates, not a re-implementation of it. */
+  function spawnAndUpgradePig(spawnPos: { x: number; z: number }): THREE.Object3D {
+    const addSpy = vi.spyOn(THREE.Scene.prototype, 'add');
+    scene.upsertAnimal('pig-1', spawnPos, 'pig');
+    scene.tickEffects(0);
+    const upgraded = addSpy.mock.calls.map((call) => call[0]).find((obj) => obj.name === 'AnimatedAnimalModel');
+    addSpy.mockRestore();
+    if (!upgraded) throw new Error('test setup failed: pig never upgraded to its animated model');
+    return upgraded;
+  }
+
+  it('scatterAnimal rotates the real in-scene model to face the flee direction, not just leaving it at its spawn orientation (issue #57-class regression guard, ADR 0016 §7)', () => {
+    const model = spawnAndUpgradePig({ x: 1, z: 1 });
+    expect(model.rotation.y).toBe(0); // untouched pre-scatter, per §7 "faces default source orientation"
+
+    // Flee purely in +X from the spawn point -- computeFarmerHeading's own
+    // tested convention (scene.test.ts above) says that's +PI/2; this
+    // asserts the *production wiring* actually applies that to the real
+    // object, which is the part computeFarmerHeading's own unit tests can't
+    // see.
+    scene.scatterAnimal('pig-1', { x: 6, z: 1 });
+    expect(model.rotation.y).toBeCloseTo(Math.PI / 2, 6);
+  });
+
+  it('removeAnimal disposes the upgraded pig\'s owned cloned materials and stops its mixer (ADR 0016 §8 material-leak guard)', () => {
+    spawnAndUpgradePig({ x: 0, z: 0 });
+
+    const materialDisposeSpy = vi.spyOn(THREE.MeshStandardMaterial.prototype, 'dispose');
+    const mixerStopSpy = vi.spyOn(THREE.AnimationMixer.prototype, 'stopAllAction');
+
+    scene.removeAnimal('pig-1');
+
+    expect(materialDisposeSpy).toHaveBeenCalled();
+    expect(mixerStopSpy).toHaveBeenCalledTimes(1);
+
+    materialDisposeSpy.mockRestore();
+    mixerStopSpy.mockRestore();
+  });
+
+  it('does not crash and builds a fresh mixer/materials for a respawned pig after a previous one was removed (no reference to disposed resources)', () => {
+    spawnAndUpgradePig({ x: 0, z: 0 });
+    scene.removeAnimal('pig-1');
+
+    // A new id -- upsertAnimal/tickEffects never reuse a removed record, so
+    // this exercises a brand-new AnimationMixer + cloned materials built
+    // after the first instance's were disposed.
+    expect(() => {
+      scene.upsertAnimal('pig-2', { x: 3, z: 3 }, 'pig');
+      scene.tickEffects(0.1); // upgrade + a real mixer.update tick on the fresh mixer
+    }).not.toThrow();
+  });
+
+  it('dispose() tears down a still-live upgraded pig\'s owned cloned materials and mixer, not just the farmer (code review follow-up on issue #48, ADR 0016 §8)', () => {
+    // Deliberately don't call scene.removeAnimal first -- this is exactly
+    // the leak code review caught: dispose() used to call farmerDespawn()
+    // but never walked animalSlots, so a live animal at teardown time (the
+    // common case per ADR 0016 §8/Risks, not a corner case) leaked its
+    // cloned materials and left its mixer running.
+    spawnAndUpgradePig({ x: 0, z: 0 });
+
+    const materialDisposeSpy = vi.spyOn(THREE.MeshStandardMaterial.prototype, 'dispose');
+    const mixerStopSpy = vi.spyOn(THREE.AnimationMixer.prototype, 'stopAllAction');
+
+    scene.dispose();
+
+    expect(materialDisposeSpy).toHaveBeenCalled();
+    expect(mixerStopSpy).toHaveBeenCalledTimes(1);
+
+    materialDisposeSpy.mockRestore();
+    mixerStopSpy.mockRestore();
+    // afterEach also calls scene.dispose() -- verify a second call (mirroring
+    // production teardown paths that might dispose defensively) doesn't
+    // throw now that animalSlots has already been drained once.
+    expect(() => scene.dispose()).not.toThrow();
   });
 });
