@@ -1,0 +1,5 @@
+[
+  "[warn] using deprecated parameters for the initialization function; pass a single object instead",
+  "[error] Failed to load resource: the server responded with a status of 404 (Not Found)",
+  "[warn] AssetRegistry: failed to load \"pig\" from http://localhost:4400/monster-truck-farm/assets/models/pig-DOES-NOT-EXIST-qa-fallback-check.glb SyntaxError: Unexpected token '<', \"<!doctype \"... is not valid JSON"
+]
