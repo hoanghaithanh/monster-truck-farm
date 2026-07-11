@@ -7,6 +7,7 @@ import {
   buildRiverMesh,
   buildStructureDisplayModel,
   carryOverWheelRotations,
+  computeFarmerHeading,
 } from './scene';
 import type { TruckBuild, TruckCosmetics } from '../core/types';
 
@@ -400,5 +401,51 @@ describe('buildRiverMesh (issue #47, procedural river ribbon)', () => {
       expect(y).toBeGreaterThan(0);
       expect(y).toBeLessThan(0.5);
     }
+  });
+});
+
+describe('computeFarmerHeading (issue #57 follow-up -- farmer facing-direction fix)', () => {
+  // Convention check: 0 = facing +Z, direction vector (sin(heading),
+  // cos(heading)) -- the same one truck-motion.ts's TruckMotionState.heading
+  // doc comment and setTruckTransform already use.
+  it('derives heading from the movement delta when a previous position is known, matching the (sin, cos) convention', () => {
+    // Moved purely in +Z: heading should be 0.
+    expect(computeFarmerHeading({ x: 0, z: 0 }, { x: 0, z: 5 })).toBeCloseTo(0, 6);
+    // Moved purely in +X: heading should be +PI/2.
+    expect(computeFarmerHeading({ x: 0, z: 0 }, { x: 5, z: 0 })).toBeCloseTo(Math.PI / 2, 6);
+    // Moved purely in -Z (e.g. LEAVING, walking straight back): heading should be PI.
+    expect(computeFarmerHeading({ x: 0, z: 0 }, { x: 0, z: -5 })).toBeCloseTo(Math.PI, 6);
+    // Moved purely in -X: heading should be -PI/2.
+    expect(computeFarmerHeading({ x: 0, z: 0 }, { x: -5, z: 0 })).toBeCloseTo(-Math.PI / 2, 6);
+  });
+
+  it('falls back to facing referencePosition (the truck) when there is no previous position -- the fresh-onAppear case', () => {
+    // Truck due north (+Z) of where the farmer just spawned.
+    const heading = computeFarmerHeading(undefined, { x: 0, z: 0 }, { x: 0, z: 10 });
+    expect(heading).toBeCloseTo(0, 6);
+
+    // Truck due east (+X).
+    const heading2 = computeFarmerHeading(undefined, { x: 0, z: 0 }, { x: 10, z: 0 });
+    expect(heading2).toBeCloseTo(Math.PI / 2, 6);
+  });
+
+  it('returns undefined (leave rotation untouched) when there is neither a previous position nor a reference position', () => {
+    expect(computeFarmerHeading(undefined, { x: 3, z: 4 })).toBeUndefined();
+  });
+
+  it('returns undefined for a negligible movement delta, so the farmer never snaps to an arbitrary heading (or NaN from atan2(0,0)) while effectively stationary -- e.g. across the TIRED beat', () => {
+    expect(computeFarmerHeading({ x: 5, z: 5 }, { x: 5, z: 5 })).toBeUndefined();
+    expect(computeFarmerHeading({ x: 5, z: 5 }, { x: 5.0000001, z: 5 })).toBeUndefined();
+  });
+
+  it('ignores referencePosition once a previous position exists -- movement delta always wins over the fallback', () => {
+    // Farmer moved toward +Z, but referencePosition (truck) is off to the
+    // side -- the real movement delta must still win.
+    const heading = computeFarmerHeading({ x: 0, z: 0 }, { x: 0, z: 5 }, { x: 100, z: 0 });
+    expect(heading).toBeCloseTo(0, 6);
+  });
+
+  it('returns undefined, not a stale heading toward an unmoving referencePosition, when the farmer has no previous position and is already coincident with referencePosition', () => {
+    expect(computeFarmerHeading(undefined, { x: 2, z: 2 }, { x: 2, z: 2 })).toBeUndefined();
   });
 });

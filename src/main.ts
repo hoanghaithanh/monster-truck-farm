@@ -157,7 +157,12 @@ function startDriving(
   // for a resumed TIRED/LEAVING farmer (ADR 0015 §4's "Resume path"), since
   // a fresh farmer record otherwise always starts on Run.
   if (farmerSeed && farmerSeed.state.kind !== 'ABSENT') {
-    scene.setFarmerTransform(farmerSeed.state.position);
+    // No prior placement to diff a facing heading from on a resumed farmer
+    // (issue #57 follow-up) -- `truckStart` is this frame-loop's not-yet-
+    // started initial truck position, the same one `setTruckTransform` just
+    // above was seeded with, so it's a reasonable one-frame fallback exactly
+    // like a fresh onAppear's.
+    scene.setFarmerTransform(farmerSeed.state.position, truckStart);
     if (farmerSeed.state.kind === 'TIRED') scene.farmerTired();
     if (farmerSeed.state.kind === 'LEAVING') scene.farmerLeaving();
   }
@@ -203,8 +208,14 @@ function startDriving(
     // fix). `drivingSystem.speed` is this frame's instantaneous truck speed
     // (ADR 0007 §2) -- the farmer stays gas-ignorant, same as before.
     farmerSystem.update(dt, position, drivingSystem.speed, {
-      onAppear: (farmerPosition) => scene.setFarmerTransform(farmerPosition),
-      onMove: (farmerPosition) => scene.setFarmerTransform(farmerPosition),
+      // `position` (the truck's this-frame position) is threaded through as
+      // `referencePosition` (issue #57 follow-up, facing-direction fix): only
+      // actually used by `setFarmerTransform` on the very first call for a
+      // fresh farmer instance (onAppear), as the "face the truck" fallback
+      // before there's a prior position to diff a real heading from -- see
+      // `computeFarmerHeading`'s doc comment in scene.ts.
+      onAppear: (farmerPosition) => scene.setFarmerTransform(farmerPosition, position),
+      onMove: (farmerPosition) => scene.setFarmerTransform(farmerPosition, position),
       onBump: () => scene.flashTruck(),
       onTired: () => scene.farmerTired(),
       onLeaving: () => scene.farmerLeaving(),

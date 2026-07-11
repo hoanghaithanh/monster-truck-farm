@@ -306,6 +306,53 @@ export function buildStructureDisplayModel(source: THREE.Object3D, targetWidth: 
   return outer;
 }
 
+// Farmer facing direction (issue #57 follow-up, human live-driving report
+// 2026-07-10): the farmer's model previously never rotated to face his
+// direction of travel -- he'd visibly slide sideways/backwards while
+// PURSUING/LEAVING. Movement deltas below this distance are treated as "not
+// actually moving" and don't update heading, so a near-stationary farmer
+// (e.g. floating point jitter, or the one-frame gap around a TIRED entry)
+// never snaps to an arbitrary heading or hits atan2(0, 0)'s NaN.
+const FARMER_HEADING_EPSILON = 1e-4;
+
+/**
+ * Derives the farmer's facing heading (radians, same `0 = facing +Z`/
+ * `(sin(heading), cos(heading))` convention `truck-motion.ts`'s
+ * `TruckMotionState.heading` doc comment and `setTruckTransform` already use)
+ * from how his position actually changed this call -- a pure, standalone
+ * function (like `carryOverWheelRotations` above) specifically so it's
+ * unit-testable without a `THREE.WebGLRenderer` (this project's test env has
+ * no jsdom/canvas; `createGameScene` isn't constructible in vitest).
+ *
+ * `previous` is the farmer's position as of the *last* call (undefined only
+ * on the very first placement -- `onAppear`, or a resumed non-ABSENT farmer,
+ * per `FarmerRecord.previousPosition`'s doc comment). With no prior position
+ * to diff against, this falls back to facing `referencePosition` (the
+ * truck's current position, threaded through from `main.ts`) instead of
+ * leaving the farmer facing an arbitrary/stale direction for even one frame
+ * -- reasonable because PURSUING (the near-universal creation trigger, ADR
+ * 0015 §4) always starts moving toward the truck anyway. If neither a real
+ * movement delta nor `referencePosition` is available/nonzero, returns
+ * `undefined` and the caller leaves the farmer's current rotation untouched
+ * (this is what keeps him facing his last real heading through the
+ * stationary TIRED beat, since `setFarmerTransform` isn't even called during
+ * TIRED).
+ */
+export function computeFarmerHeading(previous: Vec2 | undefined, next: Vec2, referencePosition?: Vec2): number | undefined {
+  if (previous) {
+    const dx = next.x - previous.x;
+    const dz = next.z - previous.z;
+    if (Math.hypot(dx, dz) > FARMER_HEADING_EPSILON) return Math.atan2(dx, dz);
+    return undefined;
+  }
+  if (referencePosition) {
+    const dx = referencePosition.x - next.x;
+    const dz = referencePosition.z - next.z;
+    if (Math.hypot(dx, dz) > FARMER_HEADING_EPSILON) return Math.atan2(dx, dz);
+  }
+  return undefined;
+}
+
 /** What `buildFarmerDisplayModel` hands back for a fresh per-appearance farmer clone (ADR 0015 §2). */
 export interface FarmerDisplayModel {
   /** The corrected, ready-to-add-to-scene model -- base at its local origin (y=0), matching `buildStructureDisplayModel`'s ground-contact convention since the farmer is a standing figure. */
@@ -600,6 +647,8 @@ export function createGameScene(
     tintTargets?: THREE.MeshStandardMaterial[];
     ownedMaterials?: THREE.Material[];
     capsuleMaterial?: THREE.MeshStandardMaterial;
+    /** The position passed to the last `setFarmerTransform` call for this farmer instance (facing-direction fix, issue #57 follow-up) -- undefined until the first call, which is exactly the signal `computeFarmerHeading` uses to fall back to facing the truck instead of diffing against nothing. */
+    previousPosition?: Vec2;
   }
   let farmer: FarmerRecord | undefined;
 
@@ -804,13 +853,33 @@ export function createGameScene(
     return { root, capsuleMaterial };
   }
 
-  /** Places (creating on first call) the farmer at its current position (farmer AC1/AC2). The animated model's corrected base sits at its own local origin (y=0, `buildFarmerDisplayModel`'s ground-contact convention); the capsule fallback is centered on itself, so it keeps its own y=0.75 offset. */
-  function setFarmerTransform(position: Vec2): void {
+  /**
+   * Places (creating on first call) the farmer at its current position
+   * (farmer AC1/AC2). The animated model's corrected base sits at its own
+   * local origin (y=0, `buildFarmerDisplayModel`'s ground-contact
+   * convention); the capsule fallback is centered on itself, so it keeps its
+   * own y=0.75 offset.
+   *
+   * `referencePosition` (the truck's current position, threaded through from
+   * `main.ts`) is only ever used as a fallback for the very first call on a
+   * fresh farmer instance -- see `computeFarmerHeading`'s doc comment.
+   * Heading is applied to `root.rotation.y` for both the real animated model
+   * and the capsule fallback (issue #57 follow-up): the model's raw source
+   * orientation already faces +Z at `rotation.y = 0` (confirmed via live
+   * screenshot, matching the `heading`/`(sin, cos)` convention
+   * `setTruckTransform` uses), so no additional corrective offset is needed
+   * here the way `buildTruckRig`'s wheel pivots needed one.
+   */
+  function setFarmerTransform(position: Vec2, referencePosition?: Vec2): void {
     if (!farmer) {
       farmer = createFarmerRecord();
     }
     const y = farmer.mixer ? 0 : 0.75;
     farmer.root.position.set(position.x, y, position.z);
+
+    const heading = computeFarmerHeading(farmer.previousPosition, position, referencePosition);
+    if (heading !== undefined) farmer.root.rotation.y = heading;
+    farmer.previousPosition = { x: position.x, z: position.z };
   }
 
   /** TIRED give-up beat (ADR 0007 §1, vehicle-art AC8): crossfades to the Idle pose (if a real model) and applies the friendly amber tint -- computed from each material's stored base color (ADR 0015 §2), so re-entering TIRED on a later cycle (a fresh farmer instance, fresh base colors) is correct without an explicit reset. */
