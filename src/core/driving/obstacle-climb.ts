@@ -17,6 +17,22 @@
 // (deliberately NOT imported from render/truck-sockets.ts -- core/ must
 // never depend on render/, per ADR 0001 §4; the two interfaces are
 // structurally identical by convention, not by import).
+//
+// ADR 0017 extension (issue #49, terrain hills): a second, injected height
+// source is added per corner -- `sampleTerrainHeight` (a pure `(p) => number`
+// function, always `core/terrain-height.ts`'s `terrainHeightAt` in
+// production, per its own doc comment on why render and climb must sample
+// the exact same function). It is *added* to the obstacle hump at each
+// corner, not maxed against it -- but because `terrainHeightAt`'s flatten
+// mask damps terrain to ~0 at every obstacle footprint, the sum collapses
+// back to the pure obstacle hump there in practice, leaving
+// `DEFAULT_CLIMB_CONFIG`'s existing tuning undisturbed (see the ADR 0014
+// addendum pointer at the top of that ADR). The lift/pitch/roll averaging
+// and finite-difference math below is otherwise byte-for-byte unchanged --
+// only what feeds a corner's height grew, not how four corner heights become
+// `{lift,pitch,roll}`. Injection (not an internal import of
+// `terrainHeightAt`) keeps this module test-cheap and dependency-free, same
+// rationale as `TruckFootprint` above.
 import type { ObstacleInstance, Vec2 } from '../types';
 import type { ClimbConfig } from './config';
 import { TRUCK_CONTACT_RADIUS } from './config';
@@ -43,8 +59,6 @@ export interface TruckFootprint {
   zFront: number;
   zRear: number;
 }
-
-const EPSILON = 1e-6;
 
 function clamp(value: number, limit: number): number {
   if (limit <= 0) return 0;
@@ -88,6 +102,13 @@ function heightField(point: Vec2, obstacle: ObstacleInstance, config: ClimbConfi
  * 0013's single-center-sample-plus-analytic-gradient approach, which
  * couldn't represent a wide obstacle lifting only the front (or only one
  * side) of the rig.
+ *
+ * ADR 0017: `sampleTerrainHeight` is added into each corner's height
+ * alongside the obstacle hump (see this file's header comment) -- callers
+ * pass `() => 0` to get byte-identical pre-#49 obstacle-only behavior
+ * (obstacle-climb.test.ts's regression guard), or `terrainHeightAt` in
+ * production so hills produce the same lift/pitch response as a passable
+ * obstacle crossing.
  */
 export function computeClimbTransform(
   truckPos: Vec2,
@@ -95,6 +116,7 @@ export function computeClimbTransform(
   footprint: TruckFootprint,
   passable: ObstacleInstance[],
   config: ClimbConfig,
+  sampleTerrainHeight: (p: Vec2) => number,
 ): ClimbTransform {
   const forward: Vec2 = { x: Math.sin(heading), z: Math.cos(heading) };
   const right: Vec2 = { x: Math.cos(heading), z: -Math.sin(heading) };
@@ -120,13 +142,24 @@ export function computeClimbTransform(
       if (h > cornerHeights[key]) cornerHeights[key] = h;
     }
   }
+  // ADR 0017: terrain height is *added* per corner (not maxed against the
+  // obstacle hump like different obstacles are against each other above) --
+  // see this file's header comment for why that's safe against the existing
+  // ADR 0014 tuning.
+  for (const key of Object.keys(cornerPositions) as Array<keyof typeof cornerPositions>) {
+    cornerHeights[key] += sampleTerrainHeight(cornerPositions[key]);
+  }
 
   const lift = (cornerHeights.fl + cornerHeights.fr + cornerHeights.rl + cornerHeights.rr) / 4;
 
-  if (lift <= EPSILON) {
-    return { lift, pitch: 0, roll: 0 };
-  }
-
+  // No early "all-zero" return anymore (pre-#49 this checked `lift <=
+  // EPSILON`): with terrain height now in the mix, a corner sum can be a
+  // small negative number over a hill's gentle dip, and pitch/roll must
+  // still reflect that slope. This is safe for the obstacle-only case too --
+  // when every corner height is exactly 0 (no obstacle, `sampleTerrainHeight`
+  // returning 0), every atan2 below evaluates to exactly 0 anyway, so
+  // dropping the early return does not change pre-#49 behavior (pinned by
+  // the regression-guard tests).
   const frontAvg = (cornerHeights.fl + cornerHeights.fr) / 2;
   const rearAvg = (cornerHeights.rl + cornerHeights.rr) / 2;
   const leftAvg = (cornerHeights.fl + cornerHeights.rl) / 2;

@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import type { AnimalSpecies, ObstacleInstance, TruckBuild, TruckCosmetics, Vec2 } from '../core/types';
-import type { StructureInstance, TerrainBounds } from '../core/terrain';
+import { RIVER_ROUTE, RIVER_WIDTH, type StructureInstance, type TerrainBounds } from '../core/terrain';
 import { clampCameraToBounds } from '../core/driving/boundary';
+import { terrainHeightAt } from '../core/terrain-height';
 import type { AssetRegistry } from './assets/asset-registry';
 import { ANIMAL_ASSET_KEYS, FARMER_ASSET_KEY, STRUCTURE_ASSET_KEYS, truckAssetKeysForBuild } from './assets/manifest';
 import { createUpgradableObject, type UpgradableObject } from './assets/upgradable-object';
@@ -30,6 +31,18 @@ export function carryOverWheelRotations(from: TruckWheelPivots, to: TruckWheelPi
 // corner position never lets the camera see past the ground into the
 // scene background/"void" (issue #17, drive AC4 intent).
 const CAMERA_GROUND_MARGIN = 3;
+
+// Chase camera distance/height (issue #60, human playtest report on the
+// #49 100x100 map): previously 6 units behind / 5 units up, which put the
+// look-down angle at ~37 degrees off the horizon -- fine on the old 40x40
+// map but too steep to see far across the new, much bigger terrain (mostly
+// looking at nearby ground rather than the horizon). Pulled back to 8/4.2,
+// a shallower ~22-degree angle that reads noticeably more of the map while
+// driving, without losing the truck (still well within the 260 far plane)
+// and without flattening the obstacle-climb lift/pitch/roll readability
+// (ADR 0013/0014) -- verified live, see issue #60 hand-off screenshots.
+const CAMERA_CHASE_DISTANCE = 8;
+const CAMERA_CHASE_HEIGHT = 4.2;
 
 // Wheel roll/steer (issue #40, truck-wheel-motion AC1-AC7): purely visual,
 // render-only motion layered on top of the truck rig's wheel pivots
@@ -569,19 +582,12 @@ export function buildAnimatedAnimalDisplayModel(source: THREE.Object3D, targetHe
 
 // River (issue #47, ADR 0012 §3): a procedural flat ribbon following a
 // simple polyline -- built entirely here, no external asset, no collider,
-// no AssetRegistry involvement. Runs roughly along the terrain's north edge
-// (z ~15-17), clear of the windmill/barn/farmhouse (issue #46, at (12,12)/
-// (-12,-10)/(10,-12)) and the bush/rock/derelict-car obstacles (all south of
-// z=4) -- see the issue #47 hand-off notes for the placement rationale.
+// no AssetRegistry involvement. RIVER_ROUTE/RIVER_WIDTH themselves now live
+// in core/terrain.ts (issue #49/ADR 0017 §Decision-4) so core/terrain-
+// height.ts's flatten mask reads the exact same route data this module
+// renders from -- one source of truth for where the river actually is.
 const RIVER_COLOR = 0x2f7fb8;
 const RIVER_SURFACE_Y = 0.03; // just above the ground plane (y=0) to avoid z-fighting.
-const RIVER_WIDTH = 3;
-const RIVER_ROUTE: Vec2[] = [
-  { x: -18, z: 16 },
-  { x: -8, z: 15 },
-  { x: 2, z: 16.5 },
-  { x: 18, z: 15.5 },
-];
 
 /**
  * Builds a flat triangle-strip ribbon following `route`, `width` units wide,
@@ -660,7 +666,12 @@ export function createGameScene(
   const width = bounds.maxX - bounds.minX;
   const depth = bounds.maxZ - bounds.minZ;
 
-  const camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.1, 200);
+  // Far plane widened (issue #49/ADR 0017 §Decision-4 "Camera far plane"):
+  // the expanded 100x100 map's diagonal is ~141 units; 260 keeps the far
+  // corners (and the mountain landmark sitting on one of them) comfortably
+  // inside the frustum with margin, verified live (see the issue #49
+  // hand-off screenshots).
+  const camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.1, 260);
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(container.clientWidth, container.clientHeight);
@@ -672,10 +683,33 @@ export function createGameScene(
   scene.add(sun);
   scene.add(new THREE.AmbientLight(0x404040, 1.6));
 
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(width, depth),
-    new THREE.MeshStandardMaterial({ color: 0x6fbf5e }),
-  );
+  // Rolling hills (issue #49, ADR 0017 §Decision-2): the ground plane is now
+  // subdivided (GROUND_SEGMENTS x GROUND_SEGMENTS -- ~16k verts/33k tris, a
+  // one-time static build with no per-frame or bandwidth cost) and each
+  // vertex is displaced in Y by `terrainHeightAt`, the exact same pure
+  // function core/driving/obstacle-climb.ts samples for the truck's climb
+  // response -- guaranteeing the rendered surface and the truck's lift/tilt
+  // can never disagree (ADR 0017 §Decision-1). `computeVertexNormals()` is
+  // required, not optional: without it a displaced plane still shades flat
+  // under the scene's directional sun, and the hills become invisible
+  // despite being geometrically present (AC10's visibility mechanism is lit
+  // contour shading from correct normals).
+  //
+  // PlaneGeometry's local (x, y) maps to world (x, z) after the -90deg X
+  // rotation below as worldX = localX, worldZ = -localY (derived from the
+  // rotation matrix at theta = -PI/2) -- the ground mesh is unrotated/
+  // unoffset at scene-graph time, so local x/y already equal world x/z up to
+  // that sign flip on z.
+  const GROUND_SEGMENTS = 128;
+  const groundGeometry = new THREE.PlaneGeometry(width, depth, GROUND_SEGMENTS, GROUND_SEGMENTS);
+  const groundPositions = groundGeometry.attributes.position;
+  for (let i = 0; i < groundPositions.count; i++) {
+    const worldX = groundPositions.getX(i);
+    const worldZ = -groundPositions.getY(i);
+    groundPositions.setZ(i, terrainHeightAt({ x: worldX, z: worldZ }));
+  }
+  groundGeometry.computeVertexNormals();
+  const ground = new THREE.Mesh(groundGeometry, new THREE.MeshStandardMaterial({ color: 0x6fbf5e }));
   ground.rotation.x = -Math.PI / 2;
   scene.add(ground);
 
@@ -830,10 +864,10 @@ export function createGameScene(
     // corners this offset can extend past the finite ground plane, so the
     // camera's own (x,z) is pulled back in to stay over the ground — the
     // camera still looks at the truck, so it stays framed either way.
-    const behind = new THREE.Vector3(-Math.sin(heading), 0, -Math.cos(heading)).multiplyScalar(6);
+    const behind = new THREE.Vector3(-Math.sin(heading), 0, -Math.cos(heading)).multiplyScalar(CAMERA_CHASE_DISTANCE);
     const desiredCameraPos = { x: truckRig.group.position.x + behind.x, z: truckRig.group.position.z + behind.z };
     const cameraPos = clampCameraToBounds(desiredCameraPos, bounds, CAMERA_GROUND_MARGIN);
-    camera.position.set(cameraPos.x, 5, cameraPos.z);
+    camera.position.set(cameraPos.x, CAMERA_CHASE_HEIGHT, cameraPos.z);
     camera.lookAt(truckRig.group.position.x, 0.5, truckRig.group.position.z);
   }
 
@@ -918,7 +952,13 @@ export function createGameScene(
       record = { slot: createUpgradableObject(scene, primitive), species };
       animalSlots.set(id, record);
     }
-    const y = record.mixer ? 0 : 0.3;
+    // Grounded on the hill field (issue #49/ADR 0017 §Decision-4): the
+    // per-species base offset (0 riding a real skeletal mesh's own baked
+    // origin, 0.3 for the primitive box) is added on top of the terrain
+    // surface at this XZ, so an animal spawned on a hillside sits on it
+    // instead of floating/sinking -- Y translation only, no facing/yaw
+    // change (that stays owned by the existing flee-direction logic below).
+    const y = terrainHeightAt(position) + (record.mixer ? 0 : 0.3);
     record.slot.current.position.set(position.x, y, position.z);
     record.previousPosition = { x: position.x, z: position.z };
   }
@@ -935,7 +975,8 @@ export function createGameScene(
   function scatterAnimal(id: string, position: Vec2): void {
     const record = animalSlots.get(id);
     if (!record) return;
-    const y = record.mixer ? 0 : 0.3;
+    // Grounded on the hill field, same as upsertAnimal above (issue #49).
+    const y = terrainHeightAt(position) + (record.mixer ? 0 : 0.3);
     record.slot.current.position.set(position.x, y, position.z);
 
     // Facing direction (ADR 0016 §7, issue #57-class fix designed in from
@@ -1066,7 +1107,8 @@ export function createGameScene(
     if (!farmer) {
       farmer = createFarmerRecord();
     }
-    const y = farmer.mixer ? 0 : 0.75;
+    // Grounded on the hill field, same as animals (issue #49/ADR 0017 §Decision-4).
+    const y = terrainHeightAt(position) + (farmer.mixer ? 0 : 0.75);
     farmer.root.position.set(position.x, y, position.z);
 
     const heading = computeFarmerHeading(farmer.previousPosition, position, referencePosition);
@@ -1144,7 +1186,8 @@ export function createGameScene(
       scene.add(mesh);
       fuelMeshes.set(id, mesh);
     }
-    mesh.position.set(position.x, 0.3, position.z);
+    // Grounded on the hill field, same as animals/farmer (issue #49/ADR 0017 §Decision-4).
+    mesh.position.set(position.x, terrainHeightAt(position) + 0.3, position.z);
   }
 
   /** Instant collect (fuel AC13): removes the pickup mesh immediately and starts a brief glow-burst effect at its last position, decayed in tickEffects. */
@@ -1205,11 +1248,28 @@ export function createGameScene(
                 const scatterClipName = record.species === 'pig' ? PIG_CLIP_JUMP : COW_CLIP_RUN;
                 record.idleAction = findAnimalAction(mixer, animated.animations, idleClipName);
                 record.scatterAction = findAnimalAction(mixer, animated.animations, scatterClipName);
-                // Just-upgraded model's base sits at y=0 (ground-contact
-                // convention) -- the primitive it replaces was centered at
-                // y=0.3, so re-apply the animated y offset now rather than
-                // waiting for the next upsertAnimal/scatterAnimal call.
-                model.position.y = 0;
+                // Just-upgraded model's base sits at its own local origin
+                // (ground-contact convention) -- the primitive it replaces
+                // was centered at terrainHeightAt(position) + 0.3 (issue #49),
+                // so re-apply the animated model's y offset (terrain height
+                // + 0, no primitive-only 0.3 bump) now rather than waiting
+                // for the next upsertAnimal/scatterAnimal call.
+                //
+                // Bug fix (issue #58): this previously hardcoded
+                // `model.position.y = 0`, which is only correct on flat
+                // ground -- `UpgradableObject.upgrade()` had just copied the
+                // outgoing primitive's *world* position (including its
+                // correct terrain-height offset) onto `model`, and this line
+                // clobbered that back down to a flat y=0 regardless of the
+                // terrain height under the animal. Any pig/cow whose asset
+                // finished loading while stationary on a hillside (the
+                // common case -- animals don't move again until they're
+                // booped/scattered) would visibly snap down into the hill
+                // by the local terrain height, reproducing the "only the
+                // top is visible" report. Re-sampling terrainHeightAt at the
+                // model's own (already-correct) x/z fixes it without
+                // depending on the stale primitive-offset math above.
+                model.position.y = terrainHeightAt({ x: model.position.x, z: model.position.z });
                 if (record.idleAction) {
                   record.idleAction.reset().play();
                   record.currentAction = record.idleAction;

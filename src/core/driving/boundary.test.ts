@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { clampCameraToBounds, clampToBounds } from './boundary';
-import type { TerrainBounds } from '../terrain';
+import { TERRAIN_BOUNDS, type TerrainBounds } from '../terrain';
 
 // Soft boundary (drive AC4): truck is kept within the playable area, never off into the void.
 const bounds: TerrainBounds = { minX: -20, maxX: 20, minZ: -20, maxZ: 20 };
@@ -49,5 +49,25 @@ describe('clampCameraToBounds', () => {
 
   it('clamps each axis independently when only one axis exceeds the margin', () => {
     expect(clampCameraToBounds({ x: 25, z: 0 }, bounds, 3)).toEqual({ x: 17, z: 0 });
+  });
+});
+
+// Terrain expansion (issue #49, ADR 0017 §Decision-4, AC2): the soft
+// boundary is pure min/max on X/Z, so behavior at the real, expanded
+// TERRAIN_BOUNDS (-50..50) is identical in shape to the -20..20 fixture
+// above -- confirmed directly against the actual constant, not just a local
+// test fixture, so a future change to TERRAIN_BOUNDS is caught here too.
+describe('clampToBounds at the expanded TERRAIN_BOUNDS (issue #49, AC2)', () => {
+  it('leaves a position well inside the new bounds unchanged', () => {
+    expect(clampToBounds({ x: 0, z: 0 }, TERRAIN_BOUNDS)).toEqual({ x: 0, z: 0 });
+    expect(clampToBounds({ x: 49, z: -49 }, TERRAIN_BOUNDS)).toEqual({ x: 49, z: -49 });
+  });
+
+  it('clamps a position beyond the new edge back to it, never leaving the truck stuck or in a void', () => {
+    expect(clampToBounds({ x: 500, z: -500 }, TERRAIN_BOUNDS)).toEqual({ x: 50, z: -50 });
+  });
+
+  it('clamps exactly at the new boundary edge to itself (no off-by-one at the larger extent)', () => {
+    expect(clampToBounds({ x: 50, z: -50 }, TERRAIN_BOUNDS)).toEqual({ x: 50, z: -50 });
   });
 });

@@ -134,3 +134,45 @@ describe('integrateTruckMotion — displacement', () => {
     expect(result.displacement.z).toBeCloseTo(0, 5);
   });
 });
+
+// Terrain movement-isolation guard (issue #49, ADR 0017 §Testing, AC8): the
+// simplest possible proof that hills never touch the truck's real
+// position/velocity math is structural -- `integrateTruckMotion`'s signature
+// (state, intent, topSpeed, config, dt) has no terrain parameter at all,
+// nothing here imports core/terrain-height.ts, and it has no Y axis anywhere.
+// This test makes that literal, per the ADR's "simulated position/velocity
+// are identical whether or not hill data is present" phrasing: it drives a
+// batch of pseudo-random input sequences through two independently-run
+// trajectories -- there is no way to even *offer* one of them "hill data" to
+// this function, so identical output is trivially guaranteed, and this test
+// exists so a future dev cannot silently add a terrain parameter here
+// without this test either catching the signature change or needing to be
+// deliberately updated (a tripwire, not just documentation).
+describe('terrain movement isolation (issue #49, ADR 0017 AC8)', () => {
+  it('a batch of random input sequences produces byte-identical trajectories across two independent integration runs', () => {
+    function pseudoRandom(seed: number): () => number {
+      let state = seed;
+      return () => {
+        state = (state * 1103515245 + 12345) & 0x7fffffff;
+        return state / 0x7fffffff;
+      };
+    }
+
+    function runTrajectory(seed: number): TruckMotionState[] {
+      const rng = pseudoRandom(seed);
+      let state: TruckMotionState = { heading: 0, speed: 0 };
+      const history: TruckMotionState[] = [];
+      for (let step = 0; step < 200; step++) {
+        const intent: DriveIntent = { throttle: rng() * 2 - 1, steer: rng() * 2 - 1 };
+        const result = integrateTruckMotion(state, intent, TOP_SPEED, DEFAULT_DRIVING_CONFIG, 0.05);
+        state = result.state;
+        history.push(state);
+      }
+      return history;
+    }
+
+    const runA = runTrajectory(42);
+    const runB = runTrajectory(42);
+    expect(runA).toEqual(runB);
+  });
+});

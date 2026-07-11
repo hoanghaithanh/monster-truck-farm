@@ -725,6 +725,22 @@ describe('Scene animal lifecycle -- pig/cow animated dispose/orientation wiring 
     }).not.toThrow();
   });
 
+  it('places the upgraded animated model at the local terrain height under it, not a hardcoded flat y=0 (issue #58 regression guard)', async () => {
+    const { terrainHeightAt } = await import('../core/terrain-height');
+    // Far from every obstacle/structure/river/truck-start flatten zone
+    // (well inside the small LIFECYCLE_BOUNDS used by this describe block),
+    // so the hill field is at full, nonzero strength here -- a spawn point
+    // that would previously expose the bug (model snapping down to y=0
+    // instead of the hill's actual height).
+    const spawnPos = { x: 19, z: 3 };
+    const expectedY = terrainHeightAt(spawnPos);
+    expect(Math.abs(expectedY)).toBeGreaterThan(0.05); // sanity: this point is actually on a hill
+
+    const model = spawnAndUpgradePig(spawnPos);
+
+    expect(model.position.y).toBeCloseTo(expectedY, 5);
+  });
+
   it('dispose() tears down a still-live upgraded pig\'s owned cloned materials and mixer, not just the farmer (code review follow-up on issue #48, ADR 0016 §8)', () => {
     // Deliberately don't call scene.removeAnimal first -- this is exactly
     // the leak code review caught: dispose() used to call farmerDespawn()

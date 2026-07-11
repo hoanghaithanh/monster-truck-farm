@@ -24,7 +24,7 @@ function bush(overrides: Partial<ObstacleInstance> = {}): ObstacleInstance {
 
 describe('computeClimbTransform (obstacle climb, ADR 0013 superseded by ADR 0014 four-corner sampling / issue #42)', () => {
   it('returns exactly {0,0,0} for an empty obstacle list', () => {
-    const result = computeClimbTransform({ x: 5, z: 5 }, 0, TIER0_FOOTPRINT, [], DEFAULT_CLIMB_CONFIG);
+    const result = computeClimbTransform({ x: 5, z: 5 }, 0, TIER0_FOOTPRINT, [], DEFAULT_CLIMB_CONFIG, () => 0);
     expect(result).toEqual({ lift: 0, pitch: 0, roll: 0 });
   });
 
@@ -38,7 +38,7 @@ describe('computeClimbTransform (obstacle climb, ADR 0013 superseded by ADR 0014
       0,
       TIER0_FOOTPRINT,
       [obstacle],
-      DEFAULT_CLIMB_CONFIG,
+      DEFAULT_CLIMB_CONFIG, () => 0
     );
     expect(result.lift).toBe(0);
     expect(result.pitch).toBe(0);
@@ -50,7 +50,7 @@ describe('computeClimbTransform (obstacle climb, ADR 0013 superseded by ADR 0014
     const combinedRadius = obstacle.radius + TRUCK_CONTACT_RADIUS;
     const distances = [combinedRadius + 2, combinedRadius * 0.6, combinedRadius * 0.3, 0];
     const lifts = distances.map(
-      (d) => computeClimbTransform({ x: d, z: 0 }, 0, TIER0_FOOTPRINT, [obstacle], DEFAULT_CLIMB_CONFIG).lift,
+      (d) => computeClimbTransform({ x: d, z: 0 }, 0, TIER0_FOOTPRINT, [obstacle], DEFAULT_CLIMB_CONFIG, () => 0).lift,
     );
     for (let i = 1; i < lifts.length; i++) {
       expect(lifts[i]).toBeGreaterThan(lifts[i - 1]);
@@ -64,7 +64,7 @@ describe('computeClimbTransform (obstacle climb, ADR 0013 superseded by ADR 0014
     // half-diagonal), so the realized lift must be below the single-point
     // peak the old center-sample formula would have produced.
     const obstacle = bush();
-    const center = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [obstacle], DEFAULT_CLIMB_CONFIG);
+    const center = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [obstacle], DEFAULT_CLIMB_CONFIG, () => 0);
     const singlePointPeak = Math.min(DEFAULT_CLIMB_CONFIG.maxLift, DEFAULT_CLIMB_CONFIG.liftScale * obstacle.radius);
     expect(center.lift).toBeGreaterThan(0);
     expect(center.lift).toBeLessThan(singlePointPeak);
@@ -75,8 +75,8 @@ describe('computeClimbTransform (obstacle climb, ADR 0013 superseded by ADR 0014
   it('peak lift scales with obstacle radius (bigger obstacle -> bigger centered bump)', () => {
     const smallObstacle = bush({ id: 'small', radius: 0.6 });
     const bigObstacle = bush({ id: 'big', radius: 1.8 });
-    const smallLift = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [smallObstacle], DEFAULT_CLIMB_CONFIG).lift;
-    const bigLift = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [bigObstacle], DEFAULT_CLIMB_CONFIG).lift;
+    const smallLift = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [smallObstacle], DEFAULT_CLIMB_CONFIG, () => 0).lift;
+    const bigLift = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [bigObstacle], DEFAULT_CLIMB_CONFIG, () => 0).lift;
     expect(bigLift).toBeGreaterThan(smallLift);
   });
 
@@ -86,7 +86,7 @@ describe('computeClimbTransform (obstacle climb, ADR 0013 superseded by ADR 0014
     // converges to the single-point peak (maxLift, since liftScale*radius
     // vastly exceeds it).
     const hugeObstacle = bush({ radius: 100 });
-    const result = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [hugeObstacle], DEFAULT_CLIMB_CONFIG);
+    const result = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [hugeObstacle], DEFAULT_CLIMB_CONFIG, () => 0);
     expect(result.lift).toBeCloseTo(DEFAULT_CLIMB_CONFIG.maxLift, 1);
   });
 
@@ -96,14 +96,14 @@ describe('computeClimbTransform (obstacle climb, ADR 0013 superseded by ADR 0014
     // maxLiftByClass.large directly -- but the override must still produce
     // a strictly lower lift than the same obstacle would get without it.
     const derelictCar = bush({ id: 'derelict', sizeClass: 'large', radius: 1.8 });
-    const withOverride = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [derelictCar], DEFAULT_CLIMB_CONFIG);
+    const withOverride = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [derelictCar], DEFAULT_CLIMB_CONFIG, () => 0);
     const noOverrideConfig: ClimbConfig = { ...DEFAULT_CLIMB_CONFIG, maxLiftByClass: undefined };
     const withoutOverride = computeClimbTransform(
       { x: 0, z: 0 },
       0,
       TIER0_FOOTPRINT,
       [derelictCar],
-      noOverrideConfig,
+      noOverrideConfig, () => 0
     );
     expect(DEFAULT_CLIMB_CONFIG.maxLiftByClass?.large).toBeDefined();
     expect(withOverride.lift).toBeGreaterThan(0);
@@ -116,17 +116,17 @@ describe('computeClimbTransform (obstacle climb, ADR 0013 superseded by ADR 0014
       ...DEFAULT_CLIMB_CONFIG,
       maxLiftByClass: { ...DEFAULT_CLIMB_CONFIG.maxLiftByClass, medium: 0.05 },
     };
-    const withGlobalFallback = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [rock], DEFAULT_CLIMB_CONFIG);
-    const withMediumOverride = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [rock], lowCapForMedium);
+    const withGlobalFallback = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [rock], DEFAULT_CLIMB_CONFIG, () => 0);
+    const withMediumOverride = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [rock], lowCapForMedium, () => 0);
     expect(withGlobalFallback.lift).toBeGreaterThan(withMediumOverride.lift);
   });
 
   it('uses per-corner max (not sum) across two overlapping footprints', () => {
     const a = bush({ id: 'a', position: { x: -0.3, z: 0 }, radius: 0.6 });
     const b = bush({ id: 'b', position: { x: 0.3, z: 0 }, radius: 1.0 });
-    const combined = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [a, b], DEFAULT_CLIMB_CONFIG);
-    const aOnly = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [a], DEFAULT_CLIMB_CONFIG);
-    const bOnly = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [b], DEFAULT_CLIMB_CONFIG);
+    const combined = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [a, b], DEFAULT_CLIMB_CONFIG, () => 0);
+    const aOnly = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [a], DEFAULT_CLIMB_CONFIG, () => 0);
+    const bOnly = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [b], DEFAULT_CLIMB_CONFIG, () => 0);
     // Per-corner max is pointwise >= either obstacle alone, so the mean
     // (combined.lift) is always >= the greater of the two single-obstacle means.
     expect(combined.lift).toBeGreaterThanOrEqual(Math.max(aOnly.lift, bOnly.lift) - 1e-9);
@@ -146,14 +146,14 @@ describe('computeClimbTransform (obstacle climb, ADR 0013 superseded by ADR 0014
       0,
       TIER0_FOOTPRINT,
       [obstacle],
-      DEFAULT_CLIMB_CONFIG,
+      DEFAULT_CLIMB_CONFIG, () => 0
     );
     const leaving = computeClimbTransform(
       { x: 0, z: combinedRadius * 0.5 },
       0,
       TIER0_FOOTPRINT,
       [obstacle],
-      DEFAULT_CLIMB_CONFIG,
+      DEFAULT_CLIMB_CONFIG, () => 0
     );
     expect(approaching.pitch).toBeLessThan(0);
     expect(leaving.pitch).toBeGreaterThan(0);
@@ -162,7 +162,7 @@ describe('computeClimbTransform (obstacle climb, ADR 0013 superseded by ADR 0014
 
   it('pitch is ~0 at the exact crest for a symmetric (tier-0) footprint', () => {
     const obstacle = bush();
-    const result = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [obstacle], DEFAULT_CLIMB_CONFIG);
+    const result = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [obstacle], DEFAULT_CLIMB_CONFIG, () => 0);
     expect(result.pitch).toBeCloseTo(0);
   });
 
@@ -175,7 +175,7 @@ describe('computeClimbTransform (obstacle climb, ADR 0013 superseded by ADR 0014
       0,
       TIER0_FOOTPRINT,
       [obstacle],
-      aggressiveConfig,
+      aggressiveConfig, () => 0
     );
     expect(Math.abs(result.pitch)).toBeLessThanOrEqual(0.2 + 1e-9);
   });
@@ -188,7 +188,7 @@ describe('computeClimbTransform (obstacle climb, ADR 0013 superseded by ADR 0014
       0,
       TIER0_FOOTPRINT,
       [obstacle],
-      DEFAULT_CLIMB_CONFIG,
+      DEFAULT_CLIMB_CONFIG, () => 0
     );
     expect(result.roll).toBe(0);
   });
@@ -212,8 +212,8 @@ describe('computeClimbTransform (obstacle climb, ADR 0013 superseded by ADR 0014
     const obstacleUnderRight = bush({ position: { x: right.x * offset, z: right.z * offset } });
     const obstacleUnderLeft = bush({ position: { x: -right.x * offset, z: -right.z * offset } });
 
-    const underRight = computeClimbTransform({ x: 0, z: 0 }, heading, TIER0_FOOTPRINT, [obstacleUnderRight], rollConfig);
-    const underLeft = computeClimbTransform({ x: 0, z: 0 }, heading, TIER0_FOOTPRINT, [obstacleUnderLeft], rollConfig);
+    const underRight = computeClimbTransform({ x: 0, z: 0 }, heading, TIER0_FOOTPRINT, [obstacleUnderRight], rollConfig, () => 0);
+    const underLeft = computeClimbTransform({ x: 0, z: 0 }, heading, TIER0_FOOTPRINT, [obstacleUnderLeft], rollConfig, () => 0);
 
     expect(underRight.pitch).toBeCloseTo(0);
     expect(underLeft.pitch).toBeCloseTo(0);
@@ -237,8 +237,8 @@ describe('computeClimbTransform (obstacle climb, ADR 0013 superseded by ADR 0014
     const obstacleUnderRight = bush({ position: { x: right.x * offset, z: right.z * offset } });
     const obstacleUnderLeft = bush({ position: { x: -right.x * offset, z: -right.z * offset } });
 
-    const underRight = computeClimbTransform({ x: 0, z: 0 }, heading, TIER0_FOOTPRINT, [obstacleUnderRight], rollConfig);
-    const underLeft = computeClimbTransform({ x: 0, z: 0 }, heading, TIER0_FOOTPRINT, [obstacleUnderLeft], rollConfig);
+    const underRight = computeClimbTransform({ x: 0, z: 0 }, heading, TIER0_FOOTPRINT, [obstacleUnderRight], rollConfig, () => 0);
+    const underLeft = computeClimbTransform({ x: 0, z: 0 }, heading, TIER0_FOOTPRINT, [obstacleUnderLeft], rollConfig, () => 0);
 
     expect(underRight.pitch).toBeCloseTo(0);
     expect(underLeft.pitch).toBeCloseTo(0);
@@ -256,14 +256,14 @@ describe('computeClimbTransform (obstacle climb, ADR 0013 superseded by ADR 0014
       0,
       TIER0_FOOTPRINT,
       [obstacle],
-      aggressiveConfig,
+      aggressiveConfig, () => 0
     );
     expect(Math.abs(result.roll)).toBeLessThanOrEqual(0.2 + 1e-9);
   });
 
   it('a passable-only obstacle list needs no special-casing for a blocking-class obstacle -- the function only ever reads position/radius from whatever it is handed', () => {
     const largeObstacle = bush({ sizeClass: 'large', radius: 1.8 });
-    const result = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [largeObstacle], DEFAULT_CLIMB_CONFIG);
+    const result = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [largeObstacle], DEFAULT_CLIMB_CONFIG, () => 0);
     expect(result.lift).toBeGreaterThan(0);
   });
 
@@ -286,7 +286,7 @@ describe('computeClimbTransform (obstacle climb, ADR 0013 superseded by ADR 0014
     expect(frontLeftDist).toBeLessThan(combinedRadius); // sanity: front corners are in range
     expect(rearLeftDist).toBeGreaterThan(combinedRadius); // sanity: rear corners are out of range
 
-    const result = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [rock], DEFAULT_CLIMB_CONFIG);
+    const result = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [rock], DEFAULT_CLIMB_CONFIG, () => 0);
     const singlePointPeak = Math.min(DEFAULT_CLIMB_CONFIG.maxLift, DEFAULT_CLIMB_CONFIG.liftScale * rock.radius);
 
     expect(result.pitch).toBeLessThan(0); // nose-up: this is the fix
@@ -308,7 +308,7 @@ describe('computeClimbTransform (obstacle climb, ADR 0013 superseded by ADR 0014
       0,
       TIER0_FOOTPRINT,
       [smallObstacle],
-      DEFAULT_CLIMB_CONFIG,
+      DEFAULT_CLIMB_CONFIG, () => 0
     );
     expect(result.lift).toBeGreaterThan(0);
   });
@@ -319,10 +319,91 @@ describe('computeClimbTransform (obstacle climb, ADR 0013 superseded by ADR 0014
     // and asymmetric wheelbase must change the sampled result for an
     // identical obstacle placement.
     const rock = bush({ id: 'rock', kind: 'rock', sizeClass: 'medium', radius: 1.0, position: { x: 0, z: 1.5 } });
-    const tier0Result = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [rock], DEFAULT_CLIMB_CONFIG);
-    const tier2Result = computeClimbTransform({ x: 0, z: 0 }, 0, TIER2_FOOTPRINT, [rock], DEFAULT_CLIMB_CONFIG);
+    const tier0Result = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [rock], DEFAULT_CLIMB_CONFIG, () => 0);
+    const tier2Result = computeClimbTransform({ x: 0, z: 0 }, 0, TIER2_FOOTPRINT, [rock], DEFAULT_CLIMB_CONFIG, () => 0);
     const differs =
       Math.abs(tier0Result.lift - tier2Result.lift) > 1e-6 || Math.abs(tier0Result.pitch - tier2Result.pitch) > 1e-6;
     expect(differs).toBe(true);
+  });
+});
+
+// --- ADR 0017 (issue #49, terrain hills): extension tests for the injected ---
+// --- `sampleTerrainHeight` parameter. ------------------------------------------
+describe('computeClimbTransform terrain extension (issue #49, ADR 0017 §Decision-3)', () => {
+  it('REGRESSION GUARD: sampleTerrainHeight = () => 0 reproduces byte-identical pre-#49 obstacle-only output', () => {
+    // Every test above in this file already passes `() => 0` and its
+    // assertions are unchanged from before this feature -- this is the
+    // explicit, named version of that same guarantee (ADR 0017 §Testing).
+    const obstacle = bush({ position: { x: 0.4, z: -0.2 } });
+    const withZeroSampler = computeClimbTransform({ x: 0, z: 0 }, 0.3, TIER0_FOOTPRINT, [obstacle], DEFAULT_CLIMB_CONFIG, () => 0);
+    const again = computeClimbTransform({ x: 0, z: 0 }, 0.3, TIER0_FOOTPRINT, [obstacle], DEFAULT_CLIMB_CONFIG, () => 0);
+    expect(withZeroSampler).toEqual(again);
+  });
+
+  it('a uniform terrain height under every corner lifts the whole rig by that amount with zero pitch/roll, even with no obstacles', () => {
+    const result = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [], DEFAULT_CLIMB_CONFIG, () => 0.5);
+    expect(result.lift).toBeCloseTo(0.5);
+    expect(result.pitch).toBeCloseTo(0);
+    expect(result.roll).toBeCloseTo(0);
+  });
+
+  it('a terrain slope (higher in front than behind) produces nose-up pitch with no obstacles present, same sign convention as an obstacle climb', () => {
+    // Simple linear "slope" sampler: height rises with world Z. The truck
+    // sits at the origin facing +Z (heading 0), so its front corners
+    // (zFront > 0) sample a higher point than its rear corners.
+    const slope = (p: { x: number; z: number }) => p.z * 0.5;
+    const result = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [], DEFAULT_CLIMB_CONFIG, slope);
+    expect(result.pitch).toBeLessThan(0); // nose-up, same convention as the obstacle-climb tests above
+    expect(result.lift).toBeCloseTo(0); // symmetric slope through the origin averages back to ~0
+  });
+
+  it('hill lift/tilt stays within maxPitch/maxRoll even for a steep injected sampler (AC8c chaos guard)', () => {
+    const steepSlope = (p: { x: number; z: number }) => p.x * 100 + p.z * 100;
+    const result = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [], DEFAULT_CLIMB_CONFIG, steepSlope);
+    expect(Math.abs(result.pitch)).toBeLessThanOrEqual(DEFAULT_CLIMB_CONFIG.maxPitch + 1e-9);
+    expect(Math.abs(result.roll)).toBeLessThanOrEqual(DEFAULT_CLIMB_CONFIG.maxRoll + 1e-9);
+  });
+
+  it('terrain height and an obstacle hump sum per corner rather than one overriding the other', () => {
+    const obstacle = bush({ position: { x: 0, z: 0 } });
+    const withoutTerrain = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [obstacle], DEFAULT_CLIMB_CONFIG, () => 0);
+    const withTerrain = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [obstacle], DEFAULT_CLIMB_CONFIG, () => 0.2);
+    expect(withTerrain.lift).toBeCloseTo(withoutTerrain.lift + 0.2);
+  });
+
+  // AC9 (hills never enter the wheel-tier clearance system): computeClimbTransform
+  // has no wheel-tier/clearance parameter anywhere in its signature -- `footprint`
+  // is purely geometric (halfTrack/zFront/zRear), not a clearance class -- so a
+  // uniform terrain sample under every corner must produce identical lift
+  // regardless of which body tier's footprint is passed in. If hills were ever
+  // wired to be tier-gated (e.g. only lifting for tiers above some threshold),
+  // this test would catch it.
+  it('AC9: a uniform hill sample lifts the rig by the same amount under a tier-0 and a tier-2 footprint (hills are not wheel-tier gated)', () => {
+    const tier0 = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [], DEFAULT_CLIMB_CONFIG, () => 0.7);
+    const tier2 = computeClimbTransform({ x: 0, z: 0 }, 0, TIER2_FOOTPRINT, [], DEFAULT_CLIMB_CONFIG, () => 0.7);
+    expect(tier0.lift).toBeCloseTo(0.7);
+    expect(tier2.lift).toBeCloseTo(0.7);
+    expect(tier0.lift).toBeCloseTo(tier2.lift);
+  });
+
+  // Explicit regression guard for the removed pre-#49 early return (ADR 0017,
+  // obstacle-climb.ts's "No early 'all-zero' return anymore" comment): the old
+  // code short-circuited to {0,0,0} whenever the summed lift was <= a small
+  // EPSILON, which is wrong once hills can produce a small-but-nonzero dip that
+  // must still tilt the rig. If that early return were mistakenly reintroduced
+  // gated on |lift| being small, this test would fail because it constructs a
+  // case where lift is smaller than a plausible epsilon (~1e-4) yet pitch must
+  // still be a real, nonzero value.
+  it('REGRESSION GUARD (EPSILON early-return removal): a terrain dip smaller than a plausible epsilon still produces nonzero pitch, not a zeroed-out transform', () => {
+    // A gentle slope scaled down so the *lift* (mean of 4 corners, symmetric
+    // through the origin for a tier-0 footprint) is far below any reasonable
+    // epsilon, while pitch (a ratio/atan2 of the corner deltas) stays a real,
+    // measurable, nonzero value because it doesn't depend on the mean's
+    // magnitude, only the front/rear difference.
+    const tinySlope = (p: { x: number; z: number }) => p.z * 1e-6;
+    const result = computeClimbTransform({ x: 0, z: 0 }, 0, TIER0_FOOTPRINT, [], DEFAULT_CLIMB_CONFIG, tinySlope);
+    expect(Math.abs(result.lift)).toBeLessThan(1e-4);
+    expect(result.pitch).not.toBe(0);
+    expect(result.pitch).toBeLessThan(0); // nose-up, same convention as every other pitch assertion in this file
   });
 });

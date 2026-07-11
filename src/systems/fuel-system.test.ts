@@ -13,7 +13,7 @@ function sequenceRng(values: number[]): Rng {
   return () => values[i++ % values.length];
 }
 
-// rng()=1 maps pickSpawnPosition to the terrain's max corner (20,20) --
+// rng()=1 maps pickSpawnPosition to the terrain's max corner (50,50) --
 // far from every STUB_OBSTACLES entry and far from a truck parked at the
 // origin, so it's a reliable "always valid" spawn point for these tests.
 const FAR_RNG = sequenceRng([1]);
@@ -37,7 +37,7 @@ describe('FuelSystem — spawn cadence/cap (ADR 0008 §1/§3, fuel AC1-AC4, AC3 
       onCollect: noop,
     });
     expect(spawns).toHaveLength(1);
-    expect(spawns[0].position).toEqual({ x: 20, z: 20 });
+    expect(spawns[0].position).toEqual({ x: 50, z: 50 });
   });
 
   it('caps concurrent pickups at MAX_CONCURRENT_FUEL, holding the timer rather than spawning past the cap', () => {
@@ -103,7 +103,7 @@ describe('FuelSystem — contact -> collect (ADR 0008 §2/§3, fuel AC5/AC8/AC9/
 
     // Drive the truck onto the pickup (spawned at the far corner) and update again.
     const collects: { id: string; amount: number }[] = [];
-    system.update(0.016, { x: 20, z: 20 }, { onSpawn: noop, onCollect: (id, amount) => collects.push({ id, amount }) });
+    system.update(0.016, { x: 50, z: 50 }, { onSpawn: noop, onCollect: (id, amount) => collects.push({ id, amount }) });
     expect(collects).toEqual([{ id: spawnedId, amount: FUEL_REFILL_AMOUNT }]);
   });
 
@@ -113,8 +113,8 @@ describe('FuelSystem — contact -> collect (ADR 0008 §2/§3, fuel AC5/AC8/AC9/
 
     const collects: { id: string; amount: number }[] = [];
     const onCollect = (id: string, amount: number) => collects.push({ id, amount });
-    system.update(0.016, { x: 20, z: 20 }, { onSpawn: noop, onCollect });
-    system.update(0.016, { x: 20, z: 20 }, { onSpawn: noop, onCollect });
+    system.update(0.016, { x: 50, z: 50 }, { onSpawn: noop, onCollect });
+    system.update(0.016, { x: 50, z: 50 }, { onSpawn: noop, onCollect });
     expect(collects).toHaveLength(1);
   });
 

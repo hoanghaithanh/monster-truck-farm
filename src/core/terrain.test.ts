@@ -1,5 +1,30 @@
 import { describe, expect, it } from 'vitest';
-import { STUB_OBSTACLES, STUB_STRUCTURES, TERRAIN_BOUNDS } from './terrain';
+import { RIVER_ROUTE, STUB_OBSTACLES, STUB_STRUCTURES, TERRAIN_BOUNDS, TRUCK_START } from './terrain';
+
+describe('TERRAIN_BOUNDS (issue #49, ADR 0017 §Decision-4, AC1)', () => {
+  it('is expanded to -50..50 both axes (~6.25x the original 40x40 area)', () => {
+    expect(TERRAIN_BOUNDS).toEqual({ minX: -50, maxX: 50, minZ: -50, maxZ: 50 });
+    const oldArea = 40 * 40;
+    const newArea = (TERRAIN_BOUNDS.maxX - TERRAIN_BOUNDS.minX) * (TERRAIN_BOUNDS.maxZ - TERRAIN_BOUNDS.minZ);
+    expect(newArea / oldArea).toBeCloseTo(6.25);
+  });
+
+  it('TRUCK_START sits well inside the expanded bounds', () => {
+    expect(TRUCK_START.x).toBeGreaterThan(TERRAIN_BOUNDS.minX);
+    expect(TRUCK_START.x).toBeLessThan(TERRAIN_BOUNDS.maxX);
+    expect(TRUCK_START.z).toBeGreaterThan(TERRAIN_BOUNDS.minZ);
+    expect(TRUCK_START.z).toBeLessThan(TERRAIN_BOUNDS.maxZ);
+  });
+
+  it('every RIVER_ROUTE point sits well inside the expanded bounds', () => {
+    for (const point of RIVER_ROUTE) {
+      expect(point.x).toBeGreaterThan(TERRAIN_BOUNDS.minX);
+      expect(point.x).toBeLessThan(TERRAIN_BOUNDS.maxX);
+      expect(point.z).toBeGreaterThan(TERRAIN_BOUNDS.minZ);
+      expect(point.z).toBeLessThan(TERRAIN_BOUNDS.maxZ);
+    }
+  });
+});
 
 describe('STUB_STRUCTURES (issue #46, ADR 0012 §1; mountain landmark added issue #47 redesign, ADR 0012 addendum/AC3a)', () => {
   it('has exactly one windmill, one barn, one farmhouse, and one mountain landmark', () => {

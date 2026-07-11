@@ -31,14 +31,29 @@ export interface TerrainBounds {
   maxZ: number;
 }
 
-// A modest square stub terrain — plenty of room to drive around and to
-// place three obstacles with clear approach lines to each.
+// Terrain expansion (issue #49, ADR 0017 §Decision-4, AC1): -50..50 both
+// axes, ~6.25x the original 40x40 (-20..20) area. Every existing piece of
+// hand-placed content below (obstacles/structures/river) and TRUCK_START
+// keep their original coordinates unchanged (AC3, Open Question 1 resolved
+// "leave in place") -- they end up as a small, already-tested area within a
+// much bigger, currently-empty map. The soft boundary clamp
+// (core/driving/boundary.ts) and every spawn system (core/spawn/spawn-
+// position.ts) read this constant directly, so both automatically cover the
+// full new extent with no code change of their own (AC2/AC4).
 export const TERRAIN_BOUNDS: TerrainBounds = {
-  minX: -20,
-  maxX: 20,
-  minZ: -20,
-  maxZ: 20,
+  minX: -50,
+  maxX: 50,
+  minZ: -50,
+  maxZ: 50,
 };
+
+// The truck's fixed spawn/session-start position (ADR 0017 §Decision-4):
+// pulled out to a named constant, rather than left as a literal duplicated
+// in main.ts, so it is a single source of truth both main.ts's session
+// bootstrap and terrain-height.ts's flatten mask read -- avoiding the
+// "two individually reasonable numbers decided apart" drift class this
+// project has hit before (see CLAUDE.md's Sprint-1 fairness-retro note).
+export const TRUCK_START: Vec2 = { x: 0, z: 6 };
 
 export const STUB_OBSTACLES: ObstacleInstance[] = [
   { id: 'bush-1', kind: 'bush', sizeClass: 'small', position: { x: 6, z: 0 }, radius: 0.6 },
@@ -99,4 +114,21 @@ export const STUB_STRUCTURES: StructureInstance[] = [
   { id: 'barn-1', kind: 'barn', position: { x: -12, z: -10 }, footprintRadius: 3, collidable: true },
   { id: 'farmhouse-1', kind: 'farmhouse', position: { x: 10, z: -12 }, footprintRadius: 3, collidable: true },
   { id: 'mountain-1', kind: 'mountain', position: { x: -14, z: 5 }, footprintRadius: 4.71, collidable: true },
+];
+
+// River (issue #47, ADR 0012 §3): a procedural flat ribbon following this
+// polyline, rendered in render/scene.ts's buildRiverMesh. Moved here (was
+// previously a render/scene.ts-local constant) by issue #49/ADR 0017
+// §Decision-4, so core/terrain-height.ts's flatten mask can read the same
+// route data render/scene.ts renders from -- one source of truth, no risk of
+// the two drifting apart. Runs roughly along the terrain's north edge
+// (z ~15-17), clear of the windmill/barn/farmhouse (issue #46, at (12,12)/
+// (-12,-10)/(10,-12)) and the bush/rock/derelict-car obstacles (all south of
+// z=4) -- see the issue #47 hand-off notes for the placement rationale.
+export const RIVER_WIDTH = 3;
+export const RIVER_ROUTE: Vec2[] = [
+  { x: -18, z: 16 },
+  { x: -8, z: 15 },
+  { x: 2, z: 16.5 },
+  { x: 18, z: 15.5 },
 ];

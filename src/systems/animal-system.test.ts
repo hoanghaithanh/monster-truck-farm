@@ -22,7 +22,7 @@ const TRUCK_POS: Vec2 = { x: 0, z: 0 };
 function noop() {}
 
 // rng()=1 for both x/z maps pickSpawnPosition to the terrain's max corner
-// (20,20) -- far from every STUB_OBSTACLES entry and far from a truck parked
+// (50,50) -- far from every STUB_OBSTACLES entry and far from a truck parked
 // at the origin, so it's a reliable "always valid" spawn point (same
 // derivation fuel-system.test.ts's FAR_RNG documents). Each spawn attempt
 // then consumes one more rng() call for pickSpecies's roll.
@@ -44,7 +44,7 @@ describe('AnimalSystem -- weighted species picker on spawn (issue #48, ADR 0016 
     expect(spawns).toHaveLength(1);
     expect(spawns[0].species).toBe('chicken');
     expect(spawns[0].id).toMatch(/^chicken-\d+$/);
-    expect(spawns[0].position).toEqual({ x: 20, z: 20 });
+    expect(spawns[0].position).toEqual({ x: 50, z: 50 });
   });
 
   it('spawns pig for a roll in [0.7, 0.95), with a pig-N id', () => {

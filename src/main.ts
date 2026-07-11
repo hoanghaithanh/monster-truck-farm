@@ -8,12 +8,13 @@ import { createGameOverScreen } from './ui/game-over';
 import { DrivingSystem, TRUCK_HALF_HEIGHT } from './systems/driving-system';
 import { DEFAULT_CLIMB_CONFIG, TRUCK_CONTACT_RADIUS } from './core/driving/config';
 import { computeClimbTransform } from './core/driving/obstacle-climb';
+import { terrainHeightAt } from './core/terrain-height';
 import { AnimalSystem } from './systems/animal-system';
 import { GasSystem } from './systems/gas-system';
 import { FarmerSystem, type FarmerRunState } from './systems/farmer-system';
 import { FuelSystem } from './systems/fuel-system';
 import { partitionObstacles } from './core/clearance';
-import { STUB_OBSTACLES, STUB_STRUCTURES, TERRAIN_BOUNDS } from './core/terrain';
+import { STUB_OBSTACLES, STUB_STRUCTURES, TERRAIN_BOUNDS, TRUCK_START } from './core/terrain';
 import type { TruckBuild, TruckCosmetics, TruckSpec } from './core/types';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { AssetRegistry } from './render/assets/asset-registry';
@@ -132,7 +133,10 @@ function startDriving(
   // three-free per ADR 0001 §4) needs to sample its four wheel corners.
   const climbFootprint = footprintForBodyTier(build.body);
 
-  const truckStart = { x: 0, z: 6 };
+  // TRUCK_START (core/terrain.ts, issue #49/ADR 0017 §Decision-4): a named
+  // constant rather than a local literal, so this session bootstrap and
+  // core/terrain-height.ts's flatten mask read the exact same coordinate.
+  const truckStart = TRUCK_START;
   const truckController = new TruckController(world, truckStart, TRUCK_CONTACT_RADIUS, TRUCK_HALF_HEIGHT);
 
   // Truck rig (ADR 0011 §4/§5): the build/cosmetics the player actually
@@ -182,11 +186,22 @@ function startDriving(
     drivingSystem.setTopSpeed(effectiveTopSpeed);
 
     const { position, heading } = drivingSystem.update(intent, dt);
-    // Obstacle climb (issue #42, ADR 0014): purely visual four-corner
-    // lift/tilt over `passable` obstacles, derived statelessly from this
-    // frame's position/heading and the run's fixed wheel footprint -- never
-    // touches the physics collider or the clearance rule above.
-    const climb = computeClimbTransform(position, heading, climbFootprint, passable, DEFAULT_CLIMB_CONFIG);
+    // Obstacle climb (issue #42, ADR 0014; extended issue #49/ADR 0017):
+    // purely visual four-corner lift/tilt over `passable` obstacles AND
+    // terrain hills, derived statelessly from this frame's position/heading
+    // and the run's fixed wheel footprint -- never touches the physics
+    // collider or the clearance rule above. `terrainHeightAt` is the same
+    // pure function render/scene.ts displaces the ground mesh with (ADR
+    // 0017 §Decision-1), so the truck's climb can never disagree with what's
+    // rendered underneath it.
+    const climb = computeClimbTransform(
+      position,
+      heading,
+      climbFootprint,
+      passable,
+      DEFAULT_CLIMB_CONFIG,
+      terrainHeightAt,
+    );
     scene.setTruckTransform(position, heading, climb);
     // Wheel roll + front-wheel steer-yaw (issue #40): purely visual, reads
     // this frame's already-computed speed/steer intent rather than a second
