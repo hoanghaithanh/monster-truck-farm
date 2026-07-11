@@ -79,3 +79,44 @@ Read `farmerDespawn()` and `dispose()` directly against the current committed co
 I recommend **against** sign-off for issue #29 in its current state. This is a genuine, reproducible, root-caused defect (not a testing-methodology artifact — confirmed via an independent camera-snap control test against the truck) that means AC7 and AC8, the two ACs this issue exists specifically to satisfy, are not met by a player-visible margin. AC9 and the dispose() fix are in good shape and don't need to be re-litigated once AC7/AC8 are fixed, but AC7/AC8 need a real fix and a fresh live-screenshot re-check (unit tests alone cannot catch this class of bug, per the "unit test stands in a non-skinned Mesh" finding above) before this can be re-recommended.
 
 Per this project's convention, I am recommending, not approving — final sign-off (and any scope/priority call on issue #57, e.g. whether it blocks Sprint 4 close-out) is the human's call.
+
+## Addendum (2026-07-10, re-check after commit `ff959e6`) — AC7/AC8 now MET
+
+`ff959e6` fixed the root cause found above: `buildFarmerDisplayModel` (`src/render/scene.ts`) now calls `source.updateMatrixWorld(true)` and passes `precise = true` to `Box3().setFromObject`, which walks per-vertex via `SkinnedMesh`'s bone-transform-aware `getVertexPosition()` override instead of reading each mesh's raw un-posed local `geometry.boundingBox`. This re-check specifically re-validates AC7/AC8; AC9 and the dispose()-fix finding above are unaffected by this change and were not re-litigated, per the orchestrator's scope for this pass.
+
+**Method:** same live-driven convention as the original pass — real `npm run build` (clean), served via `npx vite preview --port 4327`, driven with `puppeteer-core` against the real system Chrome. The same class of temporary, read-only QA hook was re-added for the duration of this pass only (`window.__qa` per-frame telemetry on `src/main.ts`, plus `debugFarmer()` / `debugSnapCameraToFarmer()` / `debugSnapCameraToTruck()` on the scene closure returned by `src/render/scene.ts`) and **fully reverted before concluding** — confirmed via `git status`/`git diff` showing a clean working tree on both files, `npx tsc --noEmit` clean, and `npm run test` re-run at 496/496 passing afterward.
+
+Unlike the original pass's pursuit-steering controller, this re-check's first attempt had an inverted-steering bug (mapped `headingErr > 0` to the right-turn key, when `truck-motion.ts`'s documented convention is that the right-turn key *decreases* heading — the exact inverted-steering class of bug that project's own regression test suite calls out in `truck-motion.test.ts`). Caught immediately from live telemetry (the truck drove itself into a corner and got stuck against the terrain boundary while the farmer wandered off-screen) and fixed by swapping the mapping. A second run added a wide 6-9 unit standoff band (approach past 9, actively reverse below 6, coast between) to close in on the farmer without risking a bump/hard-game-over ending the session before TIRED/LEAVING could be observed — the first corrected-steering run wasn't defensive enough here and *did* trigger a hard game-over (`"The farmer caught up with you. Time to try again!"`) after closing to contact distance, confirming the bump mechanic itself is unaffected by this fix but also confirming the standoff band was necessary for a clean re-check run.
+
+**Result: two complete `PURSUING -> TIRED -> LEAVING -> ABSENT` cycles observed** (cycle 0 at t=9.0-23.5s, cycle 1 at t=32.3-46.9s of a single continuous driving session), truck-farmer distance held in the 4-9 unit range throughout (well within normal chase-camera framing distance, not a debug-camera snap), zero bumps/game-overs in this run, no new console errors (only the same pre-existing benign favicon 404). `debugFarmer()` telemetry confirmed `hasAnimated: true` (the real skeletal model, not the capsule fallback) at every captured state.
+
+### AC7 (farmer model) — now **MET**
+
+The farmer renders as a clearly recognizable, correctly-scaled human figure at normal driving-scene chase-camera distances — no debug camera snap needed to see it, which is the exact gap the original pass found. Confirmed visually across both cycles; representative screenshots:
+- `docs/qa/screenshots/farmer-model-fsm-recheck-2026-07-10/state-pursuing-cycle0-chasecam.png` — farmer visible via the normal chase camera at ~5 units from the truck, standing next to the farmhouse for scale reference.
+- `docs/qa/screenshots/farmer-model-fsm-recheck-2026-07-10/state-pursuing-cycle1-chasecam.png` — same confirmation in a different part of the map (near the barn/rock obstacles), ruling out a single-location fluke.
+- `docs/qa/screenshots/farmer-model-fsm-recheck-2026-07-10/99-control-truck-snapcam.png` — the same debug-camera-snap control-test technique the original pass used to isolate model-visibility from chase-camera framing, re-run here on the truck as a sanity check; both truck and (nearby, per the other screenshots) farmer render at consistent, correctly-proportioned scale relative to the barn/rock/terrain around them.
+
+### AC8 (state-distinguishable art) — now **MET**
+
+With the model visible at correct scale, PURSUING/TIRED/LEAVING are clearly distinguishable through pose, not just correct at the telemetry level:
+- **PURSUING** — dynamic mid-stride running pose (`state-pursuing-cycle0-chasecam.png`, `state-pursuing-cycle1-chasecam.png`): leg extended, visible forward lean and arm swing.
+- **TIRED** — static, upright standing/idle pose (`state-tired-cycle0-chasecam.png`, `state-tired-cycle1-chasecam.png`): feet together, no stride, clearly at rest — reads as "stopped, catching breath," distinct from both the running and walking poses. The amber tint (the pre-existing supplementary cue) is also visibly present as a warm color shift.
+- **LEAVING** — relaxed walking gait (`state-leaving-cycle0-chasecam.png`, `state-leaving-cycle1-chasecam.png`): one leg forward mid-step, visibly different cadence from the PURSUING run and the TIRED static stance.
+
+All three were captured via the normal chase camera (what a player actually sees) at each state's first observation in each of the two independent cycles — four chase-camera screenshots per state pairing across cycles, plus a matched `debugSnapCameraToFarmer()` confirmation shot for each, all in `docs/qa/screenshots/farmer-model-fsm-recheck-2026-07-10/`.
+
+### Updated summary table
+
+| AC | Status (original 2026-07-10 pass) | Status (this re-check, same day, post-`ff959e6`) |
+|---|---|---|
+| AC7 (farmer model) | Not Met | **Met** |
+| AC8 (state-distinguishable pose/animation) | Not Met, blocked by AC7 | **Met** |
+| AC9 (kid-appropriate tone) | Unable to fully verify visually | Not re-litigated this pass (out of scope per orchestrator instruction); nothing in this re-check contradicts the original pass's "no evidence of a violation" finding — the TIRED tint reads as intended (warm amber, not alarming) and the game-over copy observed during the standoff-tuning misstep run matches the already-confirmed friendly wording. |
+| dispose()/leak fix | Confirmed correct at code-read level | Not re-litigated this pass (unaffected by this fix; two full spawn/despawn cycles plus one earlier session's bump/despawn ending observed in this pass's own driving, no anomalies). |
+
+### Updated recommendation
+
+I now recommend **for** sign-off on issue #29's AC7 and AC8 — the defect found in the original pass is fixed, root-caused, and independently re-confirmed via a fresh live-driven session using the same puppeteer/Chrome methodology, with the farmer visibly correct at normal camera distance across two full FSM cycles and both new-steering-bug and standoff-band lessons documented above for anyone re-running this method later. Combined with the original pass's AC9 and dispose()-fix findings (both already in good shape and unaffected by this fix), all of issue #29's acceptance criteria are now met.
+
+Per this project's convention, I am recommending, not approving — final sign-off is still the human's call.
