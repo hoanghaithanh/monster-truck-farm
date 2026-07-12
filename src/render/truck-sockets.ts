@@ -175,10 +175,33 @@ function scaleSockets(s: TruckSockets, factor: number): TruckSockets {
  * `BODY_TIER_SOCKETS` below is the `TRUCK_SCALE`-scaled table every caller
  * should read (ADR 0018 §1, issue #62).
  */
+// Gas-tank socket X fix (issue #64, 2026-07-12, direct human report --
+// "stray yellow cylinder connecting left rear wheel to truck body"): the
+// gas-tank cue prop (see truck-rig.ts's gasResult) is never scaled by
+// bodyScale/wheelScale/TRUCK_SCALE the way the body/wheel meshes are (ADR
+// 0011 §... "cosmetically minor by design ... small prop" -- it's meant to
+// stay a small, fixed-size prop), but its *socket* X offset below is scaled
+// by TRUCK_SCALE like every other socket position (module header §1's
+// `scaleSockets`). Live-measuring both boxes (`THREE.Box3.setFromObject`, a
+// temporary console.log added to truck-rig.ts for this investigation and
+// removed afterward) in a running scene confirmed the old X below put the
+// tank's own outer edge consistently ~0.07-0.10 world units past the body's
+// own *overall* bounding-box edge on all 3 tiers -- reading as a small amber
+// cylinder poking sideways out of the body into the wheel-well gap toward
+// the rear-left wheel, rather than a tank mounted flush against the body's
+// side. An initial pass that pulled `x` in just enough to match the body's
+// overall bounding-box edge left a faint residual sliver on tiers 1/2 (the
+// body narrows locally near the rear relative to its widest point elsewhere,
+// e.g. the front fenders, so "inside the overall bbox" wasn't the same as
+// "inside the local cross-section at the tank's own Z") -- each `gasTank`'s
+// `x` below was pulled in by a further ~0.05 raw units on top of that first
+// pass to clear that margin too. Verified live (screenshots, all 3 tiers):
+// the tank now reads as mounted flush against/inside the body, no visible
+// sliver poking toward the wheel.
 const RAW_BODY_TIER_SOCKETS: Record<number, TruckSockets> = {
-  0: sockets(0.1001, 0.3475, 0.5557, 0.28, 0.5207, 0.558, -0.558, [0, 0.6851, 0.648], [0.3615, 0.4089, -0.612]),
-  1: sockets(0.3111, 0.3724, 0.7134, 0.4, 0.7166, 0.6355, -0.6355, [0, 0.9743, 0.738], [0.444, 0.5827, -0.697]),
-  2: sockets(0.5059, 0.4125, 0.9328, 0.58, 1.039, 0.479, -0.885, [0, 1.569, 0.828], [0.5524, 0.8947, -0.782]),
+  0: sockets(0.1001, 0.3475, 0.5557, 0.28, 0.5207, 0.558, -0.558, [0, 0.6851, 0.648], [0.23, 0.4089, -0.612]),
+  1: sockets(0.3111, 0.3724, 0.7134, 0.4, 0.7166, 0.6355, -0.6355, [0, 0.9743, 0.738], [0.325, 0.5827, -0.697]),
+  2: sockets(0.5059, 0.4125, 0.9328, 0.58, 1.039, 0.479, -0.885, [0, 1.569, 0.828], [0.445, 0.8947, -0.782]),
 };
 
 /**

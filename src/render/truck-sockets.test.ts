@@ -16,6 +16,13 @@ import {
 // regression tests correct if the scale factor's magnitude is retuned later
 // (ADR 0018 Open Question 1, playtest range 1.25-1.5) without needing every
 // pinned number hand-recomputed.
+//
+// Update (2026-07-12, issue #64): `gasTank.x`'s raw number per tier changed
+// (0.3615/0.444/0.5524 -> 0.23/0.325/0.445) -- the gas-tank cue prop's outer
+// edge was poking past the body's own outer edge ("stray yellow cylinder
+// connecting left rear wheel to truck body"); see truck-sockets.ts's module
+// header for the live-measured derivation of the new numbers. Every other
+// pinned value below is unaffected.
 
 describe('BODY_TIER_SOCKETS[2] (issue #38, tier-2 front/rear wheel-well fix)', () => {
   // Values re-derived against the tier-2 body's own built-in
@@ -78,7 +85,7 @@ describe('BODY_TIER_SOCKETS full-value regression (issue #36)', () => {
     expect(tier0.engine.x).toBe(0);
     expect(tier0.engine.y).toBeCloseTo(0.6851 * TRUCK_SCALE, 4);
     expect(tier0.engine.z).toBeCloseTo(0.648 * TRUCK_SCALE, 4);
-    expect(tier0.gasTank.x).toBeCloseTo(0.3615 * TRUCK_SCALE, 4);
+    expect(tier0.gasTank.x).toBeCloseTo(0.23 * TRUCK_SCALE, 4);
     expect(tier0.gasTank.y).toBeCloseTo(0.4089 * TRUCK_SCALE, 4);
     expect(tier0.gasTank.z).toBeCloseTo(-0.612 * TRUCK_SCALE, 4);
   });
@@ -108,7 +115,7 @@ describe('BODY_TIER_SOCKETS full-value regression (issue #36)', () => {
     expect(tier1.engine.x).toBe(0);
     expect(tier1.engine.y).toBeCloseTo(0.9743 * TRUCK_SCALE, 4);
     expect(tier1.engine.z).toBeCloseTo(0.738 * TRUCK_SCALE, 4);
-    expect(tier1.gasTank.x).toBeCloseTo(0.444 * TRUCK_SCALE, 4);
+    expect(tier1.gasTank.x).toBeCloseTo(0.325 * TRUCK_SCALE, 4);
     expect(tier1.gasTank.y).toBeCloseTo(0.5827 * TRUCK_SCALE, 4);
     expect(tier1.gasTank.z).toBeCloseTo(-0.697 * TRUCK_SCALE, 4);
   });
@@ -134,7 +141,7 @@ describe('BODY_TIER_SOCKETS full-value regression (issue #36)', () => {
     expect(tier2.engine.x).toBe(0);
     expect(tier2.engine.y).toBeCloseTo(1.569 * TRUCK_SCALE, 4);
     expect(tier2.engine.z).toBeCloseTo(0.828 * TRUCK_SCALE, 4);
-    expect(tier2.gasTank.x).toBeCloseTo(0.5524 * TRUCK_SCALE, 4);
+    expect(tier2.gasTank.x).toBeCloseTo(0.445 * TRUCK_SCALE, 4);
     expect(tier2.gasTank.y).toBeCloseTo(0.8947 * TRUCK_SCALE, 4);
     expect(tier2.gasTank.z).toBeCloseTo(-0.782 * TRUCK_SCALE, 4);
   });
