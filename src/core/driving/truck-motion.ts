@@ -17,7 +17,14 @@ export interface TruckMotionState {
    * is the truck's LEFT. Decreasing heading turns it right. The heading
    * update below therefore subtracts `intent.steer`: steer=+1 (right key)
    * must decrease heading to turn right; steer=-1 (left key) increases it
-   * to turn left.
+   * to turn left. That mapping holds while driving forward. While reversing
+   * (speed < 0), the chase camera (`render/scene.ts`) still sits behind and
+   * looks along the nose direction, but the truck's tail is the end actually
+   * leading the motion and visible to the player — and the tail of a
+   * rotating rigid body always swings opposite the nose. So the steer
+   * direction applied to `heading` is flipped whenever speed is negative,
+   * keeping a given steer key curving the truck's visible/leading end
+   * toward the same screen side in both forward and reverse.
    */
   heading: number;
   /** Signed forward speed (negative = reversing), units/s. */
@@ -61,7 +68,11 @@ export function integrateTruckMotion(
   if (Math.abs(speed) > EPSILON) {
     // Subtract, not add: see the TruckMotionState.heading doc comment above
     // for why steer=+1 (right) must *decrease* heading to actually turn right.
-    heading -= intent.steer * config.turnRate * dt;
+    // While reversing, flip the applied steer direction so the truck's
+    // visible/leading (tail) end still curves the same screen way as it
+    // would while driving forward — see the doc comment for why.
+    const steerDirection = speed < 0 ? -1 : 1;
+    heading -= steerDirection * intent.steer * config.turnRate * dt;
   }
 
   const displacement: Vec2 = {

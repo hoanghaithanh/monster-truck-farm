@@ -108,6 +108,67 @@ describe('integrateTruckMotion — steering (drive AC1-AC3)', () => {
       expect(result.displacement.x).toBeGreaterThan(0);
     });
   });
+
+  // Regression test for issue #68 (steering inverted while reversing): the
+  // chase camera (render/scene.ts) always sits behind and looks along the
+  // nose (`heading`), regardless of travel direction. While reversing, the
+  // truck's tail is the end actually leading the motion and visible to the
+  // player, and the tail of a rotating rigid body always swings opposite the
+  // nose — so applying the same steer-to-heading sign in reverse as forward
+  // makes the visible/leading end curve the *wrong* way on screen. Per this
+  // project's QA convention (CLAUDE.md), pin this against an externally
+  // meaningful expectation, not just internal self-consistency with the
+  // module's own heading sign.
+  //
+  // cameraBehindX below is a literal, traceable copy of render/scene.ts's
+  // "Simple chase camera" block (the `behind` vector, ~line 892):
+  //   const behind = new THREE.Vector3(-Math.sin(heading), 0, -Math.cos(heading))
+  //     .multiplyScalar(CAMERA_CHASE_DISTANCE);
+  // `core/` deliberately has no dependency on `three`/`render/` (ADR 0001),
+  // so this can't be a real import — it's a pinned copy of scene.ts's actual
+  // formula, cross-referenced by file/line so it doesn't silently drift.
+  // Camera position = truck position + behind, i.e. the camera always sits
+  // on the truck's tail side and looks back at the nose; behind's sign is
+  // therefore what actually determines, on screen, which world side the
+  // camera (and thus the visible truck) leans toward for a given heading.
+  // Using this instead of re-deriving "tail = -nose" from `heading` itself
+  // means this test would have a chance of catching scene.ts's camera
+  // formula changing (e.g. no longer tracking nose direction) — the thing
+  // the #68 fix's rationale actually depends on — whereas re-deriving from
+  // heading alone only re-checks this module's own internal sign choice.
+  function cameraBehindX(heading: number): number {
+    return -Math.sin(heading);
+  }
+
+  describe('steering direction while reversing (issue #68)', () => {
+    const shortDt = 0.1;
+
+    it('reversing + steer=1 (right key) swings the truck\'s visible/leading tail toward physical right (-X), same screen side as forward + steer=1', () => {
+      const reversingState: TruckMotionState = { heading: 0, speed: -3 };
+      const result = integrateTruckMotion(reversingState, { throttle: 0, steer: 1 }, TOP_SPEED, DEFAULT_DRIVING_CONFIG, shortDt);
+      expect(cameraBehindX(result.state.heading)).toBeLessThan(0);
+    });
+
+    it('reversing + steer=-1 (left key) swings the truck\'s visible/leading tail toward physical left (+X)', () => {
+      const reversingState: TruckMotionState = { heading: 0, speed: -3 };
+      const result = integrateTruckMotion(reversingState, { throttle: 0, steer: -1 }, TOP_SPEED, DEFAULT_DRIVING_CONFIG, shortDt);
+      expect(cameraBehindX(result.state.heading)).toBeGreaterThan(0);
+    });
+
+    it('a given steer produces the opposite heading delta in reverse vs. forward (the fix)', () => {
+      const forwardState: TruckMotionState = { heading: 0, speed: 3 };
+      const reversingState: TruckMotionState = { heading: 0, speed: -3 };
+      const forward = integrateTruckMotion(forwardState, { throttle: 0, steer: 1 }, TOP_SPEED, DEFAULT_DRIVING_CONFIG, shortDt);
+      const reverse = integrateTruckMotion(reversingState, { throttle: 0, steer: 1 }, TOP_SPEED, DEFAULT_DRIVING_CONFIG, shortDt);
+      expect(reverse.state.heading).toBeCloseTo(-forward.state.heading);
+    });
+
+    it('forward steering behavior is unchanged by the fix (speed > 0 still uses the original sign)', () => {
+      const movingState: TruckMotionState = { heading: 0, speed: 3 };
+      const result = integrateTruckMotion(movingState, { throttle: 0, steer: 1 }, TOP_SPEED, DEFAULT_DRIVING_CONFIG, shortDt);
+      expect(result.state.heading).toBeCloseTo(-DEFAULT_DRIVING_CONFIG.turnRate * shortDt);
+    });
+  });
 });
 
 describe('integrateTruckMotion — displacement', () => {
