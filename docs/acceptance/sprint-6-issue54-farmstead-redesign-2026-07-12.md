@@ -3,6 +3,22 @@
 Date: 2026-07-12
 Validator: test-engineer
 Milestone: Sprint 6 (#6)
+
+**Addendum (2026-07-12, same day, not a re-run of this formal pass):** the §A2 "dramatic cliffs" Not Met finding
+below was routed to a developer and fixed the same day — `DEFAULT_DRAMATIC_FIELD_CONFIG` retuned from
+`amplitude 6 / wavelength 32` to `amplitude 7 / wavelength 8` (root cause: this codebase's `Math.sin(x / wavelength)`
+convention gives a spatial period of `2π·wavelength`, not `wavelength`, so the original values could not
+mathematically produce steep local terrain within the authored zone's footprint — see `core/terrain-height.ts`'s
+dated comment on `DEFAULT_DRAMATIC_FIELD_CONFIG` for the full derivation). Re-verified live by the human driving
+into the zone, not by a second formal acceptance pass. A subsequent human playtest also caught two further defects
+not covered by this report (both outside its original scope/timing): a fence-collapse pose bug on `rotationY ≠ 0`
+segments (standing on end instead of lying flat) and the waterfall (§A3, then still "Met") floating disconnected
+from terrain with a dark, unlit-vs-lit material defect. Both were fixed; the human then asked for the waterfall
+feature to be removed entirely rather than fixed a fourth time, and it was — `WaterfallFeature`/`WATERFALL_FEATURES`/
+`buildWaterfallMesh` and their tests are deleted as of the final shipped state (commit `4438479`), so §A3's "Met"
+verdict below should be read as historical (it described a feature that no longer exists), not as a claim about the
+current build. See `docs/backlog.md` row 31 for the consolidated, current-state summary. This report's other
+verdicts (AC5-AC13, §A1, §A4, the regression checks) are unaffected and still describe the current build.
 Scope:
 - `docs/requirements/farm-layout-and-fields.md` AC5-AC13 (the original #54 scope — farmstead re-layout, silo/chicken-coop/fence structures, breakable-fence mechanic, spawn keep-out, asset-load fallback, wheel-tier clearance untouched). AC1-AC4 belong to sibling issue #53 (fields) and are explicitly out of scope here.
 - `docs/architecture/0019-farmstead-layout-and-breakable-fences.md` "Amendment (2026-07-12)" §A1-A6 (the human-requested reference-art redesign: windmill into the farmyard cluster, chicken coop into its own standalone pen, plus three new scope additions — dramatic cliffs, a waterfall, and solid decorative trees). This scope has **no formally-written acceptance criteria** (a known, deliberately-accepted gap per the amendment's own §A6.3 — the human chose to move fast). Per this pass's assignment, the ADR amendment's own stated design intent is treated as the de facto acceptance bar: §A1's layout description, §A2's "truck drives over cliffs exactly like a hill, camera keeps it framed" claims, §A3's "reads as a waterfall, near-vertical sheet into a pool" claim, §A4's "trees are solid but unbreakable, non-`InstancedMesh`" claim.
