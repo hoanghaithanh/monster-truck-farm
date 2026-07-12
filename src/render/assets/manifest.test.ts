@@ -4,6 +4,7 @@ import {
   ASSET_MANIFEST,
   bodyAssetKey,
   CHICKEN_ASSET_KEY,
+  CROP_ASSET_KEYS,
   engineCueAssetKey,
   FARMER_ASSET_KEY,
   FENCE_ASSET_KEY,
@@ -154,5 +155,27 @@ describe('tree asset entry (issue #54 amendment, ADR 0019 §A4)', () => {
   it('is never included in truckAssetKeysForBuild -- trees are not a player truck part (ADR 0010 §4.4)', () => {
     const keys = truckAssetKeysForBuild({ body: 1, wheels: 1, engine: 1, gasTank: 1 });
     expect(keys).not.toContain(TREE_ASSET_KEY);
+  });
+});
+
+describe('corn/wheat crop asset entries (issue #53, farm-layout-and-fields.md AC1/AC3/AC11)', () => {
+  it('CROP_ASSET_KEYS maps both CropKinds to a real manifest key', () => {
+    expect(CROP_ASSET_KEYS.corn).toBe('corn');
+    expect(CROP_ASSET_KEYS.wheat).toBe('wheat');
+  });
+
+  it('corn and wheat are each registered in the manifest with a real URL and a positive measured gzip size', () => {
+    for (const kind of ['corn', 'wheat'] as const) {
+      const entry = ASSET_MANIFEST[CROP_ASSET_KEYS[kind]];
+      expect(entry).toBeDefined();
+      expect(entry.url).toBeInstanceOf(URL);
+      expect(entry.approxGzipBytes).toBeGreaterThan(0);
+    }
+  });
+
+  it('are never included in truckAssetKeysForBuild -- crop stalk-clusters are not a player truck part (ADR 0010 §4.4)', () => {
+    const keys = truckAssetKeysForBuild({ body: 1, wheels: 1, engine: 1, gasTank: 1 });
+    expect(keys).not.toContain(CROP_ASSET_KEYS.corn);
+    expect(keys).not.toContain(CROP_ASSET_KEYS.wheat);
   });
 });

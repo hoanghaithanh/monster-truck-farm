@@ -1,10 +1,14 @@
 import * as THREE from 'three';
 import type { AnimalSpecies, ObstacleInstance, TruckBuild, TruckCosmetics, Vec2 } from '../core/types';
 import {
+  DECORATIVE_CROPS,
   DECORATIVE_TREES,
   RIVER_ROUTE,
   RIVER_WIDTH,
+  STUB_FIELDS,
+  type CropInstance,
   type FenceInstance,
+  type FieldPatch,
   type StructureInstance,
   type TerrainBounds,
   type TreeInstance,
@@ -12,7 +16,7 @@ import {
 import { clampCameraToBounds } from '../core/driving/boundary';
 import { terrainHeightAt } from '../core/terrain-height';
 import type { AssetRegistry } from './assets/asset-registry';
-import { ANIMAL_ASSET_KEYS, FARMER_ASSET_KEY, FENCE_ASSET_KEY, STRUCTURE_ASSET_KEYS, TREE_ASSET_KEY, truckAssetKeysForBuild } from './assets/manifest';
+import { ANIMAL_ASSET_KEYS, CROP_ASSET_KEYS, FARMER_ASSET_KEY, FENCE_ASSET_KEY, STRUCTURE_ASSET_KEYS, TREE_ASSET_KEY, truckAssetKeysForBuild } from './assets/manifest';
 import { createUpgradableObject, type UpgradableObject } from './assets/upgradable-object';
 import { buildTruckRig, type TruckWheelPivots } from './truck-rig';
 import { TRUCK_SCALE, WHEEL_RADIUS_BY_TIER } from './truck-sockets';
@@ -562,6 +566,209 @@ export function buildTreeDisplayModel(source: THREE.Object3D, targetHeight: numb
 }
 
 
+// Corn/wheat fields (issue #53, `farm-layout-and-fields.md` AC1-AC4): purely
+// decorative -- a terrain-conforming colored ground-patch mesh per field
+// (the river ribbon's own technique, reused here: a flat-ish mesh sampling
+// `terrainHeightAt` so it sits on the actual rendered surface) plus sparse
+// stalk-cluster props (the trees' load-once/clone-many pattern, AC3). Zero
+// collider, zero spawn keep-out (AC2/AC12) -- neither `STUB_FIELDS` nor
+// `DECORATIVE_CROPS` is ever passed to `physics/world.ts` or
+// `core/spawn/spawn-position.ts`, and this module imports them directly
+// (not as a `createGameScene` parameter) for the exact same "no per-session
+// mutable state, no drift risk to guard against" reason `DECORATIVE_TREES`
+// is imported directly rather than threaded through.
+const FIELD_COLORS: Record<FieldPatch['kind'], number> = {
+  // Distinctly more saturated/darker green than the base grass (0x6fbf5e)
+  // so a corn patch still reads as its own thing against the ground, not
+  // just "more grass" (AC1).
+  corn: 0x3f8f2d,
+  // Warm golden-tan, unambiguously different from both the grass and the
+  // corn patch (AC1).
+  wheat: 0xd8b657,
+};
+// Retuned 2026-07-12 (Sprint 6 code-review defect on issue #53): the field
+// patch mesh and the main ground plane (`GROUND_SEGMENTS = 128`, see
+// `createGameScene` below) both sample the same `terrainHeightAt` field, but
+// on two independently-triangulated grids -- the field patch's own
+// `FIELD_PATCH_SEGMENTS`-per-side grid (a handful of segments across an
+// 8-11 unit field) vs. the ground plane's much finer 128-segments-across-100-
+// units grid. Different segment counts across different rectangle sizes put
+// the two grids' sample points at different world (x, z) phases, so on
+// undulating (non-flat) terrain the two independently-linear-interpolated
+// surfaces diverge between shared vertices -- large enough, at the original
+// FIELD_PATCH_SEGMENTS=10/offset=0.02 tuning, for the coarser-grained ground
+// plane to poke up through the field patch as visible grass-green triangles
+// (confirmed against the actual QA screenshots, docs/qa/screenshots/
+// issue53-fields-2026-07-12/01-approaching-corn-field.png and
+// 04-inside-wheat-field.png).
+//
+// A brute-force probe (bilinear-interpolating both grids' own triangulation
+// at 400x400 sample points per field, matching each mesh's real "a,c,b /
+// c,d,b" triangle split) found the gap does *not* shrink to ~0 just by
+// increasing FIELD_PATCH_SEGMENTS alone: past roughly 20-30 segments, the
+// field patch's own surface is already sub-millimeter-accurate to the true
+// `terrainHeightAt` curve, and the residual ground-vs-field gap converges to
+// the ground plane's *own* fixed interpolation error against that same true
+// curve (~0.075 units at this field's location, set by GROUND_SEGMENTS=128
+// and the field's terrain zone -- gentle rolling hills only, well outside
+// DRAMATIC_ZONES). Exactly matching the ground plane's own grid phase/
+// triangulation would close the gap to ~0, but that requires the field mesh
+// to sample on the ground plane's absolute world grid (tying this decorative
+// prop builder to `TERRAIN_BOUNDS`/`GROUND_SEGMENTS` and snapping every
+// field's footprint outward to the nearest ground grid line) -- a real
+// architectural coupling, not proportionate to a decorative-only, zero-
+// collider prop for a stretch item. Combination fix instead: raise
+// FIELD_PATCH_SEGMENTS enough to make the field's own surface track the true
+// curve closely (closing most of the gap at the source, not just hiding it),
+// plus raise FIELD_SURFACE_Y_OFFSET to a safety margin comfortably above the
+// measured worst-case ~0.075/~0.060-unit residual (both fields, 400x400
+// sample probe) so the remaining, structurally-irreducible-without-a-shared-
+// grid gap can never surface as a visible ground-poking-through triangle.
+const FIELD_SURFACE_Y_OFFSET = 0.15;
+const FIELD_PATCH_SEGMENTS = 24;
+
+/**
+ * Builds a terrain-conforming, rectangular ground-patch mesh for `field` --
+ * a small subdivided grid sampling `terrainHeightAt` at every vertex (same
+ * technique `createGameScene`'s own ground-plane displacement and
+ * `buildRiverMesh`'s ribbon both use), so the patch sits flush with the
+ * actual rendered hills rather than floating/clipping. `DoubleSide`
+ * defensively for the same empirically-confirmed reason `buildRiverMesh`
+ * uses it (a flat mesh's winding can end up facing away from the chase
+ * camera depending on the input rectangle).
+ *
+ * Degrades gracefully (AC10-style, matching `buildRiverMesh`'s AC7 guard)
+ * to an empty group for a degenerate/malformed footprint (non-positive
+ * width or depth) instead of building degenerate geometry.
+ */
+export function buildFieldPatchMesh(field: FieldPatch, segments: number = FIELD_PATCH_SEGMENTS): THREE.Object3D {
+  const width = field.maxX - field.minX;
+  const depth = field.maxZ - field.minZ;
+  if (width <= 0 || depth <= 0) return new THREE.Group();
+
+  const positions: number[] = [];
+  for (let iz = 0; iz <= segments; iz++) {
+    for (let ix = 0; ix <= segments; ix++) {
+      const worldX = field.minX + (width * ix) / segments;
+      const worldZ = field.minZ + (depth * iz) / segments;
+      positions.push(worldX, terrainHeightAt({ x: worldX, z: worldZ }) + FIELD_SURFACE_Y_OFFSET, worldZ);
+    }
+  }
+
+  const indices: number[] = [];
+  for (let iz = 0; iz < segments; iz++) {
+    for (let ix = 0; ix < segments; ix++) {
+      const a = iz * (segments + 1) + ix;
+      const b = a + 1;
+      const c = a + (segments + 1);
+      const d = c + 1;
+      indices.push(a, c, b, c, d, b);
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+
+  const material = new THREE.MeshStandardMaterial({ color: FIELD_COLORS[field.kind], side: THREE.DoubleSide });
+  return new THREE.Mesh(geometry, material);
+}
+
+const CROP_STALK_COLORS: Record<CropInstance['kind'], number> = { corn: 0x2f7a2a, wheat: 0xc9a23a };
+const CROP_HEAD_COLORS: Record<CropInstance['kind'], number> = { corn: 0xd9a72e, wheat: 0xe8c96a };
+/** Target rendered height (world units) for the real sourced model and the primitive fallback alike -- corn stands noticeably taller than wheat, matching a real field. */
+const CROP_TARGET_HEIGHT: Record<CropInstance['kind'], number> = { corn: 1.8, wheat: 1.0 };
+
+/**
+ * A cheap, recognizable stalk-cluster primitive (AC10 fallback) -- a small
+ * ring of 3-5 thin cylinder "stalks" topped with a small head shape (a
+ * squat cylinder "ear" for corn, a thin cone "spike" for wheat), sized off
+ * `CROP_TARGET_HEIGHT` and the crop's own authored `scale`. Local origin at
+ * ground contact, matching every other primitive builder's convention.
+ */
+function buildCropPrimitive(crop: CropInstance): THREE.Object3D {
+  const scale = crop.scale ?? 1;
+  const totalHeight = CROP_TARGET_HEIGHT[crop.kind] * scale;
+  const stalkColor = CROP_STALK_COLORS[crop.kind];
+  const headColor = CROP_HEAD_COLORS[crop.kind];
+  const stalkCount = crop.kind === 'corn' ? 3 : 5;
+  const clusterRadius = 0.18 * scale;
+
+  const group = new THREE.Group();
+  for (let i = 0; i < stalkCount; i++) {
+    const angle = (i / stalkCount) * Math.PI * 2;
+    const stalkHeight = totalHeight * (0.85 + 0.15 * Math.sin(i * 2.1));
+    const stalkRadius = 0.03 * scale;
+
+    const stalkGeometry = new THREE.CylinderGeometry(stalkRadius, stalkRadius * 1.3, stalkHeight, 5);
+    stalkGeometry.translate(0, stalkHeight / 2, 0);
+    const stalk = new THREE.Mesh(stalkGeometry, new THREE.MeshStandardMaterial({ color: stalkColor }));
+    stalk.position.set(Math.cos(angle) * clusterRadius, 0, Math.sin(angle) * clusterRadius);
+    group.add(stalk);
+
+    const headHeight = stalkHeight * 0.2;
+    const headGeometry =
+      crop.kind === 'corn'
+        ? new THREE.CylinderGeometry(stalkRadius * 1.8, stalkRadius * 1.8, headHeight, 6)
+        : new THREE.ConeGeometry(stalkRadius * 1.6, headHeight, 5);
+    headGeometry.translate(0, stalkHeight + headHeight / 2, 0);
+    const head = new THREE.Mesh(headGeometry, new THREE.MeshStandardMaterial({ color: headColor }));
+    head.position.set(Math.cos(angle) * clusterRadius, 0, Math.sin(angle) * clusterRadius);
+    group.add(head);
+  }
+
+  group.position.set(crop.position.x, terrainHeightAt(crop.position), crop.position.z);
+  group.rotation.y = crop.rotationY ?? 0;
+  return group;
+}
+
+/**
+ * Wraps a freshly-cloned crop source model, following the exact same
+ * measured-bounding-box-derived scale/ground-anchor recipe
+ * `buildTreeDisplayModel` uses (height-driven, base-on-ground, metalness
+ * force-zeroed for this project's diffuse-only material convention). A
+ * separate, small per-kind function rather than reusing `buildTreeDisplayModel`
+ * directly, matching this codebase's established convention of small
+ * per-kind duplicated builders (`buildFenceDisplayModel` alongside
+ * `buildStructureDisplayModel`, `buildTreeDisplayModel` alongside both) over
+ * a shared generic helper.
+ */
+export function buildCropDisplayModel(source: THREE.Object3D, targetHeight: number): THREE.Object3D {
+  source.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    const material = child.material;
+    if (Array.isArray(material)) {
+      for (const m of material) {
+        if (m instanceof THREE.MeshStandardMaterial) m.metalness = 0;
+      }
+    } else if (material instanceof THREE.MeshStandardMaterial) {
+      material.metalness = 0;
+    }
+  });
+
+  const box = new THREE.Box3().setFromObject(source);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  const center = new THREE.Vector3();
+  box.getCenter(center);
+
+  source.position.x -= center.x;
+  source.position.z -= center.z;
+  source.position.y -= box.min.y;
+
+  const scaleFactor = size.y > 0 ? targetHeight / size.y : 1;
+  const inner = new THREE.Group();
+  inner.name = 'CropDisplayScale';
+  inner.scale.setScalar(scaleFactor);
+  inner.add(source);
+
+  const outer = new THREE.Group();
+  outer.name = 'CropModel';
+  outer.add(inner);
+  return outer;
+}
+
 // Farmer facing direction (issue #57 follow-up, human live-driving report
 // 2026-07-10): the farmer's model previously never rotated to face his
 // direction of travel -- he'd visibly slide sideways/backwards while
@@ -979,6 +1186,24 @@ export function createGameScene(
     const primitive = buildTreePrimitive(tree);
     scene.add(primitive);
     treeSlots.push({ tree, slot: createUpgradableObject(scene, primitive) });
+  }
+
+  // Corn/wheat fields (issue #53, AC1-AC4): ground-patch meshes are static
+  // procedural geometry, added once with no loading/fallback concern
+  // (buildFieldPatchMesh's own degenerate-input guard covers AC10's "never
+  // crash" for a malformed footprint), same as the river above. Crop
+  // stalk-clusters follow the trees' create-once, primitive-then-upgrade
+  // shape. STUB_FIELDS/DECORATIVE_CROPS are imported directly (not
+  // createGameScene parameters), same "no per-session mutable state, no
+  // drift risk" rationale DECORATIVE_TREES's own comment gives.
+  for (const field of STUB_FIELDS) {
+    scene.add(buildFieldPatchMesh(field));
+  }
+  const cropSlots: { crop: CropInstance; slot: UpgradableObject }[] = [];
+  for (const crop of DECORATIVE_CROPS) {
+    const primitive = buildCropPrimitive(crop);
+    scene.add(primitive);
+    cropSlots.push({ crop, slot: createUpgradableObject(scene, primitive) });
   }
 
   // Truck rig (ADR 0011 §4/§5): the single buildTruckRig assembly path also
@@ -1624,6 +1849,19 @@ export function createGameScene(
         if (assetRegistry.status(TREE_ASSET_KEY) !== 'ready') continue;
         const source = assetRegistry.get(TREE_ASSET_KEY);
         if (source) slot.upgrade(buildTreeDisplayModel(source, TREE_TARGET_HEIGHT * (tree.scale ?? 1)));
+      }
+    }
+
+    // Crop sourced-art upgrade-in-place (issue #53): same pattern as the
+    // tree loop just above, keyed by the crop's own kind (corn vs wheat)
+    // rather than a single shared asset key.
+    if (assetRegistry) {
+      for (const { crop, slot } of cropSlots) {
+        if (slot.upgraded) continue;
+        const assetKey = CROP_ASSET_KEYS[crop.kind];
+        if (assetRegistry.status(assetKey) !== 'ready') continue;
+        const source = assetRegistry.get(assetKey);
+        if (source) slot.upgrade(buildCropDisplayModel(source, CROP_TARGET_HEIGHT[crop.kind] * (crop.scale ?? 1)));
       }
     }
 

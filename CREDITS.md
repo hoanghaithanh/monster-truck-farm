@@ -187,6 +187,43 @@ per-instance `rotationY` and repeated along a line (per ADR 0019's
 `FenceInstance` design), not a single all-purpose prop like the other
 structures.
 
+## Corn and wheat stalk props (issue #53)
+
+`src/render/assets/models/{corn,wheat}.glb`, downloaded 2026-07-12, per
+`docs/requirements/farm-layout-and-fields.md` AC1/AC3/AC11. Same Quaternius
+pack family as the tree/silo/coop/fence assets above, but sourced via an
+[OpenGameArt.org](https://opengameart.org/content/lowpoly-crops-pack) mirror
+of Quaternius's "Nature Crops Pack" rather than poly.pizza directly — that
+pack ships per-growth-stage OBJ/FBX/Blend files (`Corn_1`-`Corn_4`,
+`Wheat_1`-`Wheat_4`, stage 4 = fully mature) that poly.pizza's own
+individual-model listings for "Crops" (a mixed vegetable-garden bed, not
+corn) and "Corn" (Poly by Google, a single realistic husked cob at ~164K
+vertices) didn't have a usable equivalent for. The pack's own `.blend`
+files aren't usable here (no Blender available in this pipeline to export
+them); `Corn_4.obj`/`Wheat_4.obj` were converted to glTF with `obj2gltf`
+(the same converter tool already used for the silo/barn/windmill assets,
+confirmed by their own embedded `generator: obj2gltf` metadata) via
+`npx obj2gltf -i <file>.obj -o <file>.glb` — geometry/materials only, no
+manual editing.
+
+| File | Model | Source |
+|---|---|---|
+| `corn.glb` | "Corn_4" (mature growth stage) from Quaternius's Nature Crops Pack | https://opengameart.org/content/lowpoly-crops-pack |
+| `wheat.glb` | "Wheat_4" (mature growth stage) from the same pack | https://opengameart.org/content/lowpoly-crops-pack |
+
+License: [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/)
+— public domain, no credit required (confirmed on the OpenGameArt listing).
+Credited here anyway as good practice. Both are single-mesh, flat
+vertex-color, no-texture models (matching this project's established art
+direction) and load correctly Y-up straight out of `obj2gltf` — unlike the
+pack's own `*_Crop`/`*_Harvested` variants (checked first, rejected: their
+raw OBJ export has the plant lying on its side along the model's local X
+axis instead of standing on Y, which would need a corrective rotation this
+codebase's structure-loading path doesn't currently apply). Loaded once
+each and cloned per instance (the fields' "load-once, clone-many"
+stalk-cluster pattern, same as the decorative trees below — deliberately
+**not** `THREE.InstancedMesh`, `farm-layout-and-fields.md`'s non-goal).
+
 ## Decorative tree (issue #54 amendment — cliffs/waterfalls/forest redesign)
 
 `src/render/assets/models/tree.glb`, downloaded via

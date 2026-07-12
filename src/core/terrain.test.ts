@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DECORATIVE_CROPS,
   DECORATIVE_TREES,
   RIVER_ROUTE,
   STUB_FENCES,
+  STUB_FIELDS,
   STUB_OBSTACLES,
   STUB_STRUCTURES,
   TERRAIN_BOUNDS,
@@ -224,6 +226,87 @@ describe('DECORATIVE_TREES (issue #54 amendment, ADR 0019 §A4)', () => {
         const dist = Math.hypot(a.position.x - b.position.x, a.position.z - b.position.z);
         expect(dist).toBeGreaterThanOrEqual(TREE_COLLIDER_RADIUS * 2);
       }
+    }
+  });
+});
+
+describe('STUB_FIELDS / DECORATIVE_CROPS (issue #53, farm-layout-and-fields.md AC1-AC4)', () => {
+  it('has exactly one corn field and one wheat field', () => {
+    const kinds = STUB_FIELDS.map((f) => f.kind).sort();
+    expect(kinds).toEqual(['corn', 'wheat']);
+  });
+
+  it('every field id is unique and every footprint is well-formed (min < max)', () => {
+    const ids = STUB_FIELDS.map((f) => f.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const field of STUB_FIELDS) {
+      expect(field.minX).toBeLessThan(field.maxX);
+      expect(field.minZ).toBeLessThan(field.maxZ);
+    }
+  });
+
+  it('every field sits within TERRAIN_BOUNDS', () => {
+    for (const field of STUB_FIELDS) {
+      expect(field.minX).toBeGreaterThanOrEqual(TERRAIN_BOUNDS.minX);
+      expect(field.maxX).toBeLessThanOrEqual(TERRAIN_BOUNDS.maxX);
+      expect(field.minZ).toBeGreaterThanOrEqual(TERRAIN_BOUNDS.minZ);
+      expect(field.maxZ).toBeLessThanOrEqual(TERRAIN_BOUNDS.maxZ);
+    }
+  });
+
+  it('no field overlaps the river ribbon route (nearest-point distance from the field rectangle to every RIVER_ROUTE point exceeds half the river width + margin)', () => {
+    const requiredClearance = 1.5 + 0.5; // RIVER_WIDTH/2 (1.5) plus a margin.
+    for (const field of STUB_FIELDS) {
+      for (const point of RIVER_ROUTE) {
+        const nearestX = Math.min(Math.max(point.x, field.minX), field.maxX);
+        const nearestZ = Math.min(Math.max(point.z, field.minZ), field.maxZ);
+        const dist = Math.hypot(nearestX - point.x, nearestZ - point.z);
+        expect(dist).toBeGreaterThanOrEqual(requiredClearance);
+      }
+    }
+  });
+
+  it('no field overlaps any STUB_STRUCTURE or STUB_FENCE footprint', () => {
+    const nearestPointOnRect = (field: (typeof STUB_FIELDS)[number], x: number, z: number) => ({
+      x: Math.min(Math.max(x, field.minX), field.maxX),
+      z: Math.min(Math.max(z, field.minZ), field.maxZ),
+    });
+    for (const field of STUB_FIELDS) {
+      for (const structure of STUB_STRUCTURES) {
+        const nearest = nearestPointOnRect(field, structure.position.x, structure.position.z);
+        const dist = Math.hypot(nearest.x - structure.position.x, nearest.z - structure.position.z);
+        expect(dist).toBeGreaterThanOrEqual(structure.footprintRadius);
+      }
+      for (const fence of STUB_FENCES) {
+        const nearest = nearestPointOnRect(field, fence.position.x, fence.position.z);
+        const dist = Math.hypot(nearest.x - fence.position.x, nearest.z - fence.position.z);
+        expect(dist).toBeGreaterThanOrEqual(fence.footprintRadius);
+      }
+    }
+  });
+
+  it('has a per-field crop count in the confirmed 15-30 range (AC3)', () => {
+    for (const field of STUB_FIELDS) {
+      const count = DECORATIVE_CROPS.filter((c) => c.kind === field.kind).length;
+      expect(count).toBeGreaterThanOrEqual(15);
+      expect(count).toBeLessThanOrEqual(30);
+    }
+  });
+
+  it('every crop id is unique', () => {
+    const ids = DECORATIVE_CROPS.map((c) => c.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('every crop sits inside its own field\'s footprint (AC3/AC4: scattered within the field, not floating elsewhere)', () => {
+    for (const crop of DECORATIVE_CROPS) {
+      const field = STUB_FIELDS.find((f) => f.kind === crop.kind);
+      expect(field).toBeDefined();
+      if (!field) continue;
+      expect(crop.position.x).toBeGreaterThanOrEqual(field.minX);
+      expect(crop.position.x).toBeLessThanOrEqual(field.maxX);
+      expect(crop.position.z).toBeGreaterThanOrEqual(field.minZ);
+      expect(crop.position.z).toBeLessThanOrEqual(field.maxZ);
     }
   });
 });

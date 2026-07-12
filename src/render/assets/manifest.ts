@@ -26,6 +26,7 @@
 // approxGzipBytes is measured directly (`gzip -9`) against the committed
 // file, same as the body/wheel sourced-art entries above.
 import type { AnimalSpecies, TruckBuild } from '../../core/types';
+import type { CropKind } from '../../core/terrain';
 
 export interface AssetManifestEntry {
   url: URL;
@@ -132,6 +133,15 @@ const COW_URL = new URL('./models/cow.glb', import.meta.url);
 // at driving-scene distance).
 const TREE_URL = new URL('./models/tree.glb', import.meta.url);
 
+// Corn/wheat crop pass (issue #53): the fields' stalk-cluster props -- two
+// more single, non-tiered keys following the exact same "load once, clone
+// per instance" precedent TREE_URL above established. "Corn_4"/"Wheat_4"
+// (mature growth stage) from Quaternius's Nature Crops Pack, sourced via an
+// OpenGameArt.org mirror; see repo-root CREDITS.md for the full sourcing
+// note (why this pack rather than poly.pizza's own "Corn"/"Crops" listings).
+const CORN_URL = new URL('./models/corn.glb', import.meta.url);
+const WHEAT_URL = new URL('./models/wheat.glb', import.meta.url);
+
 // Real measured gzip sizes. body-tier-*/wheel-tier-* are the sourced-art
 // models (`gzip -9` against the committed files, 2026-07-09 -- see repo-root
 // CREDITS.md's budget table); engine-cue-*/gas-cue-* are still the
@@ -179,6 +189,9 @@ const FENCE_GZIP_BYTES = 3451;
 // Measured directly (`gzip -9`) against the committed file (issue #54
 // amendment) -- matches CREDITS.md's ~263KB post-downscale estimate closely.
 const TREE_GZIP_BYTES = 258149;
+// Measured directly (`gzip -9`) against the committed files (issue #53).
+const CORN_GZIP_BYTES = 20099;
+const WHEAT_GZIP_BYTES = 2736;
 
 export const ASSET_MANIFEST = {
   // PASS-1 test fixture (ADR 0010 infrastructure) -- kept registered so the
@@ -251,6 +264,14 @@ export const ASSET_MANIFEST = {
   // Consumed via TREE_ASSET_KEY (below), same single-key pattern as
   // FENCE_ASSET_KEY since trees aren't a `StructureKind` either.
   tree: { url: TREE_URL, approxGzipBytes: TREE_GZIP_BYTES },
+
+  // Issue #53: same "not gated by truckAssetKeysForBuild" rationale as every
+  // other environment/decorative asset above -- crop stalk-clusters are not
+  // player truck parts, so they load progressively per ADR 0010 §4.4.
+  // Consumed via CROP_ASSET_KEYS (below), same per-kind lookup-map pattern
+  // as STRUCTURE_ASSET_KEYS/ANIMAL_ASSET_KEYS.
+  corn: { url: CORN_URL, approxGzipBytes: CORN_GZIP_BYTES },
+  wheat: { url: WHEAT_URL, approxGzipBytes: WHEAT_GZIP_BYTES },
 } satisfies Record<string, AssetManifestEntry>;
 
 export type AssetKey = keyof typeof ASSET_MANIFEST;
@@ -311,6 +332,12 @@ export const FENCE_ASSET_KEY: AssetKey = 'fence';
 
 /** The manifest key for the (single, unvarying) decorative tree model (issue #54 amendment, ADR 0019 §A4) -- exported so scene.ts's tree-rendering code doesn't hardcode the string. Same single-key pattern as `FENCE_ASSET_KEY`: trees aren't a `StructureKind` either. */
 export const TREE_ASSET_KEY: AssetKey = 'tree';
+
+/** Manifest keys for the two crop stalk-cluster models, keyed by `CropKind` (issue #53) -- exported so scene.ts's field-rendering code doesn't hardcode the strings, mirroring `STRUCTURE_ASSET_KEYS`/`ANIMAL_ASSET_KEYS`'s per-kind lookup-map pattern. */
+export const CROP_ASSET_KEYS: Record<CropKind, AssetKey> = {
+  corn: 'corn',
+  wheat: 'wheat',
+};
 
 /**
  * The asset keys the ADR 0010 §4.3 bounded gate waits on before DRIVING

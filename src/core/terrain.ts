@@ -253,6 +253,121 @@ export interface TreeInstance {
 /** Fixed solid-collider/spawn-keep-out radius for every tree (issue #54 amendment, ADR 0019 §A4 human override -- "solid but not breakable"): sized to the trunk, not the full canopy, so the truck bumps a believable obstacle rather than an oversized invisible wall around each tree's visual silhouette. */
 export const TREE_COLLIDER_RADIUS = 0.6;
 
+// Corn/wheat fields (issue #53, `docs/requirements/farm-layout-and-fields.md`
+// AC1-AC4; ADR 0019 §6/§A1's "reserved field space" note): purely decorative
+// -- a `FieldPatch` (ground-patch footprint, consumed only by render's
+// terrain-conforming colored-mesh builder) plus a sparse `CropInstance[]`
+// stalk-cluster prop set, following the exact "load-once, clone-many, NOT
+// InstancedMesh" pattern DECORATIVE_TREES already established. Deliberately
+// carry **no** collider and **no** spawn-keepout radius at all (AC2/AC12) --
+// unlike TreeInstance/TREE_COLLIDER_RADIUS above, there is no field/crop
+// counterpart consumed by physics/world.ts or core/spawn/spawn-position.ts;
+// this data is imported directly by render/scene.ts only, the same
+// "no drift risk to guard against" rationale DECORATIVE_TREES's own comment
+// gives for not threading trees through createGameScene as a parameter.
+//
+// Placement: the ADR's suggested `~x 12..38, z 8..20` zone overlaps
+// RIVER_ROUTE's last segment (its ribbon reaches x=18 at z~15.5, width 3 --
+// the ribbon's actual footprint at that end is a thin sliver just past
+// x=18), so both fields are shifted to sit with a comfortable margin east of
+// the river's x-extent (minX 21, nearest-point distance from the corn
+// field's rectangle to the river's closest route point is 3 units, well
+// clear of RIVER_WIDTH/2) and clear of the coop pen's fence run (STUB_FENCES'
+// west/east segments start at z~21, fields stay at maxZ 20) and the nearby
+// tree-27 (38,14, fields stay at maxX 37) -- checked by hand below, pinned by
+// terrain.test.ts. This reads as "the farm's fields, between the river and
+// the coop pen's open south side," per the ADR's own framing, without
+// literally reusing its now-slightly-stale numbers (this file's header
+// comment already flags that the ADR's suggestion may need adjusting once
+// the real #54 coordinates are in hand).
+export type CropKind = 'corn' | 'wheat';
+
+export interface FieldPatch {
+  id: string;
+  kind: CropKind;
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+}
+
+export const STUB_FIELDS: FieldPatch[] = [
+  { id: 'field-corn-1', kind: 'corn', minX: 21, maxX: 29, minZ: 9, maxZ: 20 },
+  { id: 'field-wheat-1', kind: 'wheat', minX: 30, maxX: 37, minZ: 9, maxZ: 20 },
+];
+
+export interface CropInstance {
+  id: string;
+  kind: CropKind;
+  position: Vec2;
+  rotationY?: number;
+  scale?: number;
+}
+
+/**
+ * Deterministically scatters `count` stalk-cluster positions near the
+ * perimeter of `field` (AC1/AC3's "scattered near its edges", not filling
+ * the interior densely) -- walks the rectangle boundary at even intervals
+ * and nudges each point inward/along-the-edge with a small sine/cosine-based
+ * jitter, rather than `Math.random()`, so `DECORATIVE_CROPS` below is
+ * reproducible (same "authored, deterministic data" ethos every other
+ * `core/terrain.ts` array follows, including `core/terrain-height.ts`'s own
+ * sum-of-sines fields) instead of re-rolling a different layout on every
+ * import.
+ */
+function scatterFieldEdgeCrops(field: FieldPatch, kind: CropKind, count: number, idPrefix: string): CropInstance[] {
+  const width = field.maxX - field.minX;
+  const depth = field.maxZ - field.minZ;
+  const perimeter = 2 * (width + depth);
+  const inset = 1.2; // pulls the ring slightly inside the raw rectangle edge.
+  const crops: CropInstance[] = [];
+  for (let i = 0; i < count; i++) {
+    const t = (i / count) * perimeter;
+    let x: number;
+    let z: number;
+    if (t < width) {
+      x = field.minX + t;
+      z = field.minZ;
+    } else if (t < width + depth) {
+      x = field.maxX;
+      z = field.minZ + (t - width);
+    } else if (t < 2 * width + depth) {
+      x = field.maxX - (t - width - depth);
+      z = field.maxZ;
+    } else {
+      x = field.minX;
+      z = field.maxZ - (t - 2 * width - depth);
+    }
+    const jitterX = Math.sin(i * 12.9898 + t) * 0.7;
+    const jitterZ = Math.cos(i * 78.233 + t) * 0.7;
+    x = clampValue(x + jitterX, field.minX + 0.2, field.maxX - 0.2);
+    z = clampValue(z + jitterZ, field.minZ + 0.2, field.maxZ - 0.2);
+    // Nudge everything a touch inward from the exact boundary line so the
+    // stalk clusters read as "near the edges of the patch," not perched
+    // exactly on it.
+    const cx = field.minX + width / 2;
+    const cz = field.minZ + depth / 2;
+    x += Math.sign(cx - x) * inset * 0.3;
+    z += Math.sign(cz - z) * inset * 0.3;
+    x = clampValue(x, field.minX + 0.15, field.maxX - 0.15);
+    z = clampValue(z, field.minZ + 0.15, field.maxZ - 0.15);
+    const rotationY = (i * 2.399963) % (Math.PI * 2);
+    const scale = 0.85 + 0.3 * Math.abs(Math.sin(i * 1.618));
+    crops.push({ id: `${idPrefix}-${i + 1}`, kind, position: { x, z }, rotationY, scale });
+  }
+  return crops;
+}
+
+/** Local clamp helper (no three.js import in `core/`, ADR 0001 §4 purity). */
+function clampValue(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+export const DECORATIVE_CROPS: CropInstance[] = [
+  ...scatterFieldEdgeCrops(STUB_FIELDS[0], 'corn', 20, 'crop-corn'),
+  ...scatterFieldEdgeCrops(STUB_FIELDS[1], 'wheat', 20, 'crop-wheat'),
+];
+
 export const DECORATIVE_TREES: TreeInstance[] = [
   // West canyon-rim clump (dramatic zone, forested mesa look) -- kept clear
   // of the river's west end and the mountain's own footprint.

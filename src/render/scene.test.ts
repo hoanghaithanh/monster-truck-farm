@@ -4,8 +4,10 @@ import { buildTruckRig } from './truck-rig';
 import {
   applyFenceCollapsePose,
   buildAnimatedAnimalDisplayModel,
+  buildCropDisplayModel,
   buildFarmerDisplayModel,
   buildFenceDisplayModel,
+  buildFieldPatchMesh,
   buildRiverMesh,
   buildStaticAnimalDisplayModel,
   buildStructureDisplayModel,
@@ -450,6 +452,84 @@ describe('buildTreeDisplayModel (issue #54 amendment, ADR 0019 §A4 -- tree sour
 
   it('keeps the corrective scale/centering on an inner group, not the returned outer object', () => {
     const model = buildTreeDisplayModel(offCenterRawTreeModel(), 3.4);
+    expect(model.position.toArray()).toEqual([0, 0, 0]);
+    expect(model.scale.toArray()).toEqual([1, 1, 1]);
+  });
+});
+
+describe('buildFieldPatchMesh (issue #53, AC1/AC3 -- terrain-conforming field ground patch)', () => {
+  it('builds a subdivided grid mesh with (segments+1)^2 vertices for a normal footprint', () => {
+    const field = { id: 'f', kind: 'corn' as const, minX: 0, maxX: 10, minZ: 0, maxZ: 6 };
+    const mesh = buildFieldPatchMesh(field, 4) as THREE.Mesh;
+    expect(mesh).toBeInstanceOf(THREE.Mesh);
+    const position = mesh.geometry.getAttribute('position');
+    expect(position.count).toBe((4 + 1) * (4 + 1));
+  });
+
+  it('every vertex sits just above ground level (y > 0, small offset)', () => {
+    const field = { id: 'f', kind: 'wheat' as const, minX: -5, maxX: 5, minZ: -5, maxZ: 5 };
+    const mesh = buildFieldPatchMesh(field, 4) as THREE.Mesh;
+    const position = mesh.geometry.getAttribute('position');
+    for (let i = 0; i < position.count; i++) {
+      const y = position.getY(i);
+      expect(y).toBeGreaterThan(0);
+      expect(y).toBeLessThan(1);
+    }
+  });
+
+  it('degrades gracefully to an empty, childless group for a degenerate footprint (min >= max), never crashing (AC10-style)', () => {
+    const degenerate = { id: 'f', kind: 'corn' as const, minX: 5, maxX: 5, minZ: 0, maxZ: 6 };
+    expect(() => buildFieldPatchMesh(degenerate)).not.toThrow();
+    const empty = buildFieldPatchMesh(degenerate);
+    expect(empty.children.length).toBe(0);
+    expect(empty).not.toBeInstanceOf(THREE.Mesh);
+  });
+});
+
+describe('buildCropDisplayModel (issue #53 -- crop stalk-cluster sourced-art scale/ground-alignment, height-driven)', () => {
+  function offCenterRawCropModel(): THREE.Object3D {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.8, 0.6), new THREE.MeshStandardMaterial());
+    mesh.position.set(0.5, 0.9, -0.2); // off-origin, base not at y=0
+    return mesh;
+  }
+
+  it("derives the corrective scale from the source's own measured height (y extent)", () => {
+    const model = buildCropDisplayModel(offCenterRawCropModel(), 1.8);
+
+    const box = new THREE.Box3().setFromObject(model);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+
+    const scaleFactor = 1.8 / 1.8;
+    expect(size.y).toBeCloseTo(1.8 * scaleFactor, 5);
+    expect(size.x).toBeCloseTo(0.6 * scaleFactor, 5);
+  });
+
+  it("re-centers the model horizontally (x/z) but keeps its base at the wrapper's local origin (y=0)", () => {
+    const model = buildCropDisplayModel(offCenterRawCropModel(), 1.8);
+
+    const box = new THREE.Box3().setFromObject(model);
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+
+    expect(center.x).toBeCloseTo(0, 5);
+    expect(center.z).toBeCloseTo(0, 5);
+    expect(box.min.y).toBeCloseTo(0, 5);
+  });
+
+  it('forces metalness to 0 on every MeshStandardMaterial in the source', () => {
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(0.6, 1.8, 0.6),
+      new THREE.MeshStandardMaterial({ metalness: 0.3, roughness: 0.5 }),
+    );
+    buildCropDisplayModel(mesh, 1.8);
+    const material = mesh.material as THREE.MeshStandardMaterial;
+    expect(material.metalness).toBe(0);
+    expect(material.roughness).toBeCloseTo(0.5, 5);
+  });
+
+  it('keeps the corrective scale/centering on an inner group, not the returned outer object', () => {
+    const model = buildCropDisplayModel(offCenterRawCropModel(), 1.8);
     expect(model.position.toArray()).toEqual([0, 0, 0]);
     expect(model.scale.toArray()).toEqual([1, 1, 1]);
   });
