@@ -45,5 +45,15 @@ export const FARMER_INVULN_SECONDS = 1.0;
 /** Farmer's own contact radius, matching the obstacle/animal radius convention. */
 export const FARMER_CONTACT_RADIUS = 0.6;
 
-/** Minimum distance from the truck's current position the farmer may spawn at (mirrors animal spawn config). */
-export const FARMER_MIN_SPAWN_DISTANCE_FROM_TRUCK = 8;
+/**
+ * Minimum distance from the truck's current position the farmer may spawn at
+ * (mirrors animal spawn config). Raised 8 -> 8.32 (2026-07-11, ADR 0018 §2 /
+ * issue #62): same `Δ ≈ 0.315` truck-contact-radius-growth re-tune as
+ * `core/spawn/config.ts`'s `MIN_SPAWN_DISTANCE_FROM_TRUCK`. The
+ * `FARMER_CREEP_FLOOR * FARMER_CHASE_DURATION >= FARMER_MIN_SPAWN_DISTANCE_FROM_TRUCK`
+ * invariant below (10 >= 8.32) still holds -- re-confirmed by the existing
+ * `spawn.test.ts` assertion, which reads these constants live rather than
+ * pinning a literal. Best-tuned default; final magnitude pending human
+ * playtest (AC4).
+ */
+export const FARMER_MIN_SPAWN_DISTANCE_FROM_TRUCK = 8.32;

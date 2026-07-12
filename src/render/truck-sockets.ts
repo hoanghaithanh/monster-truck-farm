@@ -18,7 +18,10 @@
 //    by transforming the glTF POSITION accessor min/max through the node's
 //    own rotation+scale) against this game's existing ~1.8-2.6-unit scale
 //    (TRUCK_CONTACT_RADIUS=0.9 in core/driving/config.ts, scene.ts's
-//    truck-bump-flash box is 1.6x1.2x2.6). `bodyScale` below is the
+//    truck-bump-flash box was 1.6x1.2x2.6 -- both pre-`TRUCK_SCALE` baseline
+//    numbers as of this note, since scaled by `TRUCK_SCALE` too; see
+//    `TRUCK_SCALE` above for the 2026-07-11 proportional size-up, ADR
+//    0018/issue #62). `bodyScale` below is the
 //    *additional* corrective scale `buildTruckRig` applies on top of that
 //    baked-in transform (via `bodyResult.object.scale.setScalar(...)`) so
 //    each tier's final length lands at a hand-picked target (1.8/2.05/2.3 --
@@ -78,6 +81,29 @@
 // merge into one wheel blob from this camera, which the rear correction
 // also fixes).
 import * as THREE from 'three';
+import { TRUCK_SCALE } from '../core/driving/config';
+
+// Global uniform truck size-up factor (ADR 0018 §1, issue #62 -- "bigger
+// truck: proportional size + hitbox scale-up"), canonically owned by
+// `core/driving/config.ts` (see that module for the full rationale/magnitude
+// note) and re-exported here for callers that import it from this module.
+// Applied to every per-tier quantity this module owns --
+// `BODY_TIER_SOCKETS`' position vectors, `bodyScale`/`wheelScale`, and
+// `WHEEL_RADIUS_BY_TIER` -- at export time, via `scaleSockets`/
+// `scaleWheelRadii` below, rather than as a `group.scale` on the assembled
+// rig. ADR 0018 §1's "why fold into data" is the deciding reason: the
+// whole-body climb lift/tilt (and issue #63's future per-wheel suspension)
+// are computed in *world units* against these same tables and applied to
+// child nodes of the rig group -- if the group itself carried a non-unit
+// scale, every such child-node offset would be magnified by `TRUCK_SCALE`
+// too and need dividing back out. Keeping `group.scale = 1` and enlarging
+// via data keeps world units honest.
+//
+// Because this is a *single* factor applied identically to all three tiers,
+// the existing Tier 0 < Tier 1 < Tier 2 size progression (AC1/AC2) is
+// preserved by construction -- see `truck-sockets.test.ts`'s
+// ratio-preserved regression test.
+export { TRUCK_SCALE };
 
 export interface TruckSockets {
   /** Where the body model itself is placed, rig-group-local -- translated up so the body's own baked-in origin (its underside, once the node's built-in 100x scale + rotation and this table's `bodyScale` are both applied) lands with its underside resting at wheel-center height (this tier's `WHEEL_RADIUS_BY_TIER`), same convention the old procedural table used. */
@@ -121,19 +147,50 @@ function sockets(
 }
 
 /**
- * Body-tier index (0/1/2) -> its socket table. Re-authored (2026-07-09) for
- * the sourced body/wheel models -- see module header for how `bodyScale`/
- * `wheelScale` and every position number were derived. `body`'s Y is
- * `WHEEL_RADIUS_BY_TIER[tier] - (bodyScale * that tier's raw underside Y)`,
- * i.e. the same "underside rests at wheel-center height" rule the old table
- * used, just solved against the sourced models' actual (scaled) geometry
- * instead of a hand-authored box.
+ * Uniformly scales one tier's socket table by `factor` (ADR 0018 §1): every
+ * position vector, plus `bodyScale`/`wheelScale`, is multiplied by the same
+ * number. A fresh `TruckSockets` is returned (never mutates the authored
+ * table this reads from) so `RAW_BODY_TIER_SOCKETS` below stays the readable,
+ * un-scaled source of truth the module header's derivation notes describe.
  */
-export const BODY_TIER_SOCKETS: Record<number, TruckSockets> = {
+function scaleSockets(s: TruckSockets, factor: number): TruckSockets {
+  return {
+    body: s.body.clone().multiplyScalar(factor),
+    bodyScale: s.bodyScale * factor,
+    wheels: s.wheels.map((w) => w.clone().multiplyScalar(factor)) as TruckSockets['wheels'],
+    wheelScale: s.wheelScale * factor,
+    engine: s.engine.clone().multiplyScalar(factor),
+    gasTank: s.gasTank.clone().multiplyScalar(factor),
+  };
+}
+
+/**
+ * Body-tier index (0/1/2) -> its *authored*, un-scaled socket table.
+ * Re-authored (2026-07-09) for the sourced body/wheel models -- see module
+ * header for how `bodyScale`/`wheelScale` and every position number were
+ * derived. `body`'s Y is `WHEEL_RADIUS_BY_TIER[tier] - (bodyScale * that
+ * tier's raw underside Y)`, i.e. the same "underside rests at wheel-center
+ * height" rule the old table used, just solved against the sourced models'
+ * actual (scaled) geometry instead of a hand-authored box. Not exported --
+ * `BODY_TIER_SOCKETS` below is the `TRUCK_SCALE`-scaled table every caller
+ * should read (ADR 0018 §1, issue #62).
+ */
+const RAW_BODY_TIER_SOCKETS: Record<number, TruckSockets> = {
   0: sockets(0.1001, 0.3475, 0.5557, 0.28, 0.5207, 0.558, -0.558, [0, 0.6851, 0.648], [0.3615, 0.4089, -0.612]),
   1: sockets(0.3111, 0.3724, 0.7134, 0.4, 0.7166, 0.6355, -0.6355, [0, 0.9743, 0.738], [0.444, 0.5827, -0.697]),
   2: sockets(0.5059, 0.4125, 0.9328, 0.58, 1.039, 0.479, -0.885, [0, 1.569, 0.828], [0.5524, 0.8947, -0.782]),
 };
+
+/**
+ * Body-tier index (0/1/2) -> its `TRUCK_SCALE`-scaled socket table (ADR 0018
+ * §1, issue #62). Every caller (`buildTruckRig`, `footprintForBodyTier`,
+ * camera framing, etc.) reads this scaled table, not `RAW_BODY_TIER_SOCKETS`
+ * -- the size factor lives in one place and every downstream consumer picks
+ * it up automatically with zero call-site edits.
+ */
+export const BODY_TIER_SOCKETS: Record<number, TruckSockets> = Object.fromEntries(
+  Object.entries(RAW_BODY_TIER_SOCKETS).map(([tier, raw]) => [Number(tier), scaleSockets(raw, TRUCK_SCALE)]),
+);
 
 /** Fallback socket table for an out-of-range tier index -- never crash on an unexpected build value (ADR 0010 §7's forgiving-fallback spirit). */
 export const DEFAULT_SOCKETS: TruckSockets = BODY_TIER_SOCKETS[0];
@@ -148,8 +205,15 @@ export function socketsForBodyTier(tier: number): TruckSockets {
  * wheelbase/track to sample per-wheel, but must stay `three`-free (ADR 0001
  * §4) -- this is the one place a `THREE.Vector3`-based socket gets unwrapped
  * into plain numbers for `core/` to consume. `wheels[0]`/`wheels[2]` are the
- * front-right/rear-right sockets (see `sockets()` above); `halfTrack` uses
- * `Math.abs` since some tiers author `wheelX` on the -X (left) side.
+ * front-left/rear-left sockets (see `sockets()` above -- `wheelX` is
+ * authored positive, i.e. +X, which per `truck-motion.ts`'s Forward x Up
+ * convention is the truck's physical LEFT, not right; this comment
+ * previously said "front-right/rear-right", which was stale/wrong and part
+ * of what made the #63 fl/fr suspension-side sign-inversion bug easy to miss
+ * in review -- it only matters for the doc's own clarity here, since
+ * `footprintForBodyTier` only reads `.x`/`.z` magnitudes, not the L/R
+ * label); `halfTrack` uses `Math.abs` since some tiers author `wheelX` on
+ * the -X (right) side.
  */
 export interface TruckFootprint {
   halfTrack: number;
@@ -169,6 +233,13 @@ export function footprintForBodyTier(tier: number): TruckFootprint {
  * the sourced wheel models -- a clear Base/Off-road/Monster progression
  * (0.28 / 0.4 / 0.58), same relative growth shape as the old
  * procedurally-authored 0.3/0.4/0.5 but re-based against the real tire
- * models' own raw radius.
+ * models' own raw radius. `RAW_WHEEL_RADIUS_BY_TIER` is the authored,
+ * un-scaled source; the exported table is scaled by `TRUCK_SCALE` (ADR 0018
+ * §1, issue #62), same pattern as `BODY_TIER_SOCKETS`/`RAW_BODY_TIER_SOCKETS`
+ * above.
  */
-export const WHEEL_RADIUS_BY_TIER: Record<number, number> = { 0: 0.28, 1: 0.4, 2: 0.58 };
+const RAW_WHEEL_RADIUS_BY_TIER: Record<number, number> = { 0: 0.28, 1: 0.4, 2: 0.58 };
+
+export const WHEEL_RADIUS_BY_TIER: Record<number, number> = Object.fromEntries(
+  Object.entries(RAW_WHEEL_RADIUS_BY_TIER).map(([tier, radius]) => [Number(tier), radius * TRUCK_SCALE]),
+);
