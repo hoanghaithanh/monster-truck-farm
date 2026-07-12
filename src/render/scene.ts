@@ -62,6 +62,14 @@ const CAMERA_GROUND_MARGIN = 3;
 const CAMERA_CHASE_DISTANCE = 8;
 const CAMERA_CHASE_HEIGHT = 4.2;
 
+// Structure-aware chase camera (issue #66, human playtest report: circling
+// tight near a structure, e.g. the barn, could briefly show the interior of
+// a roof/wall mesh -- the chase camera was a pure offset-behind-heading with
+// zero awareness of intervening geometry). `CAMERA_STRUCTURE_MARGIN` is how
+// far in front of a hit structure surface the camera is pulled to, so it
+// never renders from a position touching/inside the mesh it just detected.
+const CAMERA_STRUCTURE_MARGIN = 0.75;
+
 // Wheel roll/steer (issue #40, truck-wheel-motion AC1-AC7): purely visual,
 // render-only motion layered on top of the truck rig's wheel pivots
 // (truck-rig.ts's WheelPivots) -- zero effect on the kinematic controller,
@@ -1150,6 +1158,18 @@ export function createGameScene(
     structureSlots.push({ structure, slot: createUpgradableObject(scene, primitive) });
   }
 
+  // Structure-aware chase camera (issue #66): a single reused Raycaster
+  // (never reallocated per frame) that setTruckTransform below casts from
+  // the truck toward the chase camera's ideal position, against exactly the
+  // current structure meshes (`structureSlots[i].slot.current` -- the
+  // primitive placeholder until/unless that structure's real model has
+  // upgraded in place, per the same UpgradableObject pattern every other
+  // scene object uses). Re-collecting this array once per setTruckTransform
+  // call (not cached) is deliberately cheap-and-simple: at most a handful of
+  // structures exist per map (ADR 0012 §2), and `.current` can change
+  // out from under a cached reference the moment a structure upgrades.
+  const structureRaycaster = new THREE.Raycaster();
+
   // Fences (issue #54, ADR 0019 §5/component design): same create-once-at-
   // setup, primitive-then-upgrade shape as structures above, but tracked in
   // a `Map` keyed by fence id (not an array) since `collapseFence` below
@@ -1367,8 +1387,36 @@ export function createGameScene(
     // the same relative framing regardless of terrain height -- and also
     // very slightly improves ordinary-hill framing (a gentle ~1-unit bob
     // instead of holding dead-flat), per the ADR's own note.
-    camera.position.set(cameraPos.x, CAMERA_CHASE_HEIGHT + truckRig.group.position.y, cameraPos.z);
-    camera.lookAt(truckRig.group.position.x, truckRig.group.position.y + 0.5, truckRig.group.position.z);
+    const cameraTarget = new THREE.Vector3(
+      truckRig.group.position.x,
+      truckRig.group.position.y + 0.5,
+      truckRig.group.position.z,
+    );
+    const idealCameraPos = new THREE.Vector3(cameraPos.x, CAMERA_CHASE_HEIGHT + truckRig.group.position.y, cameraPos.z);
+
+    // Structure-aware clamp (issue #66): raycast from the truck toward the
+    // ideal camera position; if a structure mesh sits in between, pull the
+    // camera in to just short of that hit (CAMERA_STRUCTURE_MARGIN) instead
+    // of the ideal distance, so the camera never renders from inside/behind
+    // a wall or roof it just detected. No hit (the overwhelmingly common
+    // case) -> pixel-identical to the pre-#66 behavior.
+    const toIdeal = idealCameraPos.clone().sub(cameraTarget);
+    const idealDistance = toIdeal.length();
+    let finalCameraPos = idealCameraPos;
+    if (idealDistance > 1e-4) {
+      const direction = toIdeal.multiplyScalar(1 / idealDistance);
+      structureRaycaster.set(cameraTarget, direction);
+      structureRaycaster.far = idealDistance;
+      const structureMeshes = structureSlots.map(({ slot }) => slot.current);
+      const hits = structureRaycaster.intersectObjects(structureMeshes, true);
+      if (hits.length > 0) {
+        const clampedDistance = Math.max(0, hits[0].distance - CAMERA_STRUCTURE_MARGIN);
+        finalCameraPos = cameraTarget.clone().addScaledVector(direction, Math.min(idealDistance, clampedDistance));
+      }
+    }
+
+    camera.position.copy(finalCameraPos);
+    camera.lookAt(cameraTarget);
   }
 
   /**
