@@ -154,8 +154,6 @@ export function createBuilderScreen(
   // listener is needed (unlike scene.ts's full-viewport renderer).
   const previewScene = new THREE.Scene();
   const previewCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 20);
-  previewCamera.position.set(2.4, 1.8, 3.2);
-  previewCamera.lookAt(0, 0.5, 0);
   const previewRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   previewRenderer.setSize(PREVIEW_SIZE_PX, PREVIEW_SIZE_PX);
   previewHost.appendChild(previewRenderer.domElement);
@@ -163,8 +161,38 @@ export function createBuilderScreen(
   previewScene.add(new THREE.DirectionalLight(0xffffff, 1.3).translateX(3).translateY(4).translateZ(2));
   previewScene.add(new THREE.AmbientLight(0x404040, 1.8));
 
+  // Fixed 3/4 viewing *direction* the preview camera always looks from
+  // (issue #27's original framing angle) -- only the *distance* along this
+  // direction varies per rig, via frameCameraToRig below.
+  const PREVIEW_CAMERA_DIRECTION = new THREE.Vector3(2.4, 1.8, 3.2).normalize();
+  // Extra breathing room beyond the tightest bounding sphere fit, so the
+  // truck doesn't touch the preview panel's edges.
+  const PREVIEW_FIT_MARGIN = 1.35;
+
+  /**
+   * Fit-to-bounds preview camera framing (issue #67, 2026-07-12: Tier 1/2
+   * bodies visibly cropped after #62's ~35% truck size-up -- the preview
+   * camera's distance was a fixed constant tuned for the old, smaller
+   * trucks, and never revisited when buildTruckRig's own output grew).
+   * Computes `group`'s current world-space bounding sphere and places the
+   * camera back along the fixed `PREVIEW_CAMERA_DIRECTION` far enough that
+   * the whole sphere fits within the camera's vertical FOV (with
+   * `PREVIEW_FIT_MARGIN` headroom) -- so all 3 body tiers frame cleanly
+   * without hand-tuning a distance constant per tier, and any future body
+   * size change keeps framing correctly with zero call-site edits.
+   */
+  function frameCameraToRig(camera: THREE.PerspectiveCamera, group: THREE.Group): void {
+    const box = new THREE.Box3().setFromObject(group);
+    const sphere = box.getBoundingSphere(new THREE.Sphere());
+    const verticalFovRadians = THREE.MathUtils.degToRad(camera.fov);
+    const distance = (sphere.radius * PREVIEW_FIT_MARGIN) / Math.sin(verticalFovRadians / 2);
+    camera.position.copy(sphere.center).addScaledVector(PREVIEW_CAMERA_DIRECTION, distance);
+    camera.lookAt(sphere.center);
+  }
+
   let previewRig: TruckRigResult = buildTruckRig(store.build, store.cosmetics, assetRegistry);
   previewScene.add(previewRig.group);
+  frameCameraToRig(previewCamera, previewRig.group);
 
   // Last-seen build/cosmetics the preview rig was actually built from (issue
   // #34 perf fix): render() is invoked from every keyboard nav event
@@ -192,6 +220,7 @@ export function createBuilderScreen(
     previewRig.dispose();
     previewRig = rebuilt;
     previewScene.add(previewRig.group);
+    frameCameraToRig(previewCamera, previewRig.group);
     lastBuild = { ...store.build };
     lastCosmetics = { ...store.cosmetics };
   }
