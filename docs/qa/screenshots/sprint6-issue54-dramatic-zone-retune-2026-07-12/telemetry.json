@@ -1,0 +1,12 @@
+{
+  "afterForward": {
+    "position": {
+      "x": 0,
+      "z": 7.963760793209076
+    },
+    "heading": 0
+  },
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ]
+}

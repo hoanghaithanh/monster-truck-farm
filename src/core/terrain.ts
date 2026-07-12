@@ -61,8 +61,8 @@ export const STUB_OBSTACLES: ObstacleInstance[] = [
   { id: 'derelict-car-1', kind: 'derelictCar', sizeClass: 'large', position: { x: 0, z: -8 }, radius: 1.8 },
 ];
 
-/** Windmill/barn/farmhouse (issue #46) plus the reachable mountain landmark (issue #47 redesign, ADR 0012 addendum). River stays non-`StructureInstance` (ADR 0012 §3, unaffected by the mountain redesign) -- it's pure procedural geometry with no collider/keep-out, so it never belongs in this union. */
-export type StructureKind = 'windmill' | 'barn' | 'farmhouse' | 'mountain';
+/** Windmill/barn/farmhouse (issue #46) plus the reachable mountain landmark (issue #47 redesign, ADR 0012 addendum). Widened issue #54/ADR 0019 §4 to add 'silo'/'chickenCoop' -- ordinary collidable StructureInstances, no new pattern, just two more entries flowing through the exact same pipeline. River stays non-`StructureInstance` (ADR 0012 §3, unaffected) -- it's pure procedural geometry with no collider/keep-out, so it never belongs in this union. */
+export type StructureKind = 'windmill' | 'barn' | 'farmhouse' | 'mountain' | 'silo' | 'chickenCoop';
 
 /** A placed structure (ADR 0012 §1) -- entirely separate from `ObstacleInstance`; never enters `partitionObstacles`/`clearance.ts`. */
 export interface StructureInstance {
@@ -75,45 +75,115 @@ export interface StructureInstance {
   collidable: boolean;
 }
 
-// Placement (developer's-call per the requirements doc's "Open questions" #1
-// -- non-blocking): spread across the 40x40 field, each comfortably clear of
-// the truck's origin start, the three STUB_OBSTACLES, and each other, so a
-// child driving around actually passes near all four rather than finding
-// them clustered.
-//   - windmill (12, 12): far corner, tall landmark visible from a distance.
-//   - barn (-12, -10): opposite quadrant from the windmill, clear of the
-//     derelict car at (0, -8) and the rock at (-6, 4).
-//   - farmhouse (10, -12): third quadrant, clear of the derelict car and the
-//     bush at (6, 0); paired conceptually with the barn as a little
-//     farmstead corner without the two overlapping footprints.
-//   - mountain (-14, 5): fourth quadrant (west side), reachable/collidable
-//     landmark (issue #47 redesign, ADR 0012 addendum 2026-07-10, AC3a).
-//     footprintRadius 4.71 is not an arbitrary "large structure" number --
-//     it's back-computed from the target rendered *height* (~16.3 units,
-//     3x the barn's own measured rendered height) through
-//     `buildStructureDisplayModel`'s existing width-driven scaling (see
-//     render/scene.ts and the ADR addendum for the full derivation):
-//     mountain-a.glb's raw bounding box is (1.079, 1.911, 1.103) on (x,y,z),
-//     so scaleFactor = 16.3 / 1.911 ~= 8.531, targetWidth = scaleFactor *
-//     max(1.079, 1.103) ~= 9.41, footprintRadius = targetWidth / 2 ~= 4.71.
-//     The ADR's suggested starting coordinate (-16, -2) doesn't clear
-//     TERRAIN_BOUNDS once this footprint is that large (-16 - 4.71 < -20),
-//     so this was adjusted to (-14, 5) -- still open west side, clear of
-//     every obstacle/structure/the river/the truck start with comfortable
-//     margin (checked below, enforced by terrain.test.ts):
-//       barn (-12,-10,r3) -> dist ~15.1, needs >=7.71
-//       rock (-6,4,r1) -> dist ~8.06, needs >=5.71
-//       bush (6,0,r0.6) -> dist ~20.6, needs >=5.31
-//       derelict car (0,-8,r1.8) -> dist ~19.1, needs >=6.51
-//       windmill/farmhouse (east side) -> dist >25, far clear
-//       river (z 15-17 strip) -> mountain's z-range tops out at 9.71, far south of it
-//       truck start (0,6) -> dist ~14.0, needs >=8.71 (footprint + 4-unit clearance)
-//       TERRAIN_BOUNDS (-20..20 both axes) -> x:[-18.71,-9.29], z:[0.29,9.71], both inside with margin
+// Placement, issue #46/#47 era (superseded 2026-07-12, issue #54/ADR 0019
+// §6, itself superseded the same day by the ADR's "Amendment (2026-07-12)"
+// §A1 reference-art redesign -- see below): the four structures used to be
+// spread across the small 40x40-era field just to keep clear of each other
+// and the truck start, not to read as a real farmstead. §6's first re-layout
+// grouped barn/farmhouse/silo/chickenCoop into one farmyard cluster and sent
+// windmill out to a distant standalone landmark spot. The human then drove
+// that live, shared reference concept art, and asked for a reversal: the
+// chicken coop moves OUT of the farmyard into its own standalone fenced pen,
+// and the windmill moves IN to join barn/farmhouse/silo instead (ADR 0019
+// §A1). Coordinates below implement that amendment, not the superseded §6
+// arrangement.
+//
+// Re-layout (ADR 0019 §A1 "zones, not coordinates" -- exact coordinates are
+// this developer's screenshot-iterated call, not specified by the
+// requirements doc or the ADR):
+//   - Farmyard cluster (south-east quadrant, tightened): barn/farmhouse/
+//     silo/windmill grouped within a ~20-unit span around roughly (22,-24),
+//     far enough from TRUCK_START (0,6) that a child drives *toward* it
+//     across the large map rather than starting on top of it. Windmill
+//     takes a farmyard corner seat rather than its former distant NW spot.
+//   - Chicken-coop pen (its own quadrant, north-east): the coop leaves the
+//     farmyard and becomes a small, standalone fenced pen -- see the
+//     STUB_FENCES block below, which now encloses this pen instead of the
+//     farmyard.
+//   - Mountain stays a distant landmark, unaffected by this amendment (far
+//     south-west corner, same reachable/collidable footprintRadius as
+//     before -- its issue #47 derivation doesn't change).
+//
+// footprintRadius for the two new kinds (silo/chickenCoop) is derived the
+// same width-driven way the mountain's was (ADR 0012 addendum's method,
+// reused verbatim by ADR 0019 §6) -- unaffected by the §A1 amendment, only
+// coordinates moved, not the derivation:
+//   - silo.glb raw bbox: (-1.750,-0.049,-1.665) to (1.917,9.019,1.845) ->
+//     size (3.667, 9.068, 3.510), horizontalExtent = 3.667. Target height 8
+//     (a tall landmark within the farmyard, shorter than the windmill/
+//     mountain landmarks but clearly taller than the barn): scaleFactor =
+//     8 / 9.068 ~= 0.8823, targetWidth = 0.8823 * 3.667 ~= 3.236,
+//     footprintRadius = 1.618 ~= 1.62.
+//   - chicken-coop.glb raw bbox: (-1.203,-0.003,-0.948) to
+//     (1.205,1.848,1.206) -> size (2.408, 1.851, 2.154), horizontalExtent =
+//     2.408. Target height 1.6 (a small outbuilding, shorter than every
+//     other structure): scaleFactor = 1.6 / 1.851 ~= 0.8644, targetWidth =
+//     0.8644 * 2.408 ~= 2.082, footprintRadius = 1.041 ~= 1.04.
+//
+// Clearance rules (ADR 0019 §6/§A1, checked below, enforced by
+// terrain.test.ts): every structure/fence >= (footprint +
+// TRUCK_CONTACT_RADIUS + margin) from TRUCK_START, clear of the three
+// STUB_OBSTACLES/each other/the river, and strictly inside TERRAIN_BOUNDS.
+// Verified by hand for this arrangement and pinned by the updated test suite.
 export const STUB_STRUCTURES: StructureInstance[] = [
-  { id: 'windmill-1', kind: 'windmill', position: { x: 12, z: 12 }, footprintRadius: 2, collidable: true },
-  { id: 'barn-1', kind: 'barn', position: { x: -12, z: -10 }, footprintRadius: 3, collidable: true },
-  { id: 'farmhouse-1', kind: 'farmhouse', position: { x: 10, z: -12 }, footprintRadius: 3, collidable: true },
-  { id: 'mountain-1', kind: 'mountain', position: { x: -14, z: 5 }, footprintRadius: 4.71, collidable: true },
+  // Farmyard cluster (south-east quadrant, ~20-unit span; windmill now a
+  // cluster member per ADR 0019 §A1, no longer a distant landmark).
+  { id: 'barn-1', kind: 'barn', position: { x: 14, z: -26 }, footprintRadius: 3, collidable: true },
+  { id: 'farmhouse-1', kind: 'farmhouse', position: { x: 30, z: -26 }, footprintRadius: 3, collidable: true },
+  { id: 'silo-1', kind: 'silo', position: { x: 22, z: -30 }, footprintRadius: 1.62, collidable: true },
+  { id: 'windmill-1', kind: 'windmill', position: { x: 22, z: -20 }, footprintRadius: 2, collidable: true },
+  // Chicken coop: relocated out of the farmyard into its own standalone
+  // fenced pen (ADR 0019 §A1), north-east quadrant.
+  { id: 'chicken-coop-1', kind: 'chickenCoop', position: { x: 26, z: 24 }, footprintRadius: 1.04, collidable: true },
+  // Distant landmark (AC6), unaffected by the §A1 amendment.
+  { id: 'mountain-1', kind: 'mountain', position: { x: -35, z: -25 }, footprintRadius: 4.71, collidable: true },
+];
+
+// Fences (issue #54, ADR 0019 §1/§6): a new `FenceInstance` type, deliberately
+// NOT an overload of `StructureInstance` (see the ADR's §1 rationale --
+// fences carry per-session mutable collapsed state that a `FenceSystem`
+// owns at runtime, never the authored data below). `footprintRadius` here
+// is both the solid-collider radius (physics/world.ts's
+// `createFenceColliders`) and the spawn keep-out radius (AC9,
+// `fenceKeepouts` in core/spawn/spawn-position.ts) -- same dual role
+// `StructureInstance.footprintRadius` already plays.
+export interface FenceInstance {
+  id: string;
+  position: Vec2;
+  /** Yaw (radians) of the segment along the boundary line (ADR 0019 §5) -- a straight run uses 0 (long axis along world X, matching fence.glb's raw local-X-long orientation, see CREDITS.md), a perpendicular closing segment uses Math.PI / 2. Purely a render concern -- the collider is a rotation-invariant circle. */
+  rotationY: number;
+  footprintRadius: number;
+}
+
+// fence.glb's raw bounding box (CREDITS.md, issue #54) is (-2.945,-0.009,
+// -0.083) to (2.945,1.164,0.083) -- a long, thin single boundary segment
+// (~5.89 wide x 1.164 tall x 0.166 deep), not a general-purpose prop.
+// footprintRadius = 2.945 is the raw half-width itself (scaleFactor ~= 1,
+// no correction needed -- the raw model is already sized sensibly for one
+// segment of a farmyard boundary at this project's world scale).
+//
+// Layout (superseded 2026-07-12, ADR 0019 §A1): originally an L-shaped run
+// closing the farmyard cluster's open north side. The reference-art redesign
+// relocates the coop out of the farmyard into its own standalone pen (see
+// STUB_STRUCTURES above), so this fence run moves with it -- same exact
+// mechanics (breakable, per-session FenceSystem, createFenceColliders,
+// authored rotationY per ADR 0019 §5), only the coordinates and what they
+// enclose change. Four segments now form a north/west/east three-sided pen
+// around the relocated chicken coop (26,24): two contiguous east-west
+// segments close the north side (x=23/29, z=29), one north-south segment
+// closes the west side (x=20,z=24), one closes the east side (x=32,z=24) --
+// the south side is deliberately left open, facing the reserved-field zone
+// (ADR 0019 §A1) below the pen, so a child smashing through reads as
+// "breaking into the coop pen from the field side." Corner segments overlap
+// slightly where north meets west/east (same "contiguous/overlapping corner
+// join" look the original L-shaped layout already used) -- clearance from
+// the coop itself and from every other structure/obstacle/TRUCK_START is
+// checked by hand below and pinned by terrain.test.ts.
+export const STUB_FENCES: FenceInstance[] = [
+  { id: 'fence-1', position: { x: 23, z: 29 }, rotationY: 0, footprintRadius: 2.945 },
+  { id: 'fence-2', position: { x: 29, z: 29 }, rotationY: 0, footprintRadius: 2.945 },
+  { id: 'fence-3', position: { x: 20, z: 24 }, rotationY: Math.PI / 2, footprintRadius: 2.945 },
+  { id: 'fence-4', position: { x: 32, z: 24 }, rotationY: Math.PI / 2, footprintRadius: 2.945 },
 ];
 
 // River (issue #47, ADR 0012 §3): a procedural flat ribbon following this
@@ -122,13 +192,103 @@ export const STUB_STRUCTURES: StructureInstance[] = [
 // §Decision-4, so core/terrain-height.ts's flatten mask can read the same
 // route data render/scene.ts renders from -- one source of truth, no risk of
 // the two drifting apart. Runs roughly along the terrain's north edge
-// (z ~15-17), clear of the windmill/barn/farmhouse (issue #46, at (12,12)/
-// (-12,-10)/(10,-12)) and the bush/rock/derelict-car obstacles (all south of
-// z=4) -- see the issue #47 hand-off notes for the placement rationale.
+// (z ~15-17), clear of the bush/rock/derelict-car obstacles (all south of
+// z=4) and, after the issue #54 re-layout, clear of every structure/fence
+// too -- the farmyard cluster and its fence boundary sit well south (z -10
+// to -30) and the windmill/mountain landmarks sit far north-west/south-west
+// of the river's x/z extent (see the STUB_STRUCTURES placement comment
+// above for the current coordinates).
 export const RIVER_WIDTH = 3;
 export const RIVER_ROUTE: Vec2[] = [
   { x: -18, z: 16 },
   { x: -8, z: 15 },
   { x: 2, z: 16.5 },
   { x: 18, z: 15.5 },
+];
+
+// Dramatic terrain zones (issue #54 amendment, ADR 0019 §A2): a small,
+// authored set of gates consumed by core/terrain-height.ts's
+// `dramaticZoneFactor` -- 1 (full drama) inside `innerRadius`, easing to 0
+// (pure gentle field) by `outerRadius`, reusing the same `ringFactor`
+// smoothstep the flatten mask already uses. Deliberately placed in an
+// otherwise-empty peripheral pocket of the map, not anywhere near the
+// farmyard/coop/fields/truck-start content -- a global steepness bump would
+// turn every drivable approach into a rollercoaster, which is exactly what
+// this zone-gated approach avoids (ADR 0019 §A2's "why zone-based" call).
+// Single starting zone far west, north of the mountain landmark, without
+// the zone's own footprint reaching any authored content (checked
+// by hand: zone center (-42,10) to the nearest content -- the mountain at
+// (-35,-25) -- is ~35.7 units, comfortably outside `outerRadius` + the
+// mountain's own footprint).
+export interface DramaticZone {
+  center: Vec2;
+  innerRadius: number;
+  outerRadius: number;
+}
+export const DRAMATIC_ZONES: DramaticZone[] = [{ center: { x: -42, z: 10 }, innerRadius: 7, outerRadius: 22 }];
+
+// Decorative trees (issue #54 amendment, ADR 0019 §A4): sparse (~25-45),
+// non-`InstancedMesh` scenery props authored as plain data, following the
+// exact same "load-once, clone-many" shape `farm-layout-and-fields.md`
+// already established for field stalk-clusters. NOT a `StructureInstance`
+// (trees are not flattened -- a forested hillside/mesa is the point) but,
+// per the human's collidability override of the ADR's non-collidable
+// default, they ARE solid and unbreakable -- see `TREE_COLLIDER_RADIUS`
+// below and physics/world.ts's `createTreeColliders`. `scale` (default 1)
+// gives a little size variety between clumped/single trees without a second
+// authored field; `rotationY` (default 0) likewise varies canopy silhouette
+// cheaply. Placement is deliberately clear of the truck-start pocket, the
+// farmyard interior, the coop pen/fence run, the river corridor, and the
+// mountain landmark -- loose clumps in the map's otherwise-empty stretches
+// (the dramatic west zone above reads as "forested canyon rim"; the rest are
+// scattered across the open plains) plus a handful of loners. Screenshot-
+// iterated starting placement, not a locked layout (ADR 0019 §A6.4).
+export interface TreeInstance {
+  id: string;
+  position: Vec2;
+  rotationY?: number;
+  scale?: number;
+}
+
+/** Fixed solid-collider/spawn-keep-out radius for every tree (issue #54 amendment, ADR 0019 §A4 human override -- "solid but not breakable"): sized to the trunk, not the full canopy, so the truck bumps a believable obstacle rather than an oversized invisible wall around each tree's visual silhouette. */
+export const TREE_COLLIDER_RADIUS = 0.6;
+
+export const DECORATIVE_TREES: TreeInstance[] = [
+  // West canyon-rim clump (dramatic zone, forested mesa look) -- kept clear
+  // of the river's west end and the mountain's own footprint.
+  { id: 'tree-1', position: { x: -44, z: 2 }, rotationY: 0.2, scale: 1.1 },
+  { id: 'tree-2', position: { x: -40, z: -2 }, rotationY: 1.4, scale: 0.9 },
+  { id: 'tree-3', position: { x: -47, z: -4 }, rotationY: 2.6, scale: 1.0 },
+  { id: 'tree-4', position: { x: -36, z: 4 }, rotationY: 0.8, scale: 1.2 },
+  { id: 'tree-5', position: { x: -42, z: 18 }, rotationY: 3.0, scale: 0.95 },
+  { id: 'tree-6', position: { x: -48, z: 14 }, rotationY: 1.9, scale: 1.05 },
+  { id: 'tree-7', position: { x: -33, z: -8 }, rotationY: 0.5, scale: 1.15 },
+  { id: 'tree-8', position: { x: -46, z: -14 }, rotationY: 2.2, scale: 0.85 },
+  { id: 'tree-9', position: { x: -38, z: 22 }, rotationY: 1.1, scale: 1.0 },
+  { id: 'tree-10', position: { x: -30, z: 6 }, rotationY: 2.9, scale: 0.9 },
+  { id: 'tree-11', position: { x: -44, z: -20 }, rotationY: 0.3, scale: 1.1 },
+  { id: 'tree-12', position: { x: -49, z: 22 }, rotationY: 1.6, scale: 1.0 },
+
+  // North bank clump, north of the river, south of the top boundary.
+  { id: 'tree-13', position: { x: -30, z: 26 }, rotationY: 0.4, scale: 1.0 },
+  { id: 'tree-14', position: { x: -22, z: 30 }, rotationY: 2.1, scale: 0.95 },
+  { id: 'tree-15', position: { x: -10, z: 28 }, rotationY: 1.3, scale: 1.1 },
+  { id: 'tree-16', position: { x: -2, z: 32 }, rotationY: 2.7, scale: 0.9 },
+  { id: 'tree-17', position: { x: 8, z: 27 }, rotationY: 0.9, scale: 1.05 },
+  { id: 'tree-18', position: { x: -16, z: 24 }, rotationY: 1.8, scale: 1.0 },
+  { id: 'tree-19', position: { x: -6, z: 22 }, rotationY: 0.6, scale: 0.9 },
+
+  // South-central and east scattered singles, clear of the farmyard cluster
+  // (x14-34, z-32..-18), the derelict car obstacle, and the coop pen.
+  { id: 'tree-20', position: { x: -14, z: -22 }, rotationY: 1.2, scale: 1.0 },
+  { id: 'tree-21', position: { x: -20, z: -32 }, rotationY: 2.4, scale: 0.95 },
+  { id: 'tree-22', position: { x: 8, z: -34 }, rotationY: 0.7, scale: 1.1 },
+  { id: 'tree-23', position: { x: -8, z: -40 }, rotationY: 1.7, scale: 0.9 },
+  { id: 'tree-24', position: { x: 2, z: -20 }, rotationY: 2.9, scale: 1.0 },
+  { id: 'tree-25', position: { x: 40, z: -4 }, rotationY: 0.5, scale: 1.05 },
+  { id: 'tree-26', position: { x: 44, z: 6 }, rotationY: 1.5, scale: 0.9 },
+  { id: 'tree-27', position: { x: 38, z: 14 }, rotationY: 2.2, scale: 1.1 },
+  { id: 'tree-28', position: { x: 44, z: -14 }, rotationY: 0.9, scale: 1.0 },
+  { id: 'tree-29', position: { x: 12, z: 40 }, rotationY: 1.9, scale: 0.95 },
+  { id: 'tree-30', position: { x: -34, z: 40 }, rotationY: 0.3, scale: 1.0 },
 ];

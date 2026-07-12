@@ -1,5 +1,5 @@
 import { createGameScene } from './render/scene';
-import { initPhysics, TruckController, createObstacleColliders, createStructureColliders, createGroundCollider } from './physics/world';
+import { initPhysics, TruckController, createObstacleColliders, createStructureColliders, createFenceColliders, createTreeColliders, createGroundCollider } from './physics/world';
 import { GameStore } from './core/game-state';
 import { KeyboardInput } from './input/keyboard-input';
 import { createHud } from './ui/hud';
@@ -13,8 +13,9 @@ import { AnimalSystem } from './systems/animal-system';
 import { GasSystem } from './systems/gas-system';
 import { FarmerSystem, type FarmerRunState } from './systems/farmer-system';
 import { FuelSystem } from './systems/fuel-system';
+import { FenceSystem } from './systems/fence-system';
 import { partitionObstacles } from './core/clearance';
-import { STUB_OBSTACLES, STUB_STRUCTURES, TERRAIN_BOUNDS, TRUCK_START } from './core/terrain';
+import { DECORATIVE_TREES, STUB_OBSTACLES, STUB_STRUCTURES, STUB_FENCES, TERRAIN_BOUNDS, TRUCK_START } from './core/terrain';
 import type { TruckBuild, TruckCosmetics, TruckSpec } from './core/types';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { AssetRegistry } from './render/assets/asset-registry';
@@ -126,6 +127,20 @@ function startDriving(
   // than the obstacle path above rather than more complex.
   const structureBodies = createStructureColliders(world, STUB_STRUCTURES);
 
+  // Fences (issue #54, ADR 0019 §3): a keyed Map, not a bulk array like the
+  // two colliders above -- unlike windmill/barn/farmhouse/mountain/silo/
+  // coop, a fence's collider must be individually removable mid-session the
+  // moment its segment collapses (AC8), which `fenceSystem.update`'s
+  // `onCollapse` callback in the frame loop below does.
+  const fenceBodies = createFenceColliders(world, STUB_FENCES);
+
+  // Decorative trees (issue #54 amendment, ADR 0019 §A4, human override):
+  // solid and unconditional like structures above, but a bulk array like
+  // `obstacleBodies`/`structureBodies` rather than a keyed Map -- trees
+  // never collapse/get individually removed mid-session (unbreakable), so
+  // there's no per-id removal need the way fences have.
+  const treeBodies = createTreeColliders(world, DECORATIVE_TREES);
+
   // Obstacle-climb wheel footprint (ADR 0014, issue #42): body tier is fixed
   // for a run, so this is computed once here rather than every frame --
   // unwraps truck-sockets.ts's THREE.Vector3-based per-tier wheel table into
@@ -143,7 +158,7 @@ function startDriving(
   // confirmed, assembled via buildTruckRig -- the same assembly path the
   // builder's live preview uses, so what's driven here can never mismatch
   // what was shown there (AC4, cosmetics AC8).
-  const scene = createGameScene(app, TERRAIN_BOUNDS, STUB_OBSTACLES, STUB_STRUCTURES, build, cosmetics, assetRegistry);
+  const scene = createGameScene(app, TERRAIN_BOUNDS, STUB_OBSTACLES, STUB_STRUCTURES, STUB_FENCES, build, cosmetics, assetRegistry);
   scene.setTruckTransform(truckStart, 0);
 
   const input = new KeyboardInput();
@@ -152,6 +167,11 @@ function startDriving(
   const gasSystem = new GasSystem(store, spec.gasCapacity, spec.topSpeed, initialGas);
   const farmerSystem = new FarmerSystem(store, Math.random, farmerSeed);
   const fuelSystem = new FuelSystem(Math.random);
+  // Fences (issue #54, ADR 0019 §1): constructed fresh every session, same
+  // per-session-instance precedent as FarmerSystem/FuelSystem above -- this
+  // is what makes "fences reset to standing at the start of each new
+  // session" (AC8) hold for free, with zero explicit reset code.
+  const fenceSystem = new FenceSystem(STUB_FENCES);
 
   // Render-continuity gap (ADR 0009 §5): a seeded non-ABSENT farmer resumes
   // already PURSUING/TIRED/LEAVING, so the ABSENT->PURSUING onAppear callback
@@ -257,6 +277,25 @@ function startDriving(
       },
     });
 
+    // Fences (issue #54, ADR 0019 §3/§8, AC8): a one-way standing->collapsed
+    // transition on truck contact -- no coins, no hit, no fail state. The
+    // collider removal below runs strictly between two `world.step()` calls
+    // (this frame's single `truckController.step()` already ran inside
+    // `drivingSystem.update()` above, and the next one won't run until next
+    // frame), the same timing-safety discipline `createFenceColliders`'s own
+    // doc comment requires (ADR 0019 §3 "Timing safety") -- never a mid-step
+    // physics mutation.
+    fenceSystem.update(dt, position, {
+      onCollapse: (id) => {
+        const body = fenceBodies.get(id);
+        if (body) {
+          world.removeRigidBody(body);
+          fenceBodies.delete(id);
+        }
+        scene.collapseFence(id);
+      },
+    });
+
     scene.tickEffects(dt);
     scene.render();
     requestAnimationFrame(frame);
@@ -275,6 +314,15 @@ function startDriving(
       truckController.dispose();
       for (const body of obstacleBodies) world.removeRigidBody(body);
       for (const body of structureBodies) world.removeRigidBody(body);
+      // Only whatever's left un-collapsed at session end (issue #54,
+      // ADR 0019 §3) -- collapsed segments already had their bodies removed
+      // by the onCollapse handler above, same leak-avoidance discipline as
+      // obstacleBodies/structureBodies.
+      for (const body of fenceBodies.values()) world.removeRigidBody(body);
+      // Trees (issue #54 amendment, ADR 0019 §A4): unbreakable, so every
+      // body created above is still live at session end -- same
+      // leak-avoidance discipline as obstacleBodies/structureBodies.
+      for (const body of treeBodies) world.removeRigidBody(body);
     },
   };
 }

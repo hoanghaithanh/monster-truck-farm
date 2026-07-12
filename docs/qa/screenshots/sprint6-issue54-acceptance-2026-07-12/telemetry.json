@@ -1,0 +1,504 @@
+{
+  "initial": {
+    "position": {
+      "x": 0,
+      "z": 6
+    },
+    "heading": 0,
+    "coins": 0,
+    "gas": 20,
+    "hitsRemaining": 3,
+    "screen": "DRIVING",
+    "fenceCollapsed": [
+      {
+        "id": "fence-1",
+        "collapsed": false
+      },
+      {
+        "id": "fence-2",
+        "collapsed": false
+      },
+      {
+        "id": "fence-3",
+        "collapsed": false
+      },
+      {
+        "id": "fence-4",
+        "collapsed": false
+      }
+    ]
+  },
+  "farmyardApproach": {
+    "position": {
+      "x": 14.879381828010082,
+      "z": -13.694780517369509
+    },
+    "heading": 2.6428600000000007,
+    "coins": 0,
+    "gas": 15.165799999999757,
+    "hitsRemaining": 3,
+    "screen": "DRIVING",
+    "fenceCollapsed": [
+      {
+        "id": "fence-1",
+        "collapsed": false
+      },
+      {
+        "id": "fence-2",
+        "collapsed": false
+      },
+      {
+        "id": "fence-3",
+        "collapsed": false
+      },
+      {
+        "id": "fence-4",
+        "collapsed": false
+      }
+    ]
+  },
+  "farmyardClose": {
+    "position": {
+      "x": 18.83724144846201,
+      "z": -20.681045904755592
+    },
+    "heading": 2.4604800000000138,
+    "coins": 0,
+    "gas": 13.776799999999755,
+    "hitsRemaining": 3,
+    "screen": "DRIVING",
+    "fenceCollapsed": [
+      {
+        "id": "fence-1",
+        "collapsed": false
+      },
+      {
+        "id": "fence-2",
+        "collapsed": false
+      },
+      {
+        "id": "fence-3",
+        "collapsed": false
+      },
+      {
+        "id": "fence-4",
+        "collapsed": false
+      }
+    ]
+  },
+  "coopPenApproach": {
+    "position": {
+      "x": 22.611243616323918,
+      "z": 18.529368612915277
+    },
+    "heading": -0.059620000000026784,
+    "coins": 0,
+    "gas": 5.101799999999725,
+    "hitsRemaining": 3,
+    "screen": "DRIVING",
+    "fenceCollapsed": [
+      {
+        "id": "fence-1",
+        "collapsed": false
+      },
+      {
+        "id": "fence-2",
+        "collapsed": false
+      },
+      {
+        "id": "fence-3",
+        "collapsed": false
+      },
+      {
+        "id": "fence-4",
+        "collapsed": false
+      }
+    ]
+  },
+  "fence1": {
+    "before": {
+      "position": {
+        "x": 22.611243616323918,
+        "z": 18.529368612915277
+      },
+      "heading": -0.059620000000026784,
+      "coins": 0,
+      "gas": 5.101799999999725,
+      "hitsRemaining": 3,
+      "screen": "DRIVING",
+      "fenceCollapsed": [
+        {
+          "id": "fence-1",
+          "collapsed": false
+        },
+        {
+          "id": "fence-2",
+          "collapsed": false
+        },
+        {
+          "id": "fence-3",
+          "collapsed": false
+        },
+        {
+          "id": "fence-4",
+          "collapsed": false
+        }
+      ]
+    },
+    "after": {
+      "position": {
+        "x": 23.04708390450105,
+        "z": 28.858582098037004
+      },
+      "heading": 0.10713999999997965,
+      "coins": 0,
+      "gas": 3.434899999999732,
+      "hitsRemaining": 3,
+      "screen": "DRIVING",
+      "fenceCollapsed": [
+        {
+          "id": "fence-1",
+          "collapsed": true
+        },
+        {
+          "id": "fence-2",
+          "collapsed": false
+        },
+        {
+          "id": "fence-3",
+          "collapsed": true
+        },
+        {
+          "id": "fence-4",
+          "collapsed": false
+        }
+      ]
+    }
+  },
+  "fence3": {
+    "before": {
+      "position": {
+        "x": 21.34134300079313,
+        "z": 27.851496978662908
+      },
+      "heading": -3.1781200000000194,
+      "coins": 0,
+      "gas": 0,
+      "hitsRemaining": 3,
+      "screen": "DRIVING",
+      "fenceCollapsed": [
+        {
+          "id": "fence-1",
+          "collapsed": true
+        },
+        {
+          "id": "fence-2",
+          "collapsed": false
+        },
+        {
+          "id": "fence-3",
+          "collapsed": true
+        },
+        {
+          "id": "fence-4",
+          "collapsed": false
+        }
+      ]
+    },
+    "after": {
+      "position": {
+        "x": 20.224995674565434,
+        "z": 24.74798552878201
+      },
+      "heading": -2.7808000000000233,
+      "coins": 0,
+      "gas": 0,
+      "hitsRemaining": 3,
+      "screen": "DRIVING",
+      "fenceCollapsed": [
+        {
+          "id": "fence-1",
+          "collapsed": true
+        },
+        {
+          "id": "fence-2",
+          "collapsed": false
+        },
+        {
+          "id": "fence-3",
+          "collapsed": true
+        },
+        {
+          "id": "fence-4",
+          "collapsed": false
+        }
+      ]
+    }
+  },
+  "approachDramatic": {
+    "position": {
+      "x": -22.646826315671206,
+      "z": 12.82973833149299
+    },
+    "heading": -2.014320000000004,
+    "coins": 0,
+    "gas": 0,
+    "hitsRemaining": 3,
+    "screen": "DRIVING",
+    "fenceCollapsed": [
+      {
+        "id": "fence-1",
+        "collapsed": true
+      },
+      {
+        "id": "fence-2",
+        "collapsed": false
+      },
+      {
+        "id": "fence-3",
+        "collapsed": true
+      },
+      {
+        "id": "fence-4",
+        "collapsed": false
+      }
+    ]
+  },
+  "cliffZone": {
+    "position": {
+      "x": -36.23878522031009,
+      "z": 10.619182753725909
+    },
+    "heading": -1.75339999999999,
+    "coins": 0,
+    "gas": 0,
+    "hitsRemaining": 3,
+    "screen": "DRIVING",
+    "fenceCollapsed": [
+      {
+        "id": "fence-1",
+        "collapsed": true
+      },
+      {
+        "id": "fence-2",
+        "collapsed": false
+      },
+      {
+        "id": "fence-3",
+        "collapsed": true
+      },
+      {
+        "id": "fence-4",
+        "collapsed": false
+      }
+    ]
+  },
+  "waterfall1": {
+    "position": {
+      "x": -40.49064583145082,
+      "z": 12.20365855237469
+    },
+    "heading": -1.1728200000000668,
+    "coins": 0,
+    "gas": 0,
+    "hitsRemaining": 3,
+    "screen": "DRIVING",
+    "fenceCollapsed": [
+      {
+        "id": "fence-1",
+        "collapsed": true
+      },
+      {
+        "id": "fence-2",
+        "collapsed": false
+      },
+      {
+        "id": "fence-3",
+        "collapsed": true
+      },
+      {
+        "id": "fence-4",
+        "collapsed": false
+      }
+    ]
+  },
+  "waterfall2": {
+    "position": {
+      "x": -40.77100514178164,
+      "z": 14.204734486527741
+    },
+    "heading": 0.06533999999993975,
+    "coins": 0,
+    "gas": 0,
+    "hitsRemaining": 3,
+    "screen": "DRIVING",
+    "fenceCollapsed": [
+      {
+        "id": "fence-1",
+        "collapsed": true
+      },
+      {
+        "id": "fence-2",
+        "collapsed": false
+      },
+      {
+        "id": "fence-3",
+        "collapsed": true
+      },
+      {
+        "id": "fence-4",
+        "collapsed": false
+      }
+    ]
+  },
+  "tree": {
+    "before": {
+      "position": {
+        "x": -39.47861687268596,
+        "z": 9.861447373405099
+      },
+      "heading": 3.350379999999901,
+      "coins": 0,
+      "gas": 0,
+      "hitsRemaining": 3,
+      "screen": "DRIVING",
+      "fenceCollapsed": [
+        {
+          "id": "fence-1",
+          "collapsed": true
+        },
+        {
+          "id": "fence-2",
+          "collapsed": false
+        },
+        {
+          "id": "fence-3",
+          "collapsed": true
+        },
+        {
+          "id": "fence-4",
+          "collapsed": false
+        }
+      ]
+    },
+    "afterTreeContact1": {
+      "position": {
+        "x": -37.10024329443695,
+        "z": 5.616133111820091
+      },
+      "heading": 2.4213199999998616,
+      "coins": 0,
+      "gas": 0,
+      "hitsRemaining": 3,
+      "screen": "DRIVING",
+      "fenceCollapsed": [
+        {
+          "id": "fence-1",
+          "collapsed": true
+        },
+        {
+          "id": "fence-2",
+          "collapsed": false
+        },
+        {
+          "id": "fence-3",
+          "collapsed": true
+        },
+        {
+          "id": "fence-4",
+          "collapsed": false
+        }
+      ]
+    },
+    "afterTreeContact2": {
+      "position": {
+        "x": -36.75961067317985,
+        "z": 5.801509776734747
+      },
+      "heading": 2.4213199999998616,
+      "coins": 0,
+      "gas": 0,
+      "hitsRemaining": 3,
+      "screen": "DRIVING",
+      "fenceCollapsed": [
+        {
+          "id": "fence-1",
+          "collapsed": true
+        },
+        {
+          "id": "fence-2",
+          "collapsed": false
+        },
+        {
+          "id": "fence-3",
+          "collapsed": true
+        },
+        {
+          "id": "fence-4",
+          "collapsed": false
+        }
+      ]
+    },
+    "afterTreeContact3": {
+      "position": {
+        "x": -35.84359767334536,
+        "z": 5.948850988119375
+      },
+      "heading": 2.4213199999998616,
+      "coins": 0,
+      "gas": 0,
+      "hitsRemaining": 3,
+      "screen": "DRIVING",
+      "fenceCollapsed": [
+        {
+          "id": "fence-1",
+          "collapsed": true
+        },
+        {
+          "id": "fence-2",
+          "collapsed": false
+        },
+        {
+          "id": "fence-3",
+          "collapsed": true
+        },
+        {
+          "id": "fence-4",
+          "collapsed": false
+        }
+      ]
+    }
+  },
+  "regressionEnd": {
+    "position": {
+      "x": -12.70451114862226,
+      "z": 6.03264809306711
+    },
+    "heading": 5.954299999999622,
+    "coins": 0,
+    "gas": 0,
+    "hitsRemaining": 3,
+    "screen": "DRIVING",
+    "fenceCollapsed": [
+      {
+        "id": "fence-1",
+        "collapsed": true
+      },
+      {
+        "id": "fence-2",
+        "collapsed": false
+      },
+      {
+        "id": "fence-3",
+        "collapsed": true
+      },
+      {
+        "id": "fence-4",
+        "collapsed": false
+      }
+    ]
+  },
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ]
+}

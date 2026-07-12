@@ -3,22 +3,30 @@
 // (boop) -> coin -> hud-sync). Owns the list of live animals; render/ only
 // ever reflects it via onSpawn/onRemove callbacks.
 import { updateSpawnTimer, initialSpawnTimerState, type SpawnTimerState } from '../core/spawn/spawn-timer';
-import { pickSpawnPosition, structureKeepouts, type Rng } from '../core/spawn/spawn-position';
+import { fenceKeepouts, pickSpawnPosition, structureKeepouts, treeKeepouts, type Rng } from '../core/spawn/spawn-position';
 import { spawnAnimal } from '../core/spawn/spawn-animal';
 import { pickSpecies } from '../core/spawn/pick-species';
 import { ANIMAL_SPECIES } from '../core/spawn/species';
 import { SPAWN_INTERVAL_SECONDS, MAX_CONCURRENT_ANIMALS, MIN_SPAWN_DISTANCE_FROM_TRUCK } from '../core/spawn/config';
 import { isBoopContact, resolveBoop } from '../core/boop';
 import { isScatterDone, startScatter, tickScatter, type ScatterState } from '../core/scatter';
-import { TERRAIN_BOUNDS, STUB_OBSTACLES, STUB_STRUCTURES } from '../core/terrain';
+import { DECORATIVE_TREES, TERRAIN_BOUNDS, STUB_OBSTACLES, STUB_STRUCTURES, STUB_FENCES } from '../core/terrain';
 import { TRUCK_CONTACT_RADIUS } from '../core/driving/config';
 import type { AnimalSpecies, AnimalState, Vec2 } from '../core/types';
 import type { GameStore } from '../core/game-state';
 
-// Spawn keep-out (issue #46, ADR 0012 §5, AC6): the existing obstacles plus
-// the collidable structures' footprints, computed once since both source
-// arrays are fixed stub data -- see structureKeepouts's own doc comment.
-const SPAWN_KEEPOUTS = [...STUB_OBSTACLES, ...structureKeepouts(STUB_STRUCTURES)];
+// Spawn keep-out (issue #46, ADR 0012 §5, AC6; extended issue #54/ADR 0019
+// §6 AC9; extended again by the issue #54 amendment, ADR 0019 §A4 -- solid/
+// unbreakable trees): the existing obstacles plus the collidable structures',
+// standing fences', and decorative trees' footprints, computed once since
+// all four source arrays are fixed stub data -- see structureKeepouts's/
+// fenceKeepouts's/treeKeepouts's own doc comments.
+const SPAWN_KEEPOUTS = [
+  ...STUB_OBSTACLES,
+  ...structureKeepouts(STUB_STRUCTURES),
+  ...fenceKeepouts(STUB_FENCES),
+  ...treeKeepouts(DECORATIVE_TREES),
+];
 
 export interface AnimalSystemCallbacks {
   /** `species` is fixed at spawn (issue #48, ADR 0016 §1) -- render/ needs it once here to pick the right asset key/builder; `onScatter`/`onRemove` don't need it since scene.ts already remembers species per-slot (`AnimalRecord`). */

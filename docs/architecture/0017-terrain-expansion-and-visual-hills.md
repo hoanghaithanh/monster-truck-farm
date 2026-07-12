@@ -155,3 +155,19 @@ The strongest guarantee is structural (terrain never enters the sim), backed by 
 - **Q3 (visible edge treatment):** already resolved to keep the boundary invisible. This design keeps the soft clamp unchanged; optional distance fog softens the far edge without a hard wall. No clamp doc change needed.
 - **Q4 (spawn rate/density scaling for the bigger map):** *Product call — referred to human.* Technically, AC4 only requires spawns to *use* the full area (satisfied for free). At 6.25× area with today's tuning, encounters will feel sparser; recommend a small follow-up story to retune intervals/counts once the bigger map is playable and can be *felt*, not guessed.
 - **Q5 (hill count/size/height range):** *Mostly technical/tuning — recommended defaults, final look is a screenshot + taste call.* Recommend: peak amplitude ~1.0–1.5 units (≈1/10 of the mountain's ~16.3, satisfying AC6), wavelengths ~18–35 units (broad, gentle), 2–3 sine terms, in `DEFAULT_HILL_CONFIG` for one-line tuning. `maxRoll` stays 0 initially (lift + pitch already read as terrain and are the safest choice for AC3/AC8); raising it is a shared knob that also affects obstacle crossings and must be validated against both. Final amplitude/wavelength are a live-screenshot tuning pass, same spirit as the other deferred playtest constants.
+
+## Addendum (2026-07-12) — dramatic cliff/canyon zones + chase camera now tracks truck lift (issue #54)
+
+The #54 reference-art redesign (see `docs/architecture/0019-farmstead-layout-and-breakable-fences.md` §Amendment
+(2026-07-12) §A2) extends this ADR's `core/terrain-height.ts` height field with a **zone-gated dramatic-relief term**
+(larger-amplitude, still-C¹ sum-of-sines, gated to authored `DRAMATIC_ZONES` in the map's empty peripheral pockets),
+so some regions read as steep mesas/canyons while the drivable core stays the gentle golf-course field this ADR
+designed. It remains visual-only — the AC8 invariant (terrain height never reaches the sim) and the flatten-mask
+protection of the ADR 0014 climb tuning are both preserved unchanged.
+
+**One decision in this ADR is superseded:** §Decision-4 and the §Risks note left the chase camera's *fixed* height
+(`CAMERA_CHASE_HEIGHT`, issue #17) alone because the hills were ~1.4 units tall — the truck barely leaves y≈0. With
+#54's dramatic elevation the truck rig can lift many units, which would push it out of the top of a fixed-height
+frame. **Superseded 2026-07-12:** the chase camera now tracks the truck's terrain lift in Y
+(`camera.position.y = CAMERA_CHASE_HEIGHT + truckRig.group.position.y`, look-target lifted to match). This is the
+Sprint-1-retro-class reconciliation for #54 — see ADR 0019 §Amendment §A2 point 4 for the full rationale.

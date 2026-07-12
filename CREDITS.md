@@ -141,6 +141,83 @@ function's doc comment in `render/scene.ts`).
 There is no river asset — per ADR 0012 §3, the river is procedural flat
 ribbon geometry generated in `render/`, not a downloaded asset.
 
+## Silo, chicken coop, and fence (issue #54)
+
+Three more low-poly structures (`src/render/assets/models/{silo,chicken-coop,fence}.glb`),
+downloaded via [poly.pizza](https://poly.pizza) on 2026-07-12, per
+`docs/requirements/farm-layout-and-fields.md` AC7/AC8/AC11 and
+`docs/architecture/0019-farmstead-layout-and-breakable-fences.md`. All three
+come from the same **Farm Buildings Bundle** the barn/windmill (issue #46)
+were already partially sourced from — near-zero incremental sourcing cost,
+exactly as the requirements doc anticipated.
+
+| File | Model | Source |
+|---|---|---|
+| `silo.glb` | "Silo" by Quaternius | https://poly.pizza/m/5GhLrv5Ce3 |
+| `chicken-coop.glb` | "ChickenCoop" by Quaternius | https://poly.pizza/m/DM0F8siLam |
+| `fence.glb` | "Fence" by Quaternius (picket style — the bundle ships two fence variants; this one chosen by the human 2026-07-12 over the plainer post-and-rail alternative for its stronger silhouette and more satisfying "smash through it" presence, matching AC8's breakable-barrier mechanic) | https://poly.pizza/m/U7g0Wxpt63 |
+
+License: [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/)
+— public domain, no credit required. Credited here anyway as good practice.
+Same author/pack family as the truck body, barn, windmill, and mountain
+models above.
+
+All three are structurally simple compared to some earlier sourced assets —
+each is a **single mesh, single root node**, multiple primitives sharing
+flat vertex-color materials (`LightRed`/`White`/`DarkRed`/`Brown`/`Grey` for
+the silo; similar flat palettes for the other two), **no textures, no
+animation**. No exclusion/rename workarounds needed (contrast the truck
+bodies' built-in wheel nodes, or the windmill's separate blade node) — the
+whole file loads and displays as one piece.
+
+Raw bounding boxes (glTF native units, pre-`buildStructureDisplayModel`
+scaling), for whoever derives each structure's target `footprintRadius`
+the same width-driven way the mountain's was derived (see that structure's
+CREDITS.md entry above and ADR 0012's addendum for the method):
+
+| Model | Root node name | bboxMin (x,y,z) | bboxMax (x,y,z) |
+|---|---|---|---|
+| Silo | `Silo_Cylinder.007` | (-1.750, -0.049, -1.665) | (1.917, 9.019, 1.845) |
+| ChickenCoop | `ChickenCoop_Cube.015` | (-1.203, -0.003, -0.948) | (1.205, 1.848, 1.206) |
+| Fence | `Fence2_Cube.024` | (-2.945, -0.009, -0.083) | (2.945, 1.164, 0.083) |
+
+The fence's bounding box is notably long/thin (≈5.89 wide × 1.17 tall ×
+0.166 deep) — it's a single boundary *segment* meant to be placed with a
+per-instance `rotationY` and repeated along a line (per ADR 0019's
+`FenceInstance` design), not a single all-purpose prop like the other
+structures.
+
+## Decorative tree (issue #54 amendment — cliffs/waterfalls/forest redesign)
+
+`src/render/assets/models/tree.glb`, downloaded via
+[poly.pizza](https://poly.pizza) on 2026-07-12, per the dated 2026-07-12
+amendment to `docs/architecture/0019-farmstead-layout-and-breakable-fences.md`
+§A4. Loaded once and cloned per instance (~25-45 times across the map, per
+the fields' established "load-once, clone-many" pattern) — deliberately
+**not** `THREE.InstancedMesh` (`farm-layout-and-fields.md`'s non-goal).
+
+| Model | Source |
+|---|---|
+| "Tree" by Quaternius | https://poly.pizza/m/qZtx0AHhcy |
+
+License: [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/)
+— public domain, no credit required. Credited here anyway as good practice.
+Same author/pack family as every other sourced structure in this project.
+
+**Modified from the original**: unlike every other structure sourced so far
+(all flat vertex-color, no textures), this model ships 3 real textures (bark
+base color + normal map, leaf base color, each 1024×1024) — the source file
+is 2.54MB, more than the entire ADR 0010 §3 driving-scene gzipped budget on
+its own. Downscaled to 128×128 per texture (2.54MB → 423KB raw, ~263KB
+gzipped) via `@gltf-transform/cli resize`, with no visible quality loss at
+driving-scene viewing distance (side-by-side rendered comparison, same
+verification method as the farmhouse downscale above) — geometry and UVs
+untouched, only texture resolution reduced. Chosen over Quaternius's
+"Ultimate Stylized Nature Pack" bundle variants for being a single
+already-isolated model (no bundle-extraction overhead) with a full,
+naturally-shaped canopy silhouette that reads clearly as "tree" at a
+distance, consistent with this project's stylized/low-poly art direction.
+
 ## Farmer model (issue #29)
 
 The farmer model (`src/render/assets/models/farmer.glb`) is a real, sourced,

@@ -1,10 +1,18 @@
 import * as THREE from 'three';
 import type { AnimalSpecies, ObstacleInstance, TruckBuild, TruckCosmetics, Vec2 } from '../core/types';
-import { RIVER_ROUTE, RIVER_WIDTH, type StructureInstance, type TerrainBounds } from '../core/terrain';
+import {
+  DECORATIVE_TREES,
+  RIVER_ROUTE,
+  RIVER_WIDTH,
+  type FenceInstance,
+  type StructureInstance,
+  type TerrainBounds,
+  type TreeInstance,
+} from '../core/terrain';
 import { clampCameraToBounds } from '../core/driving/boundary';
 import { terrainHeightAt } from '../core/terrain-height';
 import type { AssetRegistry } from './assets/asset-registry';
-import { ANIMAL_ASSET_KEYS, FARMER_ASSET_KEY, STRUCTURE_ASSET_KEYS, truckAssetKeysForBuild } from './assets/manifest';
+import { ANIMAL_ASSET_KEYS, FARMER_ASSET_KEY, FENCE_ASSET_KEY, STRUCTURE_ASSET_KEYS, TREE_ASSET_KEY, truckAssetKeysForBuild } from './assets/manifest';
 import { createUpgradableObject, type UpgradableObject } from './assets/upgradable-object';
 import { buildTruckRig, type TruckWheelPivots } from './truck-rig';
 import { TRUCK_SCALE, WHEEL_RADIUS_BY_TIER } from './truck-sockets';
@@ -229,6 +237,13 @@ const STRUCTURE_PRIMITIVE_COLORS: Record<StructureInstance['kind'], number> = {
   barn: 0xb23a2f,
   farmhouse: 0xe8dcb8,
   mountain: 0x8a8a80,
+  // issue #54, ADR 0019 §4: silo/chickenCoop widen the same fixed color-per-kind
+  // fallback map -- silvery-grey for the silo (real grain silos are typically
+  // galvanized metal), warm brown/white for the small coop, distinct from the
+  // barn's darker red so the two read as different buildings even as flat
+  // fallback primitives.
+  silo: 0xc7cdd1,
+  chickenCoop: 0xd9a066,
 };
 
 /**
@@ -260,6 +275,14 @@ function buildStructurePrimitive(structure: StructureInstance): THREE.Object3D {
     // the ~16.3-unit target height for this structure's actual r=4.71.
     height = r * 3.46;
     geometry = new THREE.ConeGeometry(r, height, 12);
+  } else if (structure.kind === 'silo') {
+    // issue #54: a tall, uniform (untapered) cylinder reads as "grain silo"
+    // at a glance and is visually distinct from the windmill's tapered
+    // tower shape above -- ~4.9x the footprint radius matches this
+    // structure's own targetHeight/footprintRadius derivation (terrain.ts's
+    // placement comment: targetHeight 8 / footprintRadius 1.62 ~= 4.94).
+    height = r * 4.94;
+    geometry = new THREE.CylinderGeometry(r * 0.85, r * 0.85, height, 12);
   } else {
     height = r * 1.6;
     geometry = new THREE.BoxGeometry(r * 2, height, r * 1.6);
@@ -354,6 +377,190 @@ export function buildStructureDisplayModel(source: THREE.Object3D, targetWidth: 
   outer.add(inner);
   return outer;
 }
+
+// Fences (issue #54, ADR 0019 §5, AC8): a `FenceInstance` is NOT a
+// `StructureInstance` (core/terrain.ts's own doc comment), so it gets its
+// own small primitive/display-model pair rather than reusing
+// buildStructurePrimitive/buildStructureDisplayModel -- structurally
+// distinct from every other structure since it also needs a standing-vs-
+// collapsed *pose* swap at runtime (collapseFence below), on top of the
+// primitive-vs-real-model swap every other structure already has.
+const FENCE_PRIMITIVE_COLOR = 0xc8a97e;
+
+/**
+ * A simple picket-fence-colored plank as the AC10 fallback -- long/thin,
+ * sized off the fence's own `footprintRadius` the same way
+ * `buildStructurePrimitive` sizes off a structure's, yawed by
+ * `fence.rotationY` (ADR 0019 §5: orientation is authored data, not
+ * defaulted to 0). Local origin sits at the segment's ground-contact base
+ * (translated the same way every other structure primitive is), so
+ * `collapseFence`'s tip-over rotation below hinges around the ground line
+ * rather than the segment's vertical center.
+ */
+function buildFencePrimitive(fence: FenceInstance): THREE.Object3D {
+  const width = fence.footprintRadius * 2;
+  const height = 1.1;
+  const depth = 0.2;
+  const geometry = new THREE.BoxGeometry(width, height, depth);
+  geometry.translate(0, height / 2, 0);
+  const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: FENCE_PRIMITIVE_COLOR }));
+  mesh.position.set(fence.position.x, 0, fence.position.z);
+  mesh.rotation.y = fence.rotationY;
+  return mesh;
+}
+
+/**
+ * Wraps a freshly-cloned fence source model, following the exact same
+ * "measure the model's own raw bounding box, scale to the authored
+ * footprint's width, re-anchor to ground contact" recipe
+ * `buildStructureDisplayModel` uses -- fence.glb is a single-mesh/no-
+ * texture/no-animation asset (CREDITS.md, issue #54) with no metalness
+ * quirk to correct, so this is a smaller function than its structure
+ * counterpart, not a divergent one. `targetWidth` is `fence.footprintRadius
+ * * 2`, same convention as every structure caller.
+ */
+export function buildFenceDisplayModel(source: THREE.Object3D, targetWidth: number): THREE.Object3D {
+  const box = new THREE.Box3().setFromObject(source);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  const center = new THREE.Vector3();
+  box.getCenter(center);
+
+  source.position.x -= center.x;
+  source.position.z -= center.z;
+  source.position.y -= box.min.y;
+
+  const horizontalExtent = Math.max(size.x, size.z);
+  const scaleFactor = horizontalExtent > 0 ? targetWidth / horizontalExtent : 1;
+  const inner = new THREE.Group();
+  inner.name = 'FenceDisplayScale';
+  inner.scale.setScalar(scaleFactor);
+  inner.add(source);
+
+  const outer = new THREE.Group();
+  outer.name = 'FenceModel';
+  outer.add(inner);
+  return outer;
+}
+
+/**
+ * Collapse pose swap (issue #54, ADR 0019 §5/§8, AC8): a symmetric
+ * tip-forward flatten, satisfying the AC8/Risk note's "asset-dependent, a
+ * broken-fence pose if one ships, else a simple tip-over" -- fence.glb ships
+ * no dedicated broken-pose node (CREDITS.md), so this is the tip-over
+ * fallback. Rotating the object's own local X axis by 90 degrees hinges the
+ * standing plank down flat around its already-ground-anchored local origin
+ * (both `buildFencePrimitive` and `buildFenceDisplayModel` place local
+ * origin at the base), independent of whatever yaw (`rotation.y`) the
+ * segment was already authored with -- so a fence collapses "flat along its
+ * own boundary line" regardless of which way that line runs.
+ *
+ * Bug fixed 2026-07-12 (human live-playtest report): this previously wrote
+ * `object.rotation.x = ...` directly, which does NOT compose the way the
+ * comment above claims. THREE.Euler's default 'XYZ' order builds the final
+ * matrix as Rx * Ry * Rz applied to local-space vectors -- so a nonzero
+ * pre-existing `rotation.y` (the west-closing segment's authored
+ * `Math.PI / 2` yaw) gets twisted by the *subsequent* X assignment instead
+ * of being preserved, and the plank's long axis actually swings up to
+ * point straight along world +Y (stands on end) rather than flattening.
+ * `Object3D.rotateX` instead composes the rotation onto the object's own
+ * *current* local X axis via quaternion multiplication -- true intrinsic
+ * composition, correct regardless of any prior yaw already applied. For the
+ * four zero-yaw segments this produces the exact same result as before
+ * (nothing to regress); only the yawed segment's pose actually changes.
+ */
+export const FENCE_COLLAPSE_TIP_RADIANS = Math.PI / 2;
+export function applyFenceCollapsePose(object: THREE.Object3D): void {
+  object.rotateX(FENCE_COLLAPSE_TIP_RADIANS);
+}
+
+// Decorative trees (issue #54 amendment, ADR 0019 §A4): solid/unbreakable
+// per the human's collidability override, but otherwise a pure scenery prop
+// -- primitive-then-upgrade like every other structure/fence, but height-
+// driven (like the chicken/farmer/pig/cow builders) rather than width-driven
+// (like buildStructureDisplayModel), since a tree's canopy height matters
+// far more to its silhouette than its exact footprint width.
+const TREE_TRUNK_COLOR = 0x6b4a2f;
+const TREE_CANOPY_COLOR = 0x3f8f4d;
+/** Target rendered height (world units) for the real sourced model and the primitive fallback alike -- roughly farmhouse-scale, clearly shorter than the windmill/mountain landmarks so it reads as ordinary scenery, not another landmark. */
+const TREE_TARGET_HEIGHT = 3.4;
+
+/**
+ * A classic cone-on-cylinder low-poly tree as the AC10 fallback (ADR 0019
+ * §A4) -- cheap, recognizable at a glance, and degrades gracefully if the
+ * sourced tree.glb fails to load. Sized off `TREE_TARGET_HEIGHT` and the
+ * tree's own authored `scale` (default 1), local origin at the trunk's
+ * ground-contact base, matching every other primitive builder's convention.
+ */
+function buildTreePrimitive(tree: TreeInstance): THREE.Object3D {
+  const scale = tree.scale ?? 1;
+  const totalHeight = TREE_TARGET_HEIGHT * scale;
+  const trunkHeight = totalHeight * 0.35;
+  const canopyHeight = totalHeight - trunkHeight;
+  const trunkRadius = 0.18 * scale;
+  const canopyRadius = 0.9 * scale;
+
+  const group = new THREE.Group();
+  const trunkGeometry = new THREE.CylinderGeometry(trunkRadius, trunkRadius * 1.2, trunkHeight, 8);
+  trunkGeometry.translate(0, trunkHeight / 2, 0);
+  const trunk = new THREE.Mesh(trunkGeometry, new THREE.MeshStandardMaterial({ color: TREE_TRUNK_COLOR }));
+  group.add(trunk);
+
+  const canopyGeometry = new THREE.ConeGeometry(canopyRadius, canopyHeight, 10);
+  canopyGeometry.translate(0, trunkHeight + canopyHeight / 2, 0);
+  const canopy = new THREE.Mesh(canopyGeometry, new THREE.MeshStandardMaterial({ color: TREE_CANOPY_COLOR }));
+  group.add(canopy);
+
+  group.position.set(tree.position.x, terrainHeightAt(tree.position), tree.position.z);
+  group.rotation.y = tree.rotationY ?? 0;
+  return group;
+}
+
+/**
+ * Wraps a freshly-cloned tree source model, following the same measured-
+ * bounding-box-derived scale/ground-anchor recipe `buildStructureDisplayModel`
+ * uses, but height-driven (`targetHeight`) rather than width-driven -- a
+ * tree's canopy height governs its visual scale far more than its exact
+ * horizontal spread, unlike a building's footprint. `metalness` is force-
+ * zeroed for the same physically-motivated reason `buildStructureDisplayModel`
+ * already documents (this project's diffuse-only material convention, no
+ * scene `envMap`).
+ */
+export function buildTreeDisplayModel(source: THREE.Object3D, targetHeight: number): THREE.Object3D {
+  source.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    const material = child.material;
+    if (Array.isArray(material)) {
+      for (const m of material) {
+        if (m instanceof THREE.MeshStandardMaterial) m.metalness = 0;
+      }
+    } else if (material instanceof THREE.MeshStandardMaterial) {
+      material.metalness = 0;
+    }
+  });
+
+  const box = new THREE.Box3().setFromObject(source);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  const center = new THREE.Vector3();
+  box.getCenter(center);
+
+  source.position.x -= center.x;
+  source.position.z -= center.z;
+  source.position.y -= box.min.y;
+
+  const scaleFactor = size.y > 0 ? targetHeight / size.y : 1;
+  const inner = new THREE.Group();
+  inner.name = 'TreeDisplayScale';
+  inner.scale.setScalar(scaleFactor);
+  inner.add(source);
+
+  const outer = new THREE.Group();
+  outer.name = 'TreeModel';
+  outer.add(inner);
+  return outer;
+}
+
 
 // Farmer facing direction (issue #57 follow-up, human live-driving report
 // 2026-07-10): the farmer's model previously never rotated to face his
@@ -662,6 +869,7 @@ export function createGameScene(
   bounds: TerrainBounds,
   obstacles: ObstacleInstance[],
   structures: StructureInstance[],
+  fences: FenceInstance[],
   build: TruckBuild,
   cosmetics: TruckCosmetics,
   assetRegistry?: AssetRegistry,
@@ -735,10 +943,43 @@ export function createGameScene(
     structureSlots.push({ structure, slot: createUpgradableObject(scene, primitive) });
   }
 
+  // Fences (issue #54, ADR 0019 §5/component design): same create-once-at-
+  // setup, primitive-then-upgrade shape as structures above, but tracked in
+  // a `Map` keyed by fence id (not an array) since `collapseFence` below
+  // needs to look up a single segment by id when `main.ts`'s FenceSystem
+  // fires `onCollapse` -- mirrors `createFenceColliders`'s own keyed-map
+  // shape in physics/world.ts for the same "address one segment individually"
+  // reason.
+  const fenceSlots = new Map<string, { fence: FenceInstance; slot: UpgradableObject; collapsed: boolean }>();
+  for (const fence of fences) {
+    const primitive = buildFencePrimitive(fence);
+    scene.add(primitive);
+    fenceSlots.set(fence.id, { fence, slot: createUpgradableObject(scene, primitive), collapsed: false });
+  }
+
   // River (issue #47, ADR 0012 §3): pure procedural geometry, created once
   // here -- no loading, no fallback concern (buildRiverMesh's own empty-
   // group guard covers a malformed/degenerate route per AC7).
   scene.add(buildRiverMesh(RIVER_ROUTE, RIVER_WIDTH));
+
+  // Decorative trees (issue #54 amendment, ADR 0019 §A4): same create-once-
+  // at-setup, primitive-then-upgrade shape as structures/fences above, but
+  // an array (not a Map) since trees are never individually addressed again
+  // after creation -- unlike fences, they never collapse/change mid-session.
+  // DECORATIVE_TREES is imported directly (not a createGameScene parameter),
+  // since trees carry no per-session mutable state either, unlike the
+  // obstacles/structures/fences arrays that ARE threaded through (those are
+  // threaded so main.ts's physics-collider creation and this render setup
+  // are guaranteed to agree on which exact instances got a body -- trees'
+  // collider creation reads the same DECORATIVE_TREES constant directly in
+  // main.ts, so there's no drift risk to guard against with an explicit
+  // parameter here).
+  const treeSlots: { tree: TreeInstance; slot: UpgradableObject }[] = [];
+  for (const tree of DECORATIVE_TREES) {
+    const primitive = buildTreePrimitive(tree);
+    scene.add(primitive);
+    treeSlots.push({ tree, slot: createUpgradableObject(scene, primitive) });
+  }
 
   // Truck rig (ADR 0011 §4/§5): the single buildTruckRig assembly path also
   // used by the builder's live 3D preview (ui/builder.ts) -- so a mismatch
@@ -892,8 +1133,17 @@ export function createGameScene(
     const behind = new THREE.Vector3(-Math.sin(heading), 0, -Math.cos(heading)).multiplyScalar(CAMERA_CHASE_DISTANCE);
     const desiredCameraPos = { x: truckRig.group.position.x + behind.x, z: truckRig.group.position.z + behind.z };
     const cameraPos = clampCameraToBounds(desiredCameraPos, bounds, CAMERA_GROUND_MARGIN);
-    camera.position.set(cameraPos.x, CAMERA_CHASE_HEIGHT, cameraPos.z);
-    camera.lookAt(truckRig.group.position.x, 0.5, truckRig.group.position.z);
+    // Camera tracks the truck's terrain lift in Y (issue #54 amendment, ADR
+    // 0019 §A2 point 4, human-confirmed, no threshold gating): with the
+    // dramatic cliff/canyon relief this amendment adds, a fixed-height
+    // camera would let the truck climb out of the top of the frame while the
+    // camera stayed at ground level. `truckRig.group.position.y` is exactly
+    // `lift` (set just above in this same function), so this always keeps
+    // the same relative framing regardless of terrain height -- and also
+    // very slightly improves ordinary-hill framing (a gentle ~1-unit bob
+    // instead of holding dead-flat), per the ADR's own note.
+    camera.position.set(cameraPos.x, CAMERA_CHASE_HEIGHT + truckRig.group.position.y, cameraPos.z);
+    camera.lookAt(truckRig.group.position.x, truckRig.group.position.y + 0.5, truckRig.group.position.z);
   }
 
   /**
@@ -1203,6 +1453,24 @@ export function createGameScene(
     bumpFlashes.push({ mesh: flashMesh, material: flashMaterial, remaining: BUMP_FLASH_SECONDS });
   }
 
+  /**
+   * Applies the one-way standing->collapsed pose swap for the fence segment
+   * `id` (issue #54, ADR 0019 §5/§8, AC8) -- called from main.ts's frame
+   * loop the frame `FenceSystem` fires `onCollapse`. A no-op for an unknown
+   * id or one already marked collapsed here (defensive; `FenceSystem` itself
+   * already only fires once per segment, but this keeps the render side
+   * safe against being called twice independently). Applies to whichever
+   * object is currently in the slot -- primitive or, if it already
+   * upgraded, the real model -- since `applyFenceCollapsePose` only assumes
+   * the shared "local origin = ground contact" convention both share.
+   */
+  function collapseFence(id: string): void {
+    const record = fenceSlots.get(id);
+    if (!record || record.collapsed) return;
+    applyFenceCollapsePose(record.slot.current);
+    record.collapsed = true;
+  }
+
   /** Places (creating on first call) a fuel pickup mesh (ADR 0008 §3, fuel AC1-AC4). */
   function upsertFuelPickup(id: string, position: Vec2): void {
     let mesh = fuelMeshes.get(id);
@@ -1328,6 +1596,37 @@ export function createGameScene(
       }
     }
 
+    // Fence sourced-art upgrade-in-place (issue #54, ADR 0019 §4/component
+    // design): same pattern as the structure loop just above. `upgrade()`
+    // copies the outgoing primitive's *current* rotation onto the incoming
+    // real model (upgradable-object.ts), so an already-collapsed fence's
+    // tip-over pose (applied by `collapseFence` above, possibly before this
+    // asset finished loading) carries over automatically -- no special-
+    // casing needed here for "upgrade after collapse" vs. "upgrade before
+    // collapse".
+    if (assetRegistry) {
+      for (const { fence, slot } of fenceSlots.values()) {
+        if (slot.upgraded) continue;
+        if (assetRegistry.status(FENCE_ASSET_KEY) !== 'ready') continue;
+        const source = assetRegistry.get(FENCE_ASSET_KEY);
+        if (source) slot.upgrade(buildFenceDisplayModel(source, fence.footprintRadius * 2));
+      }
+    }
+
+    // Tree sourced-art upgrade-in-place (issue #54 amendment, ADR 0019 §A4):
+    // same cheap status()-check-then-upgrade-once pattern as the structure/
+    // fence loops above. `targetHeight` re-applies each tree's own authored
+    // `scale` so the upgraded real model matches the primitive it replaces,
+    // not just TREE_TARGET_HEIGHT flat.
+    if (assetRegistry) {
+      for (const { tree, slot } of treeSlots) {
+        if (slot.upgraded) continue;
+        if (assetRegistry.status(TREE_ASSET_KEY) !== 'ready') continue;
+        const source = assetRegistry.get(TREE_ASSET_KEY);
+        if (source) slot.upgrade(buildTreeDisplayModel(source, TREE_TARGET_HEIGHT * (tree.scale ?? 1)));
+      }
+    }
+
     if (rigNeedsRecheck && assetRegistry) {
       const keys = truckAssetKeysForBuild(currentBuild);
       const nowReady = keys.every((key) => assetRegistry.status(key) === 'ready' || assetRegistry.status(key) === 'failed');
@@ -1432,6 +1731,7 @@ export function createGameScene(
     flashTruck,
     upsertFuelPickup,
     collectFuelPickup,
+    collapseFence,
     tickEffects,
     render,
     dispose,

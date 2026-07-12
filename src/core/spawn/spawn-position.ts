@@ -2,7 +2,8 @@
 // or structure, not on top of the player"). Takes an injected RNG so it's
 // deterministically testable without mocking Math.random.
 import type { Vec2 } from '../types';
-import type { StructureInstance, TerrainBounds } from '../terrain';
+import type { FenceInstance, StructureInstance, TerrainBounds, TreeInstance } from '../terrain';
+import { TREE_COLLIDER_RADIUS } from '../terrain';
 
 export type Rng = () => number;
 
@@ -60,6 +61,34 @@ export function structureKeepouts(structures: StructureInstance[]): Keepout[] {
   return structures
     .filter((structure) => structure.collidable)
     .map((structure) => ({ position: structure.position, radius: structure.footprintRadius }));
+}
+
+/**
+ * Maps every fence (issue #54, ADR 0019 §6/Alternatives, AC9) to a keep-out
+ * circle -- unconditionally, unlike `structureKeepouts`'s `collidable`
+ * filter. There is no "not collidable" fence to skip, and per AC9's own
+ * non-blocking recommendation a *collapsed* fence's footprint deliberately
+ * stays in the keep-out set too (spawn positions are picked once, not
+ * continuously re-validated, so re-evaluating on collapse isn't worth the
+ * complexity) -- this is why the source is the full authored `STUB_FENCES`
+ * array, not a live, collapse-aware `FenceSystem` snapshot.
+ */
+export function fenceKeepouts(fences: FenceInstance[]): Keepout[] {
+  return fences.map((fence) => ({ position: fence.position, radius: fence.footprintRadius }));
+}
+
+/**
+ * Maps every decorative tree (issue #54 amendment, ADR 0019 §A4 human
+ * override: trees are solid, unconditional, unbreakable colliders -- same
+ * "always in keep-out" treatment as `fenceKeepouts` above, not the
+ * `collidable`-filtered treatment `structureKeepouts` uses, since every tree
+ * is always solid with no non-collidable case to skip) to a keep-out circle,
+ * so an animal/farmer/fuel pickup never spawns inside one. Radius scales
+ * with each tree's own `scale` (default 1), matching the physics collider
+ * `physics/world.ts`'s `createTreeColliders` creates.
+ */
+export function treeKeepouts(trees: TreeInstance[]): Keepout[] {
+  return trees.map((tree) => ({ position: tree.position, radius: TREE_COLLIDER_RADIUS * (tree.scale ?? 1) }));
 }
 
 /** Returns a valid random point, or null if none was found within maxAttempts. */

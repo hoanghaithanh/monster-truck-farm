@@ -138,3 +138,15 @@ Because `buildStructureDisplayModel` sizes by width and this spec is a height ta
 **Placement:** suggested starting coordinate, on the open west side of the field, clear of every existing structure/obstacle/the river/the truck's start position — `(-16, -2)`, checked against: barn `(-12,-10,r3)` → distance ≈8.9; rock `(-6,4,r1)` → distance ≈11.7; river (z 15-17 strip) → far; windmill/farmhouse (east side) → far; truck start `(0,0)` → distance ≈16.1. This is a suggestion to unblock implementation, not a locked decision — adjust after actually looking at it in the running scene, same as every other placement decision in this doc.
 
 **Consequence:** `drive-terrain-and-gas.md` Open Question 3 (soft boundary should have a visible horizon edge) loses its answer — the mountains no longer ring the boundary. Reopened, not blocking, flagged in the requirements doc so it isn't silently lost.
+
+## Addendum (2026-07-12) — decorative waterfall sibling of the river (issue #54)
+
+~~The #54 reference-art redesign adds procedural **waterfall** visuals as a decorative sibling of the river designed in
+§3 — same contract: zero mechanical effect, no collider, no spawn keep-out, procedural/near-zero download, graceful
+empty-group degrade. A `buildWaterfallMesh` (sibling to `buildRiverMesh`) renders a tilted translucent sheet from a
+cliff lip in a dramatic-terrain zone down to a small pool, in this river's material family, with an optional vertical
+UV-scroll for faux motion (the same optional UV-scroll this §3 already sanctioned). The river itself is unchanged. Full
+design: `docs/architecture/0019-farmstead-layout-and-breakable-fences.md` §Amendment (2026-07-12) §A3.~~
+
+**Removed 2026-07-12** — the human decided not to keep this feature after three fix passes (see ADR 0019 §A3's own
+dated resolution note for the full history). The river itself (§3 above) is unaffected.

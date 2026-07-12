@@ -16,16 +16,24 @@ import {
   FARMER_SPAWN_MAX_SECONDS,
   FARMER_SPAWN_MIN_SECONDS,
 } from '../core/farmer/config';
-import { pickSpawnPosition, structureKeepouts, type Rng } from '../core/spawn/spawn-position';
-import { TERRAIN_BOUNDS, STUB_OBSTACLES, STUB_STRUCTURES } from '../core/terrain';
+import { fenceKeepouts, pickSpawnPosition, structureKeepouts, treeKeepouts, type Rng } from '../core/spawn/spawn-position';
+import { DECORATIVE_TREES, TERRAIN_BOUNDS, STUB_OBSTACLES, STUB_STRUCTURES, STUB_FENCES } from '../core/terrain';
 import { TRUCK_CONTACT_RADIUS } from '../core/driving/config';
 import type { Vec2 } from '../core/types';
 import type { GameStore } from '../core/game-state';
 
-// Spawn keep-out (issue #46, ADR 0012 §5, AC6): the existing obstacles plus
-// the collidable structures' footprints, computed once since both source
-// arrays are fixed stub data -- see structureKeepouts's own doc comment.
-const SPAWN_KEEPOUTS = [...STUB_OBSTACLES, ...structureKeepouts(STUB_STRUCTURES)];
+// Spawn keep-out (issue #46, ADR 0012 §5, AC6; extended issue #54/ADR 0019
+// §6 AC9; extended again by the issue #54 amendment, ADR 0019 §A4 -- solid/
+// unbreakable trees): the existing obstacles plus the collidable structures',
+// standing fences', and decorative trees' footprints, computed once since
+// all four source arrays are fixed stub data -- see structureKeepouts's/
+// fenceKeepouts's/treeKeepouts's own doc comments.
+const SPAWN_KEEPOUTS = [
+  ...STUB_OBSTACLES,
+  ...structureKeepouts(STUB_STRUCTURES),
+  ...fenceKeepouts(STUB_FENCES),
+  ...treeKeepouts(DECORATIVE_TREES),
+];
 
 export interface FarmerSystemCallbacks {
   onAppear(position: Vec2): void;

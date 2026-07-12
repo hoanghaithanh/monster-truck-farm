@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { RIVER_ROUTE, STUB_OBSTACLES, STUB_STRUCTURES, TERRAIN_BOUNDS, TRUCK_START } from './terrain';
+import {
+  DECORATIVE_TREES,
+  RIVER_ROUTE,
+  STUB_FENCES,
+  STUB_OBSTACLES,
+  STUB_STRUCTURES,
+  TERRAIN_BOUNDS,
+  TREE_COLLIDER_RADIUS,
+  TRUCK_START,
+} from './terrain';
 
 describe('TERRAIN_BOUNDS (issue #49, ADR 0017 §Decision-4, AC1)', () => {
   it('is expanded to -50..50 both axes (~6.25x the original 40x40 area)', () => {
@@ -26,10 +35,10 @@ describe('TERRAIN_BOUNDS (issue #49, ADR 0017 §Decision-4, AC1)', () => {
   });
 });
 
-describe('STUB_STRUCTURES (issue #46, ADR 0012 §1; mountain landmark added issue #47 redesign, ADR 0012 addendum/AC3a)', () => {
-  it('has exactly one windmill, one barn, one farmhouse, and one mountain landmark', () => {
+describe('STUB_STRUCTURES (issue #46, ADR 0012 §1; mountain landmark added issue #47 redesign, ADR 0012 addendum/AC3a; silo/chickenCoop added issue #54/ADR 0019 §4)', () => {
+  it('has exactly one windmill, one barn, one farmhouse, one mountain landmark, one silo, and one chicken coop', () => {
     const kinds = STUB_STRUCTURES.map((s) => s.kind).sort();
-    expect(kinds).toEqual(['barn', 'farmhouse', 'mountain', 'windmill']);
+    expect(kinds).toEqual(['barn', 'chickenCoop', 'farmhouse', 'mountain', 'silo', 'windmill']);
   });
 
   it('every structure is collidable (AC2: always-solid, no tier gating)', () => {
@@ -91,5 +100,130 @@ describe('mountain landmark specifically (issue #47 redesign, AC3a: reachable/co
     expect(mountain.position.x + mountain.footprintRadius).toBeLessThanOrEqual(TERRAIN_BOUNDS.maxX);
     expect(mountain.position.z - mountain.footprintRadius).toBeGreaterThanOrEqual(TERRAIN_BOUNDS.minZ);
     expect(mountain.position.z + mountain.footprintRadius).toBeLessThanOrEqual(TERRAIN_BOUNDS.maxZ);
+  });
+});
+
+describe('STUB_FENCES (issue #54, ADR 0019 §1/§6, AC8)', () => {
+  it('has at least 4 segments (ADR 0019 §6 suggests 4-8)', () => {
+    expect(STUB_FENCES.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('every id is unique', () => {
+    const ids = STUB_FENCES.map((f) => f.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('every fence sits within TERRAIN_BOUNDS, clear of the edge by at least its own footprint', () => {
+    for (const fence of STUB_FENCES) {
+      expect(fence.position.x - fence.footprintRadius).toBeGreaterThanOrEqual(TERRAIN_BOUNDS.minX);
+      expect(fence.position.x + fence.footprintRadius).toBeLessThanOrEqual(TERRAIN_BOUNDS.maxX);
+      expect(fence.position.z - fence.footprintRadius).toBeGreaterThanOrEqual(TERRAIN_BOUNDS.minZ);
+      expect(fence.position.z + fence.footprintRadius).toBeLessThanOrEqual(TERRAIN_BOUNDS.maxZ);
+    }
+  });
+
+  it('no fence overlaps the truck start position or any STUB_OBSTACLE (ADR 0019 §6 clearance rule 1/2)', () => {
+    const minTruckClearance = 4;
+    for (const fence of STUB_FENCES) {
+      const distToTruck = Math.hypot(fence.position.x - TRUCK_START.x, fence.position.z - TRUCK_START.z);
+      expect(distToTruck).toBeGreaterThanOrEqual(fence.footprintRadius + minTruckClearance);
+
+      for (const obstacle of STUB_OBSTACLES) {
+        const dist = Math.hypot(fence.position.x - obstacle.position.x, fence.position.z - obstacle.position.z);
+        expect(dist).toBeGreaterThanOrEqual(fence.footprintRadius + obstacle.radius);
+      }
+    }
+  });
+
+  it('no fence overlaps any STUB_STRUCTURE (ADR 0019 §6 clearance rule 2)', () => {
+    for (const fence of STUB_FENCES) {
+      for (const structure of STUB_STRUCTURES) {
+        const dist = Math.hypot(fence.position.x - structure.position.x, fence.position.z - structure.position.z);
+        expect(dist).toBeGreaterThanOrEqual(fence.footprintRadius + structure.footprintRadius);
+      }
+    }
+  });
+});
+
+describe('Reference-art redesign (issue #54 amendment, ADR 0019 §A1): windmill joins the farmyard, coop becomes a standalone pen', () => {
+  const windmill = STUB_STRUCTURES.find((s) => s.kind === 'windmill')!;
+  const barn = STUB_STRUCTURES.find((s) => s.kind === 'barn')!;
+  const farmhouse = STUB_STRUCTURES.find((s) => s.kind === 'farmhouse')!;
+  const silo = STUB_STRUCTURES.find((s) => s.kind === 'silo')!;
+  const coop = STUB_STRUCTURES.find((s) => s.kind === 'chickenCoop')!;
+
+  it('windmill sits within a ~20-unit span of barn/farmhouse/silo (clustered in the farmyard, not a distant landmark)', () => {
+    for (const clusterMate of [barn, farmhouse, silo]) {
+      const dist = Math.hypot(windmill.position.x - clusterMate.position.x, windmill.position.z - clusterMate.position.z);
+      expect(dist).toBeLessThanOrEqual(20);
+    }
+  });
+
+  it('chicken coop sits far from the farmyard cluster (its own standalone pen, not grouped with barn/farmhouse/silo/windmill)', () => {
+    for (const clusterMate of [barn, farmhouse, silo, windmill]) {
+      const dist = Math.hypot(coop.position.x - clusterMate.position.x, coop.position.z - clusterMate.position.z);
+      expect(dist).toBeGreaterThan(20);
+    }
+  });
+
+  it('every STUB_FENCE segment sits close to the relocated coop (the fence run now encloses the coop pen, not the farmyard)', () => {
+    const maxPenRadius = 12; // generous upper bound on "same small pen", well under the ~20-unit farmyard-cluster span above.
+    for (const fence of STUB_FENCES) {
+      const dist = Math.hypot(fence.position.x - coop.position.x, fence.position.z - coop.position.z);
+      expect(dist).toBeLessThanOrEqual(maxPenRadius);
+    }
+  });
+});
+
+describe('DECORATIVE_TREES (issue #54 amendment, ADR 0019 §A4)', () => {
+  it('has a sparse count in the ADR-suggested ~25-45 range', () => {
+    expect(DECORATIVE_TREES.length).toBeGreaterThanOrEqual(25);
+    expect(DECORATIVE_TREES.length).toBeLessThanOrEqual(45);
+  });
+
+  it('every id is unique', () => {
+    const ids = DECORATIVE_TREES.map((t) => t.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('every tree sits within TERRAIN_BOUNDS, clear of the edge by at least the collider radius', () => {
+    for (const tree of DECORATIVE_TREES) {
+      expect(tree.position.x - TREE_COLLIDER_RADIUS).toBeGreaterThanOrEqual(TERRAIN_BOUNDS.minX);
+      expect(tree.position.x + TREE_COLLIDER_RADIUS).toBeLessThanOrEqual(TERRAIN_BOUNDS.maxX);
+      expect(tree.position.z - TREE_COLLIDER_RADIUS).toBeGreaterThanOrEqual(TERRAIN_BOUNDS.minZ);
+      expect(tree.position.z + TREE_COLLIDER_RADIUS).toBeLessThanOrEqual(TERRAIN_BOUNDS.maxZ);
+    }
+  });
+
+  it('no tree overlaps the truck start position, any STUB_OBSTACLE, any STUB_STRUCTURE, or any STUB_FENCE (trees are solid, ADR 0019 §A4 human override)', () => {
+    const margin = 0.3;
+    for (const tree of DECORATIVE_TREES) {
+      const distToTruck = Math.hypot(tree.position.x - TRUCK_START.x, tree.position.z - TRUCK_START.z);
+      expect(distToTruck).toBeGreaterThanOrEqual(TREE_COLLIDER_RADIUS + 3);
+
+      for (const obstacle of STUB_OBSTACLES) {
+        const dist = Math.hypot(tree.position.x - obstacle.position.x, tree.position.z - obstacle.position.z);
+        expect(dist).toBeGreaterThanOrEqual(TREE_COLLIDER_RADIUS + obstacle.radius + margin);
+      }
+      for (const structure of STUB_STRUCTURES) {
+        const dist = Math.hypot(tree.position.x - structure.position.x, tree.position.z - structure.position.z);
+        expect(dist).toBeGreaterThanOrEqual(TREE_COLLIDER_RADIUS + structure.footprintRadius + margin);
+      }
+      for (const fence of STUB_FENCES) {
+        const dist = Math.hypot(tree.position.x - fence.position.x, tree.position.z - fence.position.z);
+        expect(dist).toBeGreaterThanOrEqual(TREE_COLLIDER_RADIUS + fence.footprintRadius + margin);
+      }
+    }
+  });
+
+  it('no two trees overlap each other', () => {
+    for (let i = 0; i < DECORATIVE_TREES.length; i++) {
+      for (let j = i + 1; j < DECORATIVE_TREES.length; j++) {
+        const a = DECORATIVE_TREES[i];
+        const b = DECORATIVE_TREES[j];
+        const dist = Math.hypot(a.position.x - b.position.x, a.position.z - b.position.z);
+        expect(dist).toBeGreaterThanOrEqual(TREE_COLLIDER_RADIUS * 2);
+      }
+    }
   });
 });

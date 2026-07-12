@@ -98,6 +98,22 @@ const MOUNTAIN_B_URL = new URL('./models/mountain-b.glb', import.meta.url);
 // as every other sourced-art entry above.
 const FARMER_URL = new URL('./models/farmer.glb', import.meta.url);
 
+// Silo/chicken-coop/fence pass (issue #54, ADR 0019 §4/§6): three more
+// structure entries reusing the same Quaternius Farm Buildings Bundle
+// family already used for barn/windmill (issue #46) -- near-zero
+// incremental sourcing cost, exactly as the requirements doc anticipated.
+// silo/chickenCoop are ordinary `StructureInstance`s (AC7), consumed the
+// same generic way as barn/windmill/farmhouse/mountain via
+// `STRUCTURE_ASSET_KEYS` below. 'fence' is the first manifest entry for the
+// new `FenceInstance` family (AC8) -- not a `StructureKind`, so it isn't in
+// `STRUCTURE_ASSET_KEYS`; scene.ts's fence-rendering code reaches it via
+// `FENCE_ASSET_KEY` below instead. All three are single-mesh/no-texture/
+// no-animation (see repo-root CREDITS.md), same "not gated by
+// truckAssetKeysForBuild" rationale as every other environment asset above.
+const SILO_URL = new URL('./models/silo.glb', import.meta.url);
+const CHICKEN_COOP_URL = new URL('./models/chicken-coop.glb', import.meta.url);
+const FENCE_URL = new URL('./models/fence.glb', import.meta.url);
+
 // Pig/cow pass (issue #48, ADR 0016 §1): 'pig'/'cow' are the second and
 // third *animated* manifest entries (after farmer) -- both ship a rigged
 // SkinnedMesh + Armature skeleton, consumed via AssetRegistry.getAnimated()
@@ -106,6 +122,15 @@ const FARMER_URL = new URL('./models/farmer.glb', import.meta.url);
 // chicken/structures/farmer above.
 const PIG_URL = new URL('./models/pig.glb', import.meta.url);
 const COW_URL = new URL('./models/cow.glb', import.meta.url);
+
+// Decorative tree pass (issue #54 amendment, 2026-07-12, ADR 0019 §A4):
+// 'tree' is the first sourced-art *decorative prop* entry -- a single,
+// non-tiered key like chicken/farmer above, loaded once and cloned per
+// instance (~25-45 times, see render/scene.ts) rather than a per-instance
+// manifest key. "Tree" by Quaternius (CC0 1.0); see repo-root CREDITS.md for
+// the texture-downscale note (1024x1024 -> 128x128, no visible quality loss
+// at driving-scene distance).
+const TREE_URL = new URL('./models/tree.glb', import.meta.url);
 
 // Real measured gzip sizes. body-tier-*/wheel-tier-* are the sourced-art
 // models (`gzip -9` against the committed files, 2026-07-09 -- see repo-root
@@ -147,6 +172,13 @@ const FARMER_GZIP_BYTES = 324927;
 // implementation time and are what the budget check below uses.
 const PIG_GZIP_BYTES = 59419;
 const COW_GZIP_BYTES = 135288;
+// Measured directly (`gzip -9`) against the committed files (issue #54).
+const SILO_GZIP_BYTES = 14770;
+const CHICKEN_COOP_GZIP_BYTES = 9583;
+const FENCE_GZIP_BYTES = 3451;
+// Measured directly (`gzip -9`) against the committed file (issue #54
+// amendment) -- matches CREDITS.md's ~263KB post-downscale estimate closely.
+const TREE_GZIP_BYTES = 258149;
 
 export const ASSET_MANIFEST = {
   // PASS-1 test fixture (ADR 0010 infrastructure) -- kept registered so the
@@ -203,6 +235,22 @@ export const ASSET_MANIFEST = {
   // AssetRegistry.getAnimated() (ADR 0016 §1), like the farmer.
   pig: { url: PIG_URL, approxGzipBytes: PIG_GZIP_BYTES },
   cow: { url: COW_URL, approxGzipBytes: COW_GZIP_BYTES },
+
+  // Issue #54: same "not gated by truckAssetKeysForBuild" rationale as the
+  // chicken/structures/farmer/pig/cow above. silo/chickenCoop are consumed
+  // via STRUCTURE_ASSET_KEYS like the other four structures; fence is
+  // consumed via FENCE_ASSET_KEY (below), since fences aren't a
+  // `StructureKind`.
+  silo: { url: SILO_URL, approxGzipBytes: SILO_GZIP_BYTES },
+  chickenCoop: { url: CHICKEN_COOP_URL, approxGzipBytes: CHICKEN_COOP_GZIP_BYTES },
+  fence: { url: FENCE_URL, approxGzipBytes: FENCE_GZIP_BYTES },
+
+  // Issue #54 amendment: same "not gated by truckAssetKeysForBuild"
+  // rationale as every other environment asset above -- trees are not
+  // player truck parts, so they load progressively per ADR 0010 §4.4.
+  // Consumed via TREE_ASSET_KEY (below), same single-key pattern as
+  // FENCE_ASSET_KEY since trees aren't a `StructureKind` either.
+  tree: { url: TREE_URL, approxGzipBytes: TREE_GZIP_BYTES },
 } satisfies Record<string, AssetManifestEntry>;
 
 export type AssetKey = keyof typeof ASSET_MANIFEST;
@@ -249,12 +297,20 @@ export const ANIMAL_ASSET_KEYS: Record<AnimalSpecies, AssetKey> = {
  * asset-key-lookup/AssetRegistry/UpgradableObject path -- no mountain-
  * specific rendering code needed.
  */
-export const STRUCTURE_ASSET_KEYS: Record<'windmill' | 'barn' | 'farmhouse' | 'mountain', AssetKey> = {
+export const STRUCTURE_ASSET_KEYS: Record<'windmill' | 'barn' | 'farmhouse' | 'mountain' | 'silo' | 'chickenCoop', AssetKey> = {
   windmill: 'windmill',
   barn: 'barn',
   farmhouse: 'farmhouse',
   mountain: 'mountain-a',
+  silo: 'silo',
+  chickenCoop: 'chickenCoop',
 };
+
+/** The manifest key for the (single, unvarying) fence model (issue #54) -- exported so scene.ts's fence-rendering code doesn't hardcode the string. Fences aren't a `StructureKind`, so they get their own single-key export rather than a slot in `STRUCTURE_ASSET_KEYS`. */
+export const FENCE_ASSET_KEY: AssetKey = 'fence';
+
+/** The manifest key for the (single, unvarying) decorative tree model (issue #54 amendment, ADR 0019 §A4) -- exported so scene.ts's tree-rendering code doesn't hardcode the string. Same single-key pattern as `FENCE_ASSET_KEY`: trees aren't a `StructureKind` either. */
+export const TREE_ASSET_KEY: AssetKey = 'tree';
 
 /**
  * The asset keys the ADR 0010 §4.3 bounded gate waits on before DRIVING

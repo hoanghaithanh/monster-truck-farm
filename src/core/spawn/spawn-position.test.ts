@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { pickSpawnPosition, structureKeepouts, type Rng } from './spawn-position';
-import type { StructureInstance, TerrainBounds } from '../terrain';
+import { fenceKeepouts, pickSpawnPosition, structureKeepouts, treeKeepouts, type Rng } from './spawn-position';
+import type { FenceInstance, StructureInstance, TerrainBounds, TreeInstance } from '../terrain';
 import type { ObstacleInstance } from '../types';
 
 const bounds: TerrainBounds = { minX: -20, maxX: 20, minZ: -20, maxZ: 20 };
@@ -143,6 +143,42 @@ describe('structureKeepouts (issue #46, ADR 0012 §5, AC6)', () => {
   });
 });
 
+describe('fenceKeepouts (issue #54, ADR 0019 §6/Alternatives, AC9)', () => {
+  const fences: FenceInstance[] = [
+    { id: 'fence-1', position: { x: 10, z: -10 }, rotationY: 0, footprintRadius: 2.945 },
+    { id: 'fence-2', position: { x: 16, z: -10 }, rotationY: 0, footprintRadius: 2.945 },
+  ];
+
+  it('maps every fence to a {position, radius} keep-out circle, unconditionally (no collidable filter)', () => {
+    expect(fenceKeepouts(fences)).toEqual([
+      { position: { x: 10, z: -10 }, radius: 2.945 },
+      { position: { x: 16, z: -10 }, radius: 2.945 },
+    ]);
+  });
+
+  it('returns an empty array for an empty fence list', () => {
+    expect(fenceKeepouts([])).toEqual([]);
+  });
+});
+
+describe('treeKeepouts (issue #54 amendment, ADR 0019 §A4 human override: trees are solid/unbreakable, always in keep-out)', () => {
+  const trees: TreeInstance[] = [
+    { id: 'tree-1', position: { x: 10, z: -10 } },
+    { id: 'tree-2', position: { x: 16, z: -10 }, scale: 2 },
+  ];
+
+  it('maps every tree to a {position, radius} keep-out circle, scaled by each tree\'s own `scale` (default 1)', () => {
+    expect(treeKeepouts(trees)).toEqual([
+      { position: { x: 10, z: -10 }, radius: 0.6 },
+      { position: { x: 16, z: -10 }, radius: 1.2 },
+    ]);
+  });
+
+  it('returns an empty array for an empty tree list', () => {
+    expect(treeKeepouts([])).toEqual([]);
+  });
+});
+
 describe('pickSpawnPosition — AC6 (never spawns inside a structure footprint)', () => {
   it('rejects a candidate inside a structure footprint, same as an obstacle', () => {
     // A single generously-sized structure keep-out centered at the origin --
@@ -160,6 +196,21 @@ describe('pickSpawnPosition — AC6 (never spawns inside a structure footprint)'
     expect(point).not.toBeNull();
     const dist = Math.hypot(point!.x, point!.z);
     expect(dist).toBeGreaterThanOrEqual(structureFootprint.radius + 0.5);
+  });
+
+  it('rejects a candidate inside a fence footprint, same as a structure (AC9)', () => {
+    const fenceFootprint = { position: { x: 0, z: 0 }, radius: 3 };
+    const rng = sequenceRng([0.5, 0.5, 0.9, 0.9]); // first candidate -> origin (inside footprint), second -> clear
+    const point = pickSpawnPosition({
+      bounds,
+      obstacles: [fenceFootprint],
+      truckPosition: { x: -1000, z: -1000 },
+      minDistanceFromTruck: 4,
+      rng,
+    });
+    expect(point).not.toBeNull();
+    const dist = Math.hypot(point!.x, point!.z);
+    expect(dist).toBeGreaterThanOrEqual(fenceFootprint.radius + 0.5);
   });
 
   it('combined obstacles + structure keep-out (as every real call site now passes) keeps candidates clear of both', () => {

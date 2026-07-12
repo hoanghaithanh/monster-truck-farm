@@ -2,11 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { buildTruckRig } from './truck-rig';
 import {
+  applyFenceCollapsePose,
   buildAnimatedAnimalDisplayModel,
   buildFarmerDisplayModel,
+  buildFenceDisplayModel,
   buildRiverMesh,
   buildStaticAnimalDisplayModel,
   buildStructureDisplayModel,
+  buildTreeDisplayModel,
   carryOverWheelRotations,
   computeFarmerHeading,
 } from './scene';
@@ -355,6 +358,165 @@ describe('buildStructureDisplayModel (issue #46, structure sourced-art scale/gro
   });
 });
 
+describe('buildFenceDisplayModel (issue #54, ADR 0019 §5 -- fence sourced-art scale/ground-alignment)', () => {
+  // A stand-in for AssetRegistry.get(FENCE_ASSET_KEY)'s clone: a long, thin,
+  // off-center box mimicking fence.glb's own raw proportions (CREDITS.md:
+  // ~5.89 wide x 1.164 tall x 0.166 deep) closely enough to exercise the
+  // measure-then-correct logic without needing the real .glb in a Node test.
+  function offCenterRawFenceModel(): THREE.Object3D {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(5.89, 1.164, 0.166), new THREE.MeshStandardMaterial());
+    mesh.position.set(1.2, 0.6, -0.3); // off-origin, base not at y=0
+    return mesh;
+  }
+
+  it('derives the corrective scale from the source\'s own measured horizontal (max of x/z) extent, not a hardcoded number', () => {
+    const model = buildFenceDisplayModel(offCenterRawFenceModel(), 5);
+
+    const box = new THREE.Box3().setFromObject(model);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+
+    // Raw horizontal extent was max(5.89, 0.166) = 5.89 -> scaleFactor = 5/5.89.
+    const scaleFactor = 5 / 5.89;
+    expect(size.x).toBeCloseTo(5.89 * scaleFactor, 5);
+    expect(size.z).toBeCloseTo(0.166 * scaleFactor, 5);
+  });
+
+  it('re-centers the model horizontally (x/z) but keeps its base at the wrapper\'s local origin (y=0), not its vertical center', () => {
+    const model = buildFenceDisplayModel(offCenterRawFenceModel(), 5);
+
+    const box = new THREE.Box3().setFromObject(model);
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+
+    expect(center.x).toBeCloseTo(0, 5);
+    expect(center.z).toBeCloseTo(0, 5);
+    expect(box.min.y).toBeCloseTo(0, 5);
+  });
+
+  it('keeps the corrective scale/centering on an inner group, not the returned outer object -- so UpgradableObject.upgrade() overwriting the outer object\'s transform can never clobber it', () => {
+    const model = buildFenceDisplayModel(offCenterRawFenceModel(), 5);
+
+    expect(model.position.toArray()).toEqual([0, 0, 0]);
+    expect(model.scale.toArray()).toEqual([1, 1, 1]);
+  });
+});
+
+describe('buildTreeDisplayModel (issue #54 amendment, ADR 0019 §A4 -- tree sourced-art scale/ground-alignment, height-driven)', () => {
+  // A stand-in for AssetRegistry.get(TREE_ASSET_KEY)'s clone: an off-center,
+  // tall-and-thin box mimicking tree.glb's own raw proportions (measured
+  // bbox ~4.31 wide x 7.27 tall x 4.58 deep, CREDITS.md) closely enough to
+  // exercise the measure-then-correct logic without the real .glb.
+  function offCenterRawTreeModel(): THREE.Object3D {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(4.31, 7.27, 4.58), new THREE.MeshStandardMaterial());
+    mesh.position.set(1, 3.5, -0.5); // off-origin, base not at y=0
+    return mesh;
+  }
+
+  it('derives the corrective scale from the source\'s own measured height (y extent), not a hardcoded number -- unlike buildStructureDisplayModel/buildFenceDisplayModel, which are width-driven', () => {
+    const model = buildTreeDisplayModel(offCenterRawTreeModel(), 3.4);
+
+    const box = new THREE.Box3().setFromObject(model);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+
+    const scaleFactor = 3.4 / 7.27;
+    expect(size.y).toBeCloseTo(7.27 * scaleFactor, 5);
+    expect(size.x).toBeCloseTo(4.31 * scaleFactor, 5);
+  });
+
+  it('re-centers the model horizontally (x/z) but keeps its base at the wrapper\'s local origin (y=0), not its vertical center', () => {
+    const model = buildTreeDisplayModel(offCenterRawTreeModel(), 3.4);
+
+    const box = new THREE.Box3().setFromObject(model);
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+
+    expect(center.x).toBeCloseTo(0, 5);
+    expect(center.z).toBeCloseTo(0, 5);
+    expect(box.min.y).toBeCloseTo(0, 5);
+  });
+
+  it('forces metalness to 0 on every MeshStandardMaterial in the source (same near-black-under-no-envMap fix as buildStructureDisplayModel)', () => {
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(4.31, 7.27, 4.58),
+      new THREE.MeshStandardMaterial({ metalness: 0.3, roughness: 0.5 }),
+    );
+    buildTreeDisplayModel(mesh, 3.4);
+    const material = mesh.material as THREE.MeshStandardMaterial;
+    expect(material.metalness).toBe(0);
+    expect(material.roughness).toBeCloseTo(0.5, 5);
+  });
+
+  it('keeps the corrective scale/centering on an inner group, not the returned outer object', () => {
+    const model = buildTreeDisplayModel(offCenterRawTreeModel(), 3.4);
+    expect(model.position.toArray()).toEqual([0, 0, 0]);
+    expect(model.scale.toArray()).toEqual([1, 1, 1]);
+  });
+});
+
+describe('applyFenceCollapsePose (issue #54, ADR 0019 §5/§8, AC8 collapse visual)', () => {
+  // Regression test for a bug found via human live playtest 2026-07-12: the
+  // previous implementation set `object.rotation.x` directly, which reads
+  // fine as raw Euler component values (x=pi/2, y unchanged) but does NOT
+  // reproduce the intended *world-space* orientation once a nonzero yaw is
+  // already present -- THREE.Euler's default 'XYZ' composition order means
+  // the final x/y/z triple doesn't decompose into "yaw, then an independent
+  // local tip" the way a naive component-by-component check would suggest.
+  // Pin against the actual transformed geometry (an external, physically
+  // meaningful ground truth -- "does the plank end up lying flat, near the
+  // ground, after collapsing" -- the exact thing a player looking at the
+  // screen judges) rather than the module's own stored Euler numbers, per
+  // this project's established convention for orientation/heading bugs
+  // (CLAUDE.md's QA-gotchas note, same class as the #63 sign-inversion fix).
+  function longAxisWorldPoint(object: THREE.Object3D): THREE.Vector3 {
+    // A point at the far tip of the plank's long axis (local +X, matching
+    // buildFencePrimitive/buildFenceDisplayModel's width-along-X convention),
+    // at the plank's standing height -- exactly the picket-tip geometry a
+    // human would see sticking up in the air if collapse failed.
+    const tip = new THREE.Vector3(2.9, 1.1, 0);
+    object.updateMatrixWorld(true);
+    return tip.applyMatrix4(object.matrixWorld);
+  }
+
+  it('flattens a zero-yaw (straight-run) segment: the plank tip ends up near ground level, not standing tall', () => {
+    const object = new THREE.Group();
+    object.rotation.set(0, 0, 0);
+    const beforeTip = longAxisWorldPoint(object.clone());
+    expect(beforeTip.y).toBeCloseTo(1.1, 5); // standing: tip is up at plank height
+
+    applyFenceCollapsePose(object);
+    const afterTip = longAxisWorldPoint(object);
+    expect(Math.abs(afterTip.y)).toBeLessThan(0.3); // collapsed: tip is down near the ground
+  });
+
+  it('flattens a yawed (perpendicular-closing) segment the same way -- the exact case that regressed: rotationY=Math.PI/2 previously made the plank stand on end (tip height ~2.9) instead of lying flat', () => {
+    const object = new THREE.Group();
+    object.rotation.set(0, Math.PI / 2, 0); // authored boundary yaw, e.g. STUB_FENCES' west-closing segment
+    applyFenceCollapsePose(object);
+    const afterTip = longAxisWorldPoint(object);
+    expect(Math.abs(afterTip.y)).toBeLessThan(0.3);
+  });
+
+  it('preserves the authored yaw direction (Y-axis orientation) once flattened, so the collapsed plank still lies along its own boundary line rather than an arbitrary direction', () => {
+    const straight = new THREE.Group();
+    straight.rotation.set(0, 0, 0);
+    applyFenceCollapsePose(straight);
+    const straightTip = longAxisWorldPoint(straight);
+
+    const yawed = new THREE.Group();
+    yawed.rotation.set(0, Math.PI / 2, 0);
+    applyFenceCollapsePose(yawed);
+    const yawedTip = longAxisWorldPoint(yawed);
+
+    // Both lie flat (checked above), but the yawed segment's tip should have
+    // swung into the perpendicular (X/Z swapped) horizontal direction, not
+    // landed on the same horizontal footprint as the straight segment.
+    expect(Math.abs(straightTip.x)).toBeGreaterThan(2);
+    expect(Math.abs(yawedTip.z)).toBeGreaterThan(2);
+  });
+});
+
 // Issue #57's exact repro shape (found in issue #29 acceptance validation):
 // the real farmer.glb's SkinnedMesh nodes have tiny raw local geometry
 // (~0.001-0.02 units) plus similarly tiny bone-to-bone local offsets, with
@@ -674,6 +836,7 @@ describe('Scene animal lifecycle -- pig/cow animated dispose/orientation wiring 
     scene = createGameScene(
       new FakeContainer() as unknown as HTMLElement,
       LIFECYCLE_BOUNDS,
+      [],
       [],
       [],
       LIFECYCLE_BUILD,
