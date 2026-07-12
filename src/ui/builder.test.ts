@@ -296,8 +296,20 @@ describe('createBuilderScreen (issue #45)', () => {
     expect(disposeSpy).toHaveBeenCalledTimes(1);
 
     // Post-dispose, further store activity must not touch the (now torn
-    // down) preview rig -- the render() subscription was removed.
-    store.addCoins(10);
+    // down) preview rig -- the render() subscription was removed. Unlike
+    // addCoins() alone (which doesn't touch store.build/store.cosmetics, so
+    // builder.ts's own buildsEqual/cosmeticsEqual gate would suppress a
+    // rebuild regardless of whether unsubscribe() actually ran -- issue #56:
+    // that gate made the old version of this test pass even with
+    // unsubscribe() commented out), purchaseTier() below *does* change
+    // store.build -- a change that WOULD cause a rebuild if the render()
+    // subscription were still live. Clearing the spy first, and asserting it
+    // stays uncalled after a real build-changing store action, is what
+    // actually distinguishes "dispose() unsubscribed" from "dispose() didn't."
+    buildTruckRigSpy.mockClear();
+    store.addCoins(1000);
+    store.purchaseTier('wheels', 1);
+    expect(buildTruckRigSpy).not.toHaveBeenCalled();
     expect(disposeSpy).toHaveBeenCalledTimes(1);
 
     screen = { dispose: () => {} }; // afterEach's screen.dispose() is now a no-op guard against double-dispose
