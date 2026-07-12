@@ -34,8 +34,16 @@
 // `terrainHeightAt`) keeps this module test-cheap and dependency-free, same
 // rationale as `TruckFootprint` above.
 import type { ObstacleInstance, Vec2 } from '../types';
-import type { ClimbConfig } from './config';
-import { TRUCK_CONTACT_RADIUS } from './config';
+import type { ClimbConfig, SuspensionConfig } from './config';
+import { DEFAULT_SUSPENSION_CONFIG, TRUCK_CONTACT_RADIUS } from './config';
+
+/** Per-wheel vertical suspension offset (ADR 0018 §3, issue #63) -- see `ClimbTransform.wheelSuspension`. */
+export interface WheelSuspension {
+  fl: number;
+  fr: number;
+  rl: number;
+  rr: number;
+}
 
 export interface ClimbTransform {
   /** Y offset applied to the truck rig group. */
@@ -44,6 +52,18 @@ export interface ClimbTransform {
   pitch: number;
   /** Rotation about the rig's local (post-heading) Z axis. */
   roll: number;
+  /**
+   * Per-wheel vertical travel (ADR 0018 §3, issue #63) layered on top of the
+   * whole-body `{lift,pitch,roll}` above -- the residual of each wheel's own
+   * sampled corner height after the *clamped* rigid plane (the same
+   * `{lift,pitch,roll}` this function already returns) is subtracted out.
+   * Applied to a dedicated `travelPivot` node (render/truck-rig.ts), a pure Y
+   * translation, so it composes with wheel roll/steer-yaw (issue #40) without
+   * any Euler-order interaction (AC9). Stateless, like the whole-body
+   * transform it extends: on flat ground every corner height is 0, so every
+   * residual is 0 (AC11 -- no phantom motion).
+   */
+  wheelSuspension: WheelSuspension;
 }
 
 /**
@@ -109,6 +129,15 @@ function heightField(point: Vec2, obstacle: ObstacleInstance, config: ClimbConfi
  * (obstacle-climb.test.ts's regression guard), or `terrainHeightAt` in
  * production so hills produce the same lift/pitch response as a passable
  * obstacle crossing.
+ *
+ * ADR 0018 §3 (issue #63): also decomposes the same four corner heights into
+ * `wheelSuspension` -- each wheel's residual after the *applied* (clamped)
+ * `{lift,pitch,roll}` plane is subtracted out (see `wheelSuspension`'s own
+ * doc comment on `ClimbTransform`). `suspensionConfig` defaults to
+ * `DEFAULT_SUSPENSION_CONFIG` so every pre-#63 call site (this file's
+ * existing tests, main.ts) needs no change to keep getting byte-identical
+ * `{lift,pitch,roll}` output -- only the new field is added to the return
+ * value.
  */
 export function computeClimbTransform(
   truckPos: Vec2,
@@ -117,9 +146,29 @@ export function computeClimbTransform(
   passable: ObstacleInstance[],
   config: ClimbConfig,
   sampleTerrainHeight: (p: Vec2) => number,
+  suspensionConfig: SuspensionConfig = DEFAULT_SUSPENSION_CONFIG,
 ): ClimbTransform {
   const forward: Vec2 = { x: Math.sin(heading), z: Math.cos(heading) };
-  const right: Vec2 = { x: Math.cos(heading), z: -Math.sin(heading) };
+  // Physical right = Forward x Up (bugfix, #63 live playtest): must match
+  // `core/driving/truck-motion.ts`'s `TruckMotionState.heading` doc comment,
+  // the one other place in `core/` that derives a world direction from
+  // `heading` -- "Given forward = +Z, the truck's physical right side
+  // (Forward x Up) is -X". The previous `{cos(heading), -sin(heading)}` here
+  // was `forward` rotated -90 deg, which at heading 0 evaluates to +X --
+  // the truck's physical LEFT, not right. That silently swapped every
+  // fl/fr and rl/rr corner sample's world position from the side its name
+  // implies. Pre-#63 this was invisible: the only consumer of "left vs
+  // right" was `roll`, gated to 0 by `DEFAULT_CLIMB_CONFIG.maxRoll` in every
+  // shipped config, so the swapped sign never reached the screen. Issue
+  // #63's per-wheel `wheelSuspension` was the first consumer that displays
+  // fl/fr/rl/rr independently, which is what made a live playtester see the
+  // *wrong* side's wheels lift over a one-sided obstacle.
+  // Correct value: `forward` rotated +90 deg = (-cos(heading), sin(heading)),
+  // which is exactly Forward x Up worked out component-wise, and matches
+  // `render/truck-sockets.ts`'s socket table (`wheels[0]`, the socket
+  // `truck-rig.ts` labels `frontLeft`, sits at +X local -- the truck's
+  // physical left per this same convention).
+  const right: Vec2 = { x: -Math.cos(heading), z: Math.sin(heading) };
 
   function cornerWorldPos(zOffset: number, sideSign: 1 | -1): Vec2 {
     return {
@@ -174,5 +223,40 @@ export function computeClimbTransform(
   const pitch = clamp(Math.atan2(rearAvg - frontAvg, wheelbase) * config.tiltGain, config.maxPitch);
   const roll = clamp(Math.atan2(rightAvg - leftAvg, track) * config.tiltGain, config.maxRoll);
 
-  return { lift, pitch, roll };
+  // ADR 0018 §3: the rigid plane actually being *applied* to the rig
+  // (this frame's clamped `lift`/`pitch`/`roll`, exactly as returned above)
+  // reconstructed as a height function of a corner's (z, x) position, so each
+  // wheel's residual is measured against what the body will really show, not
+  // an idealized unclamped fit. `pitch`/`roll` were derived above as
+  // small-angle `atan2` slopes over `wheelbase`/`track`, so the inverse
+  // (`tan`) is the consistent way back to a height-per-unit-distance slope --
+  // verified algebraically (and by this file's own tests) to reproduce
+  // frontAvg/rearAvg/leftAvg/rightAvg exactly when pitch/roll are unclamped
+  // (tiltGain=1): planeHeight(zFront) = lift - tan(pitch)*(zFront-zCenter) =
+  // frontAvg, etc. When pitch/roll ARE clamped (e.g. `maxRoll=0`, the default
+  // anti-chaos guard), the plane under-represents the true corner spread and
+  // the leftover intentionally becomes wheel residual -- exactly the "the
+  // suspension carries the roll-axis articulation the chassis suppresses"
+  // design point (ADR 0018 §3/Consequences).
+  const zCenter = (footprint.zFront + footprint.zRear) / 2;
+  const tanPitch = Math.tan(pitch);
+  const tanRoll = Math.tan(roll);
+
+  function planeHeightAt(zPos: number, sideSign: 1 | -1): number {
+    return lift - tanPitch * (zPos - zCenter) + tanRoll * (sideSign * footprint.halfTrack);
+  }
+
+  function suspensionAt(cornerHeight: number, zPos: number, sideSign: 1 | -1): number {
+    const residual = suspensionConfig.travelGain * (cornerHeight - planeHeightAt(zPos, sideSign));
+    return clamp(residual, suspensionConfig.maxTravel);
+  }
+
+  const wheelSuspension: WheelSuspension = {
+    fl: suspensionAt(cornerHeights.fl, footprint.zFront, -1),
+    fr: suspensionAt(cornerHeights.fr, footprint.zFront, 1),
+    rl: suspensionAt(cornerHeights.rl, footprint.zRear, -1),
+    rr: suspensionAt(cornerHeights.rr, footprint.zRear, 1),
+  };
+
+  return { lift, pitch, roll, wheelSuspension };
 }

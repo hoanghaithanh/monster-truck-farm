@@ -6,6 +6,8 @@ Revised: 2026-07-08 — §2/§3 updated after human review: `FARMER_CREEP_FLOOR`
 Related: `farmer-minimal-bump.md` (backlog #15); ADR 0003 (farmer FSM, which pre-designed this extension), ADR 0004 (gas limp mode), ADR 0005 (limp-fairness stopgap)
 Amends: ADR 0003 §"Farmer speed" / §"Sprint 2 extension", ADR 0005 §"Decision" (its stopgap is now superseded, as ADR 0005 itself anticipated)
 
+Addendum pointer (2026-07-11, ADR 0018 — shared-tunable cross-check, farmer contact geometry): ADR 0018 (bigger truck, issue #52) scales `TRUCK_CONTACT_RADIUS` by a global `TRUCK_SCALE`. Since `isFarmerContact` triggers at `truckRadius + FARMER_CONTACT_RADIUS`, a bigger truck makes farmer bumps connect from slightly further out. Checked explicitly (Sprint-1-retro discipline): this does **not** weaken this ADR's guarantee, which is a *speed* guarantee (`farmerSpeed(v) = max(|v|/3, FARMER_CREEP_FLOOR)`, always outrunnable) independent of contact radius — a wider radius only matters once the farmer is already adjacent. The bounded effect (bumps land marginally easier) is handled as in-scope AC4 re-tuning in ADR 0018 §2: trim `FARMER_CONTACT_RADIUS` to hold the pre-change effective reach if a fairness playtest finds bumps cheap. No change to this ADR's decision.
+
 ## Context
 
 Sprint 1 shipped the minimal farmer (`farmer-minimal-bump.md`): `ABSENT → PURSUING`, chase at a flat `FARMER_SPEED = 4`, bump-on-contact (as an effect, with a ~1s i-frame). ADR 0003 deliberately built the FSM so Sprint 2 could add, additively: a **~10s chase timer**, a **"tired" give-up**, and the **"farmer speed = 1/3 of the truck's current speed"** rule from CLAUDE.md (backlog #15). Two things must be resolved with care:

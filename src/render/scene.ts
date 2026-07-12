@@ -7,7 +7,7 @@ import type { AssetRegistry } from './assets/asset-registry';
 import { ANIMAL_ASSET_KEYS, FARMER_ASSET_KEY, STRUCTURE_ASSET_KEYS, truckAssetKeysForBuild } from './assets/manifest';
 import { createUpgradableObject, type UpgradableObject } from './assets/upgradable-object';
 import { buildTruckRig, type TruckWheelPivots } from './truck-rig';
-import { WHEEL_RADIUS_BY_TIER } from './truck-sockets';
+import { TRUCK_SCALE, WHEEL_RADIUS_BY_TIER } from './truck-sockets';
 
 /**
  * Copies each wheel's current roll/steer angle from `from` onto the matching
@@ -24,6 +24,12 @@ export function carryOverWheelRotations(from: TruckWheelPivots, to: TruckWheelPi
   for (const key of Object.keys(from) as (keyof TruckWheelPivots)[]) {
     to[key].roll.rotation.x = from[key].roll.rotation.x;
     to[key].steer.rotation.y = from[key].steer.rotation.y;
+    // Suspension travel continuity (issue #63/ADR 0018 §4's "carryOverWheelRotations
+    // also carries travel.position.y on rebuild"): without this, an in-place
+    // asset-upgrade rebuild mid-obstacle-crossing would snap every wheel's
+    // vertical offset back to 0 for one frame, the same visible "snap back"
+    // this function already exists to prevent for roll/steer (issue #44).
+    to[key].travel.position.y = from[key].travel.position.y;
   }
 }
 
@@ -843,7 +849,13 @@ export function createGameScene(
   function setTruckTransform(
     position: Vec2,
     heading: number,
-    climb?: { lift: number; pitch: number; roll: number },
+    climb?: {
+      lift: number;
+      pitch: number;
+      roll: number;
+      /** Per-wheel suspension travel (issue #63, ADR 0018 §3) -- optional so pre-#63 callers/fixtures that only pass {lift,pitch,roll} still work, defaulting every wheel to 0. */
+      wheelSuspension?: { fl: number; fr: number; rl: number; rr: number };
+    },
   ): void {
     // Obstacle climb (issue #42, ADR 0013): a dumb adapter over numbers
     // computed in core/driving/obstacle-climb.ts -- this function never
@@ -859,6 +871,19 @@ export function createGameScene(
     // rig's already-yawed local X axis, then roll -- so the tilt reads
     // correctly in the truck's own body frame at any heading.
     truckRig.group.rotation.set(pitch, heading, roll, 'YXZ');
+
+    // Per-wheel suspension travel (issue #63, ADR 0018 §3/§4): a pure Y
+    // translation on each wheel's dedicated `travel` pivot, layered
+    // underneath the whole-body lift/pitch/roll just applied above -- never
+    // touches `steer`/`roll`, so it can't corrupt steering yaw or wheel spin
+    // (AC9). Omitted/undefined (builder preview, any other caller that
+    // doesn't pass `climb`) -> every wheel's offset stays 0, same "single-rig,
+    // preview shows no suspension motion" precedent as the whole-body lift.
+    const suspension = climb?.wheelSuspension;
+    truckRig.wheels.frontLeft.travel.position.y = suspension?.fl ?? 0;
+    truckRig.wheels.frontRight.travel.position.y = suspension?.fr ?? 0;
+    truckRig.wheels.rearLeft.travel.position.y = suspension?.rl ?? 0;
+    truckRig.wheels.rearRight.travel.position.y = suspension?.rr ?? 0;
 
     // Simple chase camera, offset behind the truck's heading. At terrain
     // corners this offset can extend past the finite ground plane, so the
@@ -1168,7 +1193,10 @@ export function createGameScene(
   /** Triggers the bump feedback flash (farmer AC5) as a translucent overlay burst at the truck's current position, decayed in tickEffects -- see the module header note on why this can't mutate the shared paint material. */
   function flashTruck(): void {
     const flashMaterial = new THREE.MeshBasicMaterial({ color: TRUCK_FLASH_COLOR, transparent: true, opacity: 0.85 });
-    const flashMesh = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.2, 2.6), flashMaterial);
+    const flashMesh = new THREE.Mesh(
+      new THREE.BoxGeometry(1.6 * TRUCK_SCALE, 1.2 * TRUCK_SCALE, 2.6 * TRUCK_SCALE),
+      flashMaterial,
+    );
     flashMesh.position.copy(truckRig.group.position);
     flashMesh.position.y += 0.5;
     scene.add(flashMesh);

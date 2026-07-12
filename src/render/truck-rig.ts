@@ -12,24 +12,40 @@ import { socketsForBodyTier } from './truck-sockets';
 import { getWheelLookMaterial, getWheelRimTintMaterial } from './cosmetics/cosmetic-manifest';
 
 /**
- * Per-wheel motion pivots (issue #40, truck-wheel-motion AC1/AC3/AC4/AC6):
- * two nested `THREE.Group`s wrapping the resolved wheel part, so a caller
- * (scene.ts, once per frame) can rotate rolling and steering independently
- * of each other and of the wheel part's own baked-in transforms
- * (fallbackWheel's `rotation.z`, a loaded part's `wheelScale`) -- setting
- * `.rotation.x`/`.rotation.y` directly on the wheel part itself would
+ * Per-wheel motion pivots (issue #40, truck-wheel-motion AC1/AC3/AC4/AC6;
+ * extended issue #63/ADR 0018 §4 with `travel`): nested `THREE.Group`s
+ * wrapping the resolved wheel part, so a caller (scene.ts, once per frame)
+ * can translate/rotate suspension travel, steering, and rolling all
+ * independently of each other and of the wheel part's own baked-in
+ * transforms (fallbackWheel's `rotation.z`, a loaded part's `wheelScale`) --
+ * setting `.position`/`.rotation` directly on the wheel part itself would
  * compose incorrectly with those baked transforms (Three.js's default
  * Euler order means a later `.rotation.z` reorients an earlier `.rotation.x`
  * spin axis, visibly "wobbling" a non-symmetric loaded wheel model instead
- * of rolling cleanly about a fixed axle). `steer` sits at the wheel's socket
- * position and is the one to rotate (`.rotation.y`) for steering yaw --
- * front wheels only (AC4); rear wheels get one too, for structural
- * symmetry, but callers must never set an angle on it (AC6). `roll` is
- * nested inside `steer` (so rolling composes correctly under any current
- * steer angle) and is the one to rotate (`.rotation.x`) for AC1/AC3 --
- * every wheel, always.
+ * of rolling cleanly about a fixed axle).
+ *
+ * The full stack, outer to inner (buildTruckRig's `mountPivot -> travelPivot
+ * -> steerPivot -> rollPivot -> wheel`), only the last three of which are
+ * exposed here (`mountPivot` is purely structural -- it just anchors the
+ * socket position and is never touched per-frame, so callers have nothing to
+ * do with it):
+ * - `travel` (NEW, issue #63): a pure Y-translation for the per-wheel
+ *   suspension offset (`core/driving/obstacle-climb.ts`'s `wheelSuspension`)
+ *   -- sits *above* `steer` specifically so translating it moves the whole
+ *   steer/roll subtree rigidly without any Euler-order interaction (it's a
+ *   translation, not a rotation, so there is nothing for it to corrupt --
+ *   ADR 0018 §4's AC9 mitigation).
+ * - `steer` sits at the wheel's socket-relative origin (position stays at
+ *   the pivot-local origin now that the socket offset lives on `mountPivot`)
+ *   and is the one to rotate (`.rotation.y`) for steering yaw -- front
+ *   wheels only (AC4); rear wheels get one too, for structural symmetry, but
+ *   callers must never set an angle on it (AC6).
+ * - `roll` is nested inside `steer` (so rolling composes correctly under any
+ *   current steer angle, and now also under any current travel offset) and
+ *   is the one to rotate (`.rotation.x`) for AC1/AC3 -- every wheel, always.
  */
 export interface WheelPivots {
+  travel: THREE.Group;
   steer: THREE.Group;
   roll: THREE.Group;
 }
@@ -311,20 +327,28 @@ export function buildTruckRig(
     }
     paintWheel(wheelResult.object, cosmetics.wheelLook);
 
-    // Wheel motion rig (issue #40) -- see WheelPivots' doc comment above for
-    // why this needs two nested pivots rather than rotating wheelResult.object
-    // directly. The socket position lives on `steer` (the outer pivot); the
-    // wheel part itself and `roll` (the inner pivot) both stay at the
-    // pivot-local origin.
+    // Wheel motion rig (issue #40, extended issue #63/ADR 0018 §4) -- see
+    // WheelPivots' doc comment above for why this needs four nested nodes
+    // rather than transforming wheelResult.object directly. The socket
+    // position now lives on `mountPivot` (the outermost, purely structural
+    // node -- never touched per-frame); `travelPivot`, `steerPivot`, the
+    // wheel part, and `roll` (the innermost pivot) all stay at their
+    // pivot-local origin until a caller sets an offset/angle on them.
     const rollPivot = new THREE.Group();
     rollPivot.name = 'WheelRollPivot';
     rollPivot.add(wheelResult.object);
     const steerPivot = new THREE.Group();
     steerPivot.name = 'WheelSteerPivot';
-    steerPivot.position.copy(socket);
     steerPivot.add(rollPivot);
-    group.add(steerPivot);
-    wheelPivots.push({ steer: steerPivot, roll: rollPivot });
+    const travelPivot = new THREE.Group();
+    travelPivot.name = 'WheelTravelPivot';
+    travelPivot.add(steerPivot);
+    const mountPivot = new THREE.Group();
+    mountPivot.name = 'WheelMountPivot';
+    mountPivot.position.copy(socket);
+    mountPivot.add(travelPivot);
+    group.add(mountPivot);
+    wheelPivots.push({ travel: travelPivot, steer: steerPivot, roll: rollPivot });
   }
   const [frontLeft, frontRight, rearLeft, rearRight] = wheelPivots;
 

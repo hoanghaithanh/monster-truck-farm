@@ -60,3 +60,40 @@ describe('AC8/AC9 structural isolation: terrain-height.ts is never imported by t
     expect(source).not.toMatch(/terrain-?[Hh]eight/);
   });
 });
+
+// AC12 (issue #63, ADR 0018 §3/§6): per-wheel suspension is visual-only, the
+// same category of decision already made (and structurally proven above) for
+// the whole-body climb lift/tilt it extends -- it must never influence
+// forward progress, the kinematic sim, or the Rapier collider. Same
+// technique as the AC8/AC9 block above: grep the actual source text rather
+// than trust a comment, so this breaks the instant a future edit threads
+// `wheelSuspension`/suspension-shaped data into the sim/collider modules.
+describe('AC12 structural isolation: per-wheel suspension is never referenced by the sim/collider modules (issue #63)', () => {
+  it('core/driving/truck-motion.ts does not reference wheelSuspension/suspension-travel', () => {
+    const source = readSource('driving/truck-motion.ts');
+    expect(source).not.toMatch(/wheelSuspension|suspension/i);
+  });
+
+  it('core/driving/boundary.ts does not reference wheelSuspension/suspension-travel', () => {
+    const source = readSource('driving/boundary.ts');
+    expect(source).not.toMatch(/wheelSuspension|suspension/i);
+  });
+
+  it('core/clearance.ts does not reference wheelSuspension/suspension-travel', () => {
+    const source = readSource('clearance.ts');
+    expect(source).not.toMatch(/wheelSuspension|suspension/i);
+  });
+
+  it('physics/world.ts (the Rapier collider adapter) does not reference wheelSuspension/suspension-travel', () => {
+    const source = readFileSync(join(CORE_DIR, '..', 'physics', 'world.ts'), 'utf-8');
+    expect(source).not.toMatch(/wheelSuspension|suspension/i);
+  });
+
+  it('integrateTruckMotion has no suspension/travel-shaped parameter in its signature', () => {
+    const source = readSource('driving/truck-motion.ts');
+    const signatureMatch = source.match(/export function integrateTruckMotion\(([\s\S]*?)\):/);
+    expect(signatureMatch).not.toBeNull();
+    const signature = signatureMatch![1];
+    expect(signature).not.toMatch(/suspension/i);
+  });
+});

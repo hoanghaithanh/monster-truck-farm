@@ -300,31 +300,65 @@ describe('buildTruckRig -- sourced-art selective paint & built-in-wheel hiding (
   });
 });
 
-describe('buildTruckRig -- wheel motion pivots (issue #40, truck-wheel-motion AC1/AC3/AC4/AC6)', () => {
-  it('exposes frontLeft/frontRight/rearLeft/rearRight wheel pivots, each positioned at that wheel\'s socket', () => {
+describe('buildTruckRig -- wheel motion pivots (issue #40, truck-wheel-motion AC1/AC3/AC4/AC6; extended issue #63/ADR 0018 §4)', () => {
+  /** Resolves a wheel pivot's world position by walking up to its (unexposed) mountPivot ancestor -- see truck-rig.ts's WheelPivots doc comment: the socket offset now lives on `mountPivot`, one level above `travel`, so `travel.position` itself is always {0,0,0} until a caller sets an offset. */
+  function worldPositionOf(pivot: THREE.Object3D): THREE.Vector3 {
+    const world = new THREE.Vector3();
+    pivot.updateWorldMatrix(true, false);
+    pivot.getWorldPosition(world);
+    return world;
+  }
+
+  it('exposes frontLeft/frontRight/rearLeft/rearRight wheel pivots whose world position starts at that wheel\'s socket (offset now lives on the new mountPivot, not on steer itself)', () => {
     const rig = buildTruckRig({ ...BUILD, body: 1 }, COSMETICS);
     const sockets = BODY_TIER_SOCKETS[1];
     const [flSocket, frSocket, rlSocket, rrSocket] = sockets.wheels;
-    expect(rig.wheels.frontLeft.steer.position.toArray()).toEqual(flSocket.toArray());
-    expect(rig.wheels.frontRight.steer.position.toArray()).toEqual(frSocket.toArray());
-    expect(rig.wheels.rearLeft.steer.position.toArray()).toEqual(rlSocket.toArray());
-    expect(rig.wheels.rearRight.steer.position.toArray()).toEqual(rrSocket.toArray());
+    expect(worldPositionOf(rig.wheels.frontLeft.steer).toArray()).toEqual(flSocket.toArray());
+    expect(worldPositionOf(rig.wheels.frontRight.steer).toArray()).toEqual(frSocket.toArray());
+    expect(worldPositionOf(rig.wheels.rearLeft.steer).toArray()).toEqual(rlSocket.toArray());
+    expect(worldPositionOf(rig.wheels.rearRight.steer).toArray()).toEqual(rrSocket.toArray());
   });
 
-  it('nests roll inside steer, and the resolved wheel part inside roll, so rotating either pivot never touches the wheel part\'s own transform', () => {
+  it('exposes a travel pivot per wheel, positioned above steer (mount -> travel -> steer -> roll -> wheel), starting at local {0,0,0}', () => {
     const rig = buildTruckRig(BUILD, COSMETICS);
     for (const pivots of allWheelPivots(rig)) {
+      expect(pivots.travel.position.toArray()).toEqual([0, 0, 0]);
+      expect(pivots.travel.children).toContain(pivots.steer);
+    }
+  });
+
+  it('nests roll inside steer, steer inside travel, and the resolved wheel part inside roll, so rotating/translating any one pivot never touches another\'s own transform', () => {
+    const rig = buildTruckRig(BUILD, COSMETICS);
+    for (const pivots of allWheelPivots(rig)) {
+      expect(pivots.travel.children).toContain(pivots.steer);
       expect(pivots.steer.children).toContain(pivots.roll);
       expect(pivots.roll.children).toHaveLength(1);
     }
   });
 
-  it('setting roll.rotation.x / steer.rotation.y does not move the wheel off its socket (position lives on steer, unaffected by rotation)', () => {
+  it('setting roll.rotation.x / steer.rotation.y does not move the wheel off its socket (position lives on the new mountPivot, unaffected by rotation)', () => {
     const rig = buildTruckRig({ ...BUILD, body: 1 }, COSMETICS);
     const { steer, roll } = rig.wheels.frontLeft;
-    const before = steer.position.clone();
+    const before = worldPositionOf(steer).clone();
     roll.rotation.x = 1.23;
     steer.rotation.y = 0.4;
-    expect(steer.position.toArray()).toEqual(before.toArray());
+    expect(worldPositionOf(steer).toArray()).toEqual(before.toArray());
+  });
+
+  it('setting travel.position.y moves the wheel\'s world position vertically without moving steer/roll\'s own local transforms (AC9: translation composes independently of roll/steer-yaw)', () => {
+    const rig = buildTruckRig({ ...BUILD, body: 1 }, COSMETICS);
+    const { travel, steer, roll } = rig.wheels.frontLeft;
+    const worldBefore = worldPositionOf(travel);
+    steer.rotation.y = 0.4;
+    roll.rotation.x = 1.23;
+    travel.position.y = 0.25;
+    const worldAfter = worldPositionOf(travel);
+    expect(worldAfter.y).toBeCloseTo(worldBefore.y + 0.25);
+    expect(worldAfter.x).toBeCloseTo(worldBefore.x);
+    expect(worldAfter.z).toBeCloseTo(worldBefore.z);
+    // Steer/roll's own local angles are exactly what was set -- travel's
+    // translation didn't reorient or otherwise corrupt them.
+    expect(steer.rotation.y).toBeCloseTo(0.4);
+    expect(roll.rotation.x).toBeCloseTo(1.23);
   });
 });

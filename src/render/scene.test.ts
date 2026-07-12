@@ -80,6 +80,27 @@ describe('carryOverWheelRotations (issue #44, wheel-roll continuity across the i
     expect(rebuilt.wheels.rearRight.roll.rotation.x).toBeCloseTo(7.77);
   });
 
+  it('also copies every wheel\'s travel.position.y (issue #63, ADR 0018 §4 -- suspension continuity across the in-place rig rebuild)', () => {
+    const outgoing = buildTruckRig(BUILD, COSMETICS);
+    const rebuilt = buildTruckRig(BUILD, COSMETICS);
+
+    outgoing.wheels.frontLeft.travel.position.y = 0.18;
+    outgoing.wheels.frontRight.travel.position.y = -0.05;
+    outgoing.wheels.rearLeft.travel.position.y = 0.02;
+    outgoing.wheels.rearRight.travel.position.y = 0;
+
+    // Sanity check: the rebuilt rig actually starts with zero travel offset,
+    // same "snap back" precedent as the roll/steer test above.
+    expect(rebuilt.wheels.frontLeft.travel.position.y).toBe(0);
+
+    carryOverWheelRotations(outgoing.wheels, rebuilt.wheels);
+
+    expect(rebuilt.wheels.frontLeft.travel.position.y).toBeCloseTo(0.18);
+    expect(rebuilt.wheels.frontRight.travel.position.y).toBeCloseTo(-0.05);
+    expect(rebuilt.wheels.rearLeft.travel.position.y).toBeCloseTo(0.02);
+    expect(rebuilt.wheels.rearRight.travel.position.y).toBeCloseTo(0);
+  });
+
   it('never touches a pivot\'s position -- only rotation is carried over, so the wheel stays on its socket', () => {
     const outgoing = buildTruckRig(BUILD, COSMETICS);
     const rebuilt = buildTruckRig(BUILD, COSMETICS);
