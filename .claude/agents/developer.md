@@ -1,7 +1,7 @@
 ---
 name: developer
 description: Use PROACTIVELY to implement a feature, fix, or refactor once requirements and (for non-trivial work) a design are in place. MUST BE USED for any task that requires writing or editing production code.
-tools: Read, Write, Edit, Bash, Grep, Glob, Agent(architect)
+tools: Read, Write, Edit, Bash, Grep, Glob, Agent(architect), mcp__codebase-memory-mcp__search_graph, mcp__codebase-memory-mcp__trace_path, mcp__codebase-memory-mcp__get_code_snippet, mcp__codebase-memory-mcp__query_graph, mcp__codebase-memory-mcp__get_architecture, mcp__codebase-memory-mcp__search_code
 model: sonnet
 effort: medium
 ---

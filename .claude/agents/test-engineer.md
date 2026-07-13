@@ -1,7 +1,7 @@
 ---
 name: test-engineer
 description: Use PROACTIVELY once a feature or fix is implemented to design and write test coverage, validate the running system against the original acceptance criteria (end-to-end / UAT-style), or assess existing test quality. MUST BE USED before marking work as done if it lacks adequate test coverage or hasn't been validated against acceptance criteria.
-tools: Read, Write, Edit, Bash, Grep, Glob, Agent(requirements-analyst)
+tools: Read, Write, Edit, Bash, Grep, Glob, Agent(requirements-analyst), mcp__codebase-memory-mcp__search_graph, mcp__codebase-memory-mcp__trace_path, mcp__codebase-memory-mcp__get_code_snippet, mcp__codebase-memory-mcp__query_graph, mcp__codebase-memory-mcp__get_architecture, mcp__codebase-memory-mcp__search_code
 model: sonnet
 effort: medium
 ---

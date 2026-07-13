@@ -1,7 +1,7 @@
 ---
 name: architect
 description: Use PROACTIVELY when requirements exist but the technical approach isn't decided — new services, significant features, or any choice between competing designs (e.g. sync vs async, SQL vs NoSQL, monolith vs service boundary). MUST BE USED before implementation starts on non-trivial work.
-tools: Read, Write, Grep, Glob, Bash, Agent(requirements-analyst)
+tools: Read, Write, Grep, Glob, Bash, Agent(requirements-analyst), mcp__codebase-memory-mcp__search_graph, mcp__codebase-memory-mcp__trace_path, mcp__codebase-memory-mcp__get_code_snippet, mcp__codebase-memory-mcp__query_graph, mcp__codebase-memory-mcp__get_architecture, mcp__codebase-memory-mcp__search_code
 model: opus
 effort: high
 ---

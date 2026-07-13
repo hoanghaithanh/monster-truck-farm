@@ -1,7 +1,7 @@
 ---
 name: requirements-analyst
 description: Use PROACTIVELY at the start of any new feature or project to turn a rough idea into clear requirements. MUST BE USED before architecture or implementation begins when requirements are ambiguous, incomplete, or not yet written down.
-tools: Read, Write, Grep, Glob, Bash
+tools: Read, Write, Grep, Glob, Bash, mcp__codebase-memory-mcp__search_graph, mcp__codebase-memory-mcp__get_architecture, mcp__codebase-memory-mcp__search_code
 model: sonnet
 effort: high
 ---

@@ -1,7 +1,7 @@
 ---
 name: code-reviewer
 description: Use PROACTIVELY after code has been written or changed, before it's considered done. MUST BE USED for reviewing diffs, pull requests, or recently modified files for correctness, security, and maintainability.
-tools: Read, Grep, Glob, Bash, Agent(architect)
+tools: Read, Grep, Glob, Bash, Agent(architect), mcp__codebase-memory-mcp__search_graph, mcp__codebase-memory-mcp__trace_path, mcp__codebase-memory-mcp__get_code_snippet, mcp__codebase-memory-mcp__query_graph, mcp__codebase-memory-mcp__get_architecture, mcp__codebase-memory-mcp__search_code
 model: sonnet
 effort: medium
 ---

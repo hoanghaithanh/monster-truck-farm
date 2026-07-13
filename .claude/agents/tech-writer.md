@@ -1,7 +1,7 @@
 ---
 name: tech-writer
 description: Use PROACTIVELY after a feature is implemented and reviewed, to write or update user-facing docs, READMEs, API references, or changelogs. Use when documentation is missing, stale, or inconsistent with the code.
-tools: Read, Write, Edit, Grep, Glob, Agent(developer), Agent(architect)
+tools: Read, Write, Edit, Grep, Glob, Agent(developer), Agent(architect), mcp__codebase-memory-mcp__search_graph, mcp__codebase-memory-mcp__trace_path, mcp__codebase-memory-mcp__get_code_snippet, mcp__codebase-memory-mcp__query_graph, mcp__codebase-memory-mcp__get_architecture, mcp__codebase-memory-mcp__search_code
 model: sonnet
 effort: medium
 ---

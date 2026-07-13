@@ -1,7 +1,7 @@
 ---
 name: security-auditor
 description: Use PROACTIVELY when code handles authentication, authorization, user input, secrets, payments, or PII, or before a release. MUST BE USED for a dedicated security pass on sensitive changes — do not rely on the general code-reviewer agent for deep security review.
-tools: Read, Grep, Glob, Bash, Agent(architect)
+tools: Read, Grep, Glob, Bash, Agent(architect), mcp__codebase-memory-mcp__search_graph, mcp__codebase-memory-mcp__trace_path, mcp__codebase-memory-mcp__get_code_snippet, mcp__codebase-memory-mcp__query_graph, mcp__codebase-memory-mcp__get_architecture, mcp__codebase-memory-mcp__search_code
 model: opus
 effort: high
 ---
