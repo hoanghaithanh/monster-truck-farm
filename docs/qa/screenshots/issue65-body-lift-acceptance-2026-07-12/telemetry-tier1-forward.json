@@ -1,0 +1,19 @@
+{
+  "position": {
+    "x": 0,
+    "z": 18.430930480360985
+  },
+  "heading": 0,
+  "speed": 5.749599999999999,
+  "climb": {
+    "lift": 0,
+    "pitch": 0,
+    "roll": 0,
+    "wheelSuspension": {
+      "fl": 0,
+      "fr": 0,
+      "rl": 0,
+      "rr": 0
+    }
+  }
+}

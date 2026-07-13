@@ -1,0 +1,19 @@
+{
+  "position": {
+    "x": 0,
+    "z": 6
+  },
+  "heading": 0,
+  "speed": 0,
+  "climb": {
+    "lift": 0,
+    "pitch": 0,
+    "roll": 0,
+    "wheelSuspension": {
+      "fl": 0,
+      "fr": 0,
+      "rl": 0,
+      "rr": 0
+    }
+  }
+}

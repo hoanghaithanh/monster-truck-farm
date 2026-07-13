@@ -164,6 +164,52 @@ function scaleSockets(s: TruckSockets, factor: number): TruckSockets {
   };
 }
 
+// Truck-body-lift stance (ADR 0020, issue #65): a single global factor,
+// proposed default 0.6 (playtest range 0.4-0.8), multiplied by *that tier's
+// own* (already-`TRUCK_SCALE`-scaled) wheel radius to get an absolute,
+// per-tier Y offset added to the body-mounted sockets only (body/engine/
+// gasTank -- the engine and gas-tank cues are props positioned relative to
+// the rig group, not parented under the body node, so they must rise by the
+// same amount or they'd be left floating at the old height, detached from
+// the risen body; ADR 0020 §1). Wheels are intentionally left untouched --
+// that is the increased body-to-wheel daylight this feature wants (AC1).
+//
+// Because the lift is `factor * WHEEL_RADIUS_BY_TIER[tier]` and
+// `WHEEL_RADIUS_BY_TIER` is strictly increasing across tiers (0.378 < 0.54 <
+// 0.783 post-TRUCK_SCALE), the lift amplifies rather than flattens the
+// existing Tier 0 < Tier 1 < Tier 2 body-height ordering (AC2 satisfied by
+// construction, ADR 0020 §2) -- pinned by `truck-sockets.test.ts`'s
+// post-lift ordering + constant-overlap-ratio regression tests.
+//
+// Live-render pass (2026-07-12, developer implementing #65, screenshots in
+// docs/qa/screenshots/issue-65-body-lift/): confirmed at 0.6 all three
+// tiers' fender/wheel-well silhouettes still visually cover their tire (no
+// arch separating from the tire, no exposed gap) -- the ADR's proposed
+// default is kept as shipped, no per-tier override needed.
+export const BODY_LIFT_FACTOR = 0.6;
+
+/**
+ * Adds `BODY_LIFT_FACTOR * wheelRadius` to the body-mounted sockets
+ * (`body`/`engine`/`gasTank`) of an already-`TRUCK_SCALE`-scaled
+ * `TruckSockets` -- see the `BODY_LIFT_FACTOR` comment above. `wheelRadius`
+ * must already be `TRUCK_SCALE`-scaled (i.e. this tier's own
+ * `WHEEL_RADIUS_BY_TIER` entry) so the result stays in final world units,
+ * matching `scaleSockets`'s "no double-scaling" property. Wheel sockets are
+ * returned unchanged. A fresh `TruckSockets` is returned, same
+ * never-mutate-the-input discipline as `scaleSockets`.
+ */
+function liftSockets(s: TruckSockets, wheelRadius: number): TruckSockets {
+  const lift = BODY_LIFT_FACTOR * wheelRadius;
+  return {
+    body: s.body.clone().add(new THREE.Vector3(0, lift, 0)),
+    bodyScale: s.bodyScale,
+    wheels: s.wheels.map((w) => w.clone()) as TruckSockets['wheels'],
+    wheelScale: s.wheelScale,
+    engine: s.engine.clone().add(new THREE.Vector3(0, lift, 0)),
+    gasTank: s.gasTank.clone().add(new THREE.Vector3(0, lift, 0)),
+  };
+}
+
 /**
  * Body-tier index (0/1/2) -> its *authored*, un-scaled socket table.
  * Re-authored (2026-07-09) for the sourced body/wheel models -- see module
@@ -205,14 +251,41 @@ const RAW_BODY_TIER_SOCKETS: Record<number, TruckSockets> = {
 };
 
 /**
- * Body-tier index (0/1/2) -> its `TRUCK_SCALE`-scaled socket table (ADR 0018
- * §1, issue #62). Every caller (`buildTruckRig`, `footprintForBodyTier`,
- * camera framing, etc.) reads this scaled table, not `RAW_BODY_TIER_SOCKETS`
- * -- the size factor lives in one place and every downstream consumer picks
- * it up automatically with zero call-site edits.
+ * Ground-clearance reference per body tier -- the wheel radius baked into
+ * that tier's socket table, so callers (fallback geometry, camera framing)
+ * can match it without duplicating the numbers. Re-tuned (2026-07-09) for
+ * the sourced wheel models -- a clear Base/Off-road/Monster progression
+ * (0.28 / 0.4 / 0.58), same relative growth shape as the old
+ * procedurally-authored 0.3/0.4/0.5 but re-based against the real tire
+ * models' own raw radius. `RAW_WHEEL_RADIUS_BY_TIER` is the authored,
+ * un-scaled source; the exported table is scaled by `TRUCK_SCALE` (ADR 0018
+ * §1, issue #62), same pattern as `BODY_TIER_SOCKETS`/`RAW_BODY_TIER_SOCKETS`
+ * above. Defined ahead of `BODY_TIER_SOCKETS` (2026-07-12, ADR 0020/issue
+ * #65) because that table's own derivation now needs each tier's scaled
+ * wheel radius to compute `BODY_LIFT_FACTOR * wheelRadius` (`liftSockets`).
+ */
+const RAW_WHEEL_RADIUS_BY_TIER: Record<number, number> = { 0: 0.28, 1: 0.4, 2: 0.58 };
+
+export const WHEEL_RADIUS_BY_TIER: Record<number, number> = Object.fromEntries(
+  Object.entries(RAW_WHEEL_RADIUS_BY_TIER).map(([tier, radius]) => [Number(tier), radius * TRUCK_SCALE]),
+);
+
+/**
+ * Body-tier index (0/1/2) -> its `TRUCK_SCALE`-scaled AND `BODY_LIFT_FACTOR`-
+ * lifted socket table (ADR 0018 §1 / issue #62, ADR 0020 / issue #65). Every
+ * caller (`buildTruckRig`, `footprintForBodyTier`, camera framing, etc.)
+ * reads this scaled+lifted table, not `RAW_BODY_TIER_SOCKETS` -- both
+ * factors live in one place and every downstream consumer picks them up
+ * automatically with zero call-site edits. `liftSockets` runs *after*
+ * `scaleSockets` (ADR 0020 §1 -- lift is computed from the already-scaled
+ * `WHEEL_RADIUS_BY_TIER`, so everything stays in final world units, no
+ * double-scaling).
  */
 export const BODY_TIER_SOCKETS: Record<number, TruckSockets> = Object.fromEntries(
-  Object.entries(RAW_BODY_TIER_SOCKETS).map(([tier, raw]) => [Number(tier), scaleSockets(raw, TRUCK_SCALE)]),
+  Object.entries(RAW_BODY_TIER_SOCKETS).map(([tier, raw]) => {
+    const tierNumber = Number(tier);
+    return [tierNumber, liftSockets(scaleSockets(raw, TRUCK_SCALE), WHEEL_RADIUS_BY_TIER[tierNumber])];
+  }),
 );
 
 /** Fallback socket table for an out-of-range tier index -- never crash on an unexpected build value (ADR 0010 §7's forgiving-fallback spirit). */
@@ -248,21 +321,3 @@ export function footprintForBodyTier(tier: number): TruckFootprint {
   const s = socketsForBodyTier(tier);
   return { halfTrack: Math.abs(s.wheels[0].x), zFront: s.wheels[0].z, zRear: s.wheels[2].z };
 }
-
-/**
- * Ground-clearance reference per body tier -- the wheel radius baked into
- * that tier's socket table, so callers (fallback geometry, camera framing)
- * can match it without duplicating the numbers. Re-tuned (2026-07-09) for
- * the sourced wheel models -- a clear Base/Off-road/Monster progression
- * (0.28 / 0.4 / 0.58), same relative growth shape as the old
- * procedurally-authored 0.3/0.4/0.5 but re-based against the real tire
- * models' own raw radius. `RAW_WHEEL_RADIUS_BY_TIER` is the authored,
- * un-scaled source; the exported table is scaled by `TRUCK_SCALE` (ADR 0018
- * §1, issue #62), same pattern as `BODY_TIER_SOCKETS`/`RAW_BODY_TIER_SOCKETS`
- * above.
- */
-const RAW_WHEEL_RADIUS_BY_TIER: Record<number, number> = { 0: 0.28, 1: 0.4, 2: 0.58 };
-
-export const WHEEL_RADIUS_BY_TIER: Record<number, number> = Object.fromEntries(
-  Object.entries(RAW_WHEEL_RADIUS_BY_TIER).map(([tier, radius]) => [Number(tier), radius * TRUCK_SCALE]),
-);

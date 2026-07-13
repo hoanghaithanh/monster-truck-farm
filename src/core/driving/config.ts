@@ -156,12 +156,25 @@ export interface SuspensionConfig {
 }
 
 // Proposed defaults per ADR 0018 §3/Open Question 2: travelGain 1.0 is the
-// geometrically-honest "plant on contact" default (no exaggeration/damping);
-// maxTravel ~0.25 world units is a first-pass guess pending a live playtest
-// pass against rock/bush/derelict-car screenshots, same "implemented-with-
-// defaults, confirm by playtest" treatment already applied to TRUCK_SCALE and
-// DEFAULT_CLIMB_CONFIG above -- not a final, code-inspection-only value.
+// geometrically-honest "plant on contact" default (no exaggeration/damping).
+//
+// maxTravel re-tuned 2026-07-12 (ADR 0020 §4 / issue #65, truck body lift):
+// the lift raises the static body-to-wheel baseline gap by
+// `BODY_LIFT_FACTOR * wheelRadius`, which shrinks each wheel's retained
+// fender overlap to `(1 - BODY_LIFT_FACTOR) * r`. Because maxTravel is the
+// room a *downward* suspension residual has before the tire un-tucks from
+// the fender and reads as detached (AC5), it must respect
+// `maxTravel <= (1 - BODY_LIFT_FACTOR) * r_min` -- at BODY_LIFT_FACTOR=0.6
+// and the smallest tier's wheel radius (tier 0, 0.378 world units post-
+// TRUCK_SCALE), that bound is ~0.151. The prior 0.25 default exceeded this
+// on tiers 0 (0.151) and 1 (0.216) -- a full down-travel could have dropped
+// the tire below the fender skirt. Lowered to 0.15, a safe single-constant
+// default that stays clearly legible against the new, larger baseline gap
+// (the whole point of AC3) without risking detachment on any tier. See
+// `render/truck-sockets.ts`'s `BODY_LIFT_FACTOR` for the paired constant --
+// if either is retuned, re-check this relationship (Sprint-1-retro shared-
+// tunable discipline, ADR 0018 §3's dated addendum / ADR 0020 §4).
 export const DEFAULT_SUSPENSION_CONFIG: SuspensionConfig = {
   travelGain: 1.0,
-  maxTravel: 0.25,
+  maxTravel: 0.15,
 };

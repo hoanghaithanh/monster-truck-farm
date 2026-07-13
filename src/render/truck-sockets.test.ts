@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BODY_LIFT_FACTOR,
   BODY_TIER_SOCKETS,
   DEFAULT_SOCKETS,
   TRUCK_SCALE,
@@ -7,6 +8,11 @@ import {
   socketsForBodyTier,
   footprintForBodyTier,
 } from './truck-sockets';
+
+/** `BODY_LIFT_FACTOR * WHEEL_RADIUS_BY_TIER[tier]` -- the absolute per-tier Y offset ADR 0020 adds to the body/engine/gasTank sockets only (issue #65). */
+function liftFor(tier: number): number {
+  return BODY_LIFT_FACTOR * WHEEL_RADIUS_BY_TIER[tier];
+}
 
 // Note (2026-07-11, ADR 0018 §1 / issue #62): every pinned value below is now
 // expressed as `<authored raw number> * TRUCK_SCALE` rather than a bare
@@ -23,6 +29,13 @@ import {
 // connecting left rear wheel to truck body"); see truck-sockets.ts's module
 // header for the live-measured derivation of the new numbers. Every other
 // pinned value below is unaffected.
+//
+// Update (2026-07-12, issue #65, ADR 0020): `body.y`/`engine.y`/`gasTank.y`
+// pinned values below now include the added truck-body-lift stance offset
+// (`BODY_LIFT_FACTOR * WHEEL_RADIUS_BY_TIER[tier]`, this file's `liftFor`
+// helper) on top of the pre-existing `<raw> * TRUCK_SCALE` term -- every
+// wheel position and every X/Z value is unaffected by the lift (wheels stay
+// ground-relative, ADR 0020 §1).
 
 describe('BODY_TIER_SOCKETS[2] (issue #38, tier-2 front/rear wheel-well fix)', () => {
   // Values re-derived against the tier-2 body's own built-in
@@ -63,7 +76,7 @@ describe('BODY_TIER_SOCKETS full-value regression (issue #36)', () => {
   it('tier 0 matches its authored values (scaled by TRUCK_SCALE)', () => {
     const tier0 = BODY_TIER_SOCKETS[0];
     expect(tier0.body.x).toBe(0);
-    expect(tier0.body.y).toBeCloseTo(0.1001 * TRUCK_SCALE, 4);
+    expect(tier0.body.y).toBeCloseTo(0.1001 * TRUCK_SCALE + liftFor(0), 4);
     expect(tier0.body.z).toBe(0);
     expect(tier0.bodyScale).toBeCloseTo(0.3475 * TRUCK_SCALE, 4);
 
@@ -83,17 +96,17 @@ describe('BODY_TIER_SOCKETS full-value regression (issue #36)', () => {
 
     expect(tier0.wheelScale).toBeCloseTo(0.5207 * TRUCK_SCALE, 4);
     expect(tier0.engine.x).toBe(0);
-    expect(tier0.engine.y).toBeCloseTo(0.6851 * TRUCK_SCALE, 4);
+    expect(tier0.engine.y).toBeCloseTo(0.6851 * TRUCK_SCALE + liftFor(0), 4);
     expect(tier0.engine.z).toBeCloseTo(0.648 * TRUCK_SCALE, 4);
     expect(tier0.gasTank.x).toBeCloseTo(0.23 * TRUCK_SCALE, 4);
-    expect(tier0.gasTank.y).toBeCloseTo(0.4089 * TRUCK_SCALE, 4);
+    expect(tier0.gasTank.y).toBeCloseTo(0.4089 * TRUCK_SCALE + liftFor(0), 4);
     expect(tier0.gasTank.z).toBeCloseTo(-0.612 * TRUCK_SCALE, 4);
   });
 
   it('tier 1 matches its authored values (scaled by TRUCK_SCALE)', () => {
     const tier1 = BODY_TIER_SOCKETS[1];
     expect(tier1.body.x).toBe(0);
-    expect(tier1.body.y).toBeCloseTo(0.3111 * TRUCK_SCALE, 4);
+    expect(tier1.body.y).toBeCloseTo(0.3111 * TRUCK_SCALE + liftFor(1), 4);
     expect(tier1.body.z).toBe(0);
     expect(tier1.bodyScale).toBeCloseTo(0.3724 * TRUCK_SCALE, 4);
 
@@ -113,17 +126,17 @@ describe('BODY_TIER_SOCKETS full-value regression (issue #36)', () => {
 
     expect(tier1.wheelScale).toBeCloseTo(0.7166 * TRUCK_SCALE, 4);
     expect(tier1.engine.x).toBe(0);
-    expect(tier1.engine.y).toBeCloseTo(0.9743 * TRUCK_SCALE, 4);
+    expect(tier1.engine.y).toBeCloseTo(0.9743 * TRUCK_SCALE + liftFor(1), 4);
     expect(tier1.engine.z).toBeCloseTo(0.738 * TRUCK_SCALE, 4);
     expect(tier1.gasTank.x).toBeCloseTo(0.325 * TRUCK_SCALE, 4);
-    expect(tier1.gasTank.y).toBeCloseTo(0.5827 * TRUCK_SCALE, 4);
+    expect(tier1.gasTank.y).toBeCloseTo(0.5827 * TRUCK_SCALE + liftFor(1), 4);
     expect(tier1.gasTank.z).toBeCloseTo(-0.697 * TRUCK_SCALE, 4);
   });
 
   it('tier 2 matches its authored values (body/bodyScale/wheelScale/engine/gasTank not covered by the #38 describe block above; scaled by TRUCK_SCALE)', () => {
     const tier2 = BODY_TIER_SOCKETS[2];
     expect(tier2.body.x).toBe(0);
-    expect(tier2.body.y).toBeCloseTo(0.5059 * TRUCK_SCALE, 4);
+    expect(tier2.body.y).toBeCloseTo(0.5059 * TRUCK_SCALE + liftFor(2), 4);
     expect(tier2.body.z).toBe(0);
     expect(tier2.bodyScale).toBeCloseTo(0.4125 * TRUCK_SCALE, 4);
 
@@ -139,11 +152,66 @@ describe('BODY_TIER_SOCKETS full-value regression (issue #36)', () => {
 
     expect(tier2.wheelScale).toBeCloseTo(1.039 * TRUCK_SCALE, 4);
     expect(tier2.engine.x).toBe(0);
-    expect(tier2.engine.y).toBeCloseTo(1.569 * TRUCK_SCALE, 4);
+    expect(tier2.engine.y).toBeCloseTo(1.569 * TRUCK_SCALE + liftFor(2), 4);
     expect(tier2.engine.z).toBeCloseTo(0.828 * TRUCK_SCALE, 4);
     expect(tier2.gasTank.x).toBeCloseTo(0.445 * TRUCK_SCALE, 4);
-    expect(tier2.gasTank.y).toBeCloseTo(0.8947 * TRUCK_SCALE, 4);
+    expect(tier2.gasTank.y).toBeCloseTo(0.8947 * TRUCK_SCALE + liftFor(2), 4);
     expect(tier2.gasTank.z).toBeCloseTo(-0.782 * TRUCK_SCALE, 4);
+  });
+});
+
+describe('BODY_LIFT_FACTOR (ADR 0020, issue #65): truck-body-lift stance', () => {
+  it('is within the ADR\'s proposed default/playtest range (0.4-0.8, proposed 0.6)', () => {
+    expect(BODY_LIFT_FACTOR).toBeGreaterThanOrEqual(0.4);
+    expect(BODY_LIFT_FACTOR).toBeLessThanOrEqual(0.8);
+  });
+
+  it('preserves strict Tier 0 < Tier 1 < Tier 2 body-Y ordering after the lift (AC2, satisfied by construction per ADR 0020 §2)', () => {
+    expect(BODY_TIER_SOCKETS[0].body.y).toBeLessThan(BODY_TIER_SOCKETS[1].body.y);
+    expect(BODY_TIER_SOCKETS[1].body.y).toBeLessThan(BODY_TIER_SOCKETS[2].body.y);
+  });
+
+  it('lifts each tier\'s body by exactly BODY_LIFT_FACTOR * that tier\'s own (TRUCK_SCALE-scaled) wheel radius, an absolute amount that grows with tier size', () => {
+    for (const tier of [0, 1, 2]) {
+      const raw = { 0: 0.1001, 1: 0.3111, 2: 0.5059 }[tier as 0 | 1 | 2];
+      const lift = BODY_TIER_SOCKETS[tier].body.y - raw * TRUCK_SCALE;
+      expect(lift).toBeCloseTo(BODY_LIFT_FACTOR * WHEEL_RADIUS_BY_TIER[tier], 6);
+    }
+    // Strictly increasing absolute lift, since WHEEL_RADIUS_BY_TIER is strictly increasing.
+    const lift0 = BODY_LIFT_FACTOR * WHEEL_RADIUS_BY_TIER[0];
+    const lift1 = BODY_LIFT_FACTOR * WHEEL_RADIUS_BY_TIER[1];
+    const lift2 = BODY_LIFT_FACTOR * WHEEL_RADIUS_BY_TIER[2];
+    expect(lift0).toBeLessThan(lift1);
+    expect(lift1).toBeLessThan(lift2);
+  });
+
+  it('keeps a constant retained fender-overlap ratio (1 - BODY_LIFT_FACTOR) across all 3 tiers, so the stance reads consistently (ADR 0020 §3)', () => {
+    for (const tier of [0, 1, 2]) {
+      const overlap = (1 - BODY_LIFT_FACTOR) * WHEEL_RADIUS_BY_TIER[tier];
+      const lift = BODY_LIFT_FACTOR * WHEEL_RADIUS_BY_TIER[tier];
+      // overlap + lift should reconstruct exactly the tier's own wheel radius.
+      expect(overlap + lift).toBeCloseTo(WHEEL_RADIUS_BY_TIER[tier], 6);
+    }
+  });
+
+  it('leaves every wheel socket (all 4, X/Y/Z) completely unchanged by the lift -- wheels stay ground-relative (ADR 0020 §1)', () => {
+    for (const tier of [0, 1, 2]) {
+      for (const wheel of BODY_TIER_SOCKETS[tier].wheels) {
+        // Wheel Y must equal this tier's own ground-relative wheel radius, not a lifted value.
+        expect(wheel.y).toBeCloseTo(WHEEL_RADIUS_BY_TIER[tier], 6);
+      }
+    }
+  });
+
+  it('moves engine and gasTank sockets by exactly the same lift amount as body (rigid {body, engine, gasTank} shift, ADR 0020 §1)', () => {
+    for (const tier of [0, 1, 2]) {
+      const sockets = BODY_TIER_SOCKETS[tier];
+      const rawEngineY = { 0: 0.6851, 1: 0.9743, 2: 1.569 }[tier as 0 | 1 | 2];
+      const rawGasTankY = { 0: 0.4089, 1: 0.5827, 2: 0.8947 }[tier as 0 | 1 | 2];
+      const lift = BODY_LIFT_FACTOR * WHEEL_RADIUS_BY_TIER[tier];
+      expect(sockets.engine.y - rawEngineY * TRUCK_SCALE).toBeCloseTo(lift, 4);
+      expect(sockets.gasTank.y - rawGasTankY * TRUCK_SCALE).toBeCloseTo(lift, 4);
+    }
   });
 });
 
