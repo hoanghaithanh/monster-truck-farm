@@ -105,7 +105,8 @@ export function stepTruck(t: Truck, input: DriveInput, stats: TruckStats, dt: nu
     const dYaw = input.steer * 5.2 * dt;
     t.heading -= dYaw;
     t.spin += Math.abs(dYaw);
-    t.flip += input.throttle * 5.6 * dt;
+    // Backflips are deliberate: pull back (brake) in the air. Holding the gas does nothing.
+    if (input.throttle < 0) t.flip -= 6.2 * dt;
     t.slip = 0;
     t.driftTime = 0;
   }

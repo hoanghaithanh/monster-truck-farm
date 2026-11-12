@@ -42,7 +42,7 @@ export function groundHeight(x: number, z: number): number {
   h = lerp(h, 0.7, 1 - smoothstep(2.2, 5, dPond));
   // Rim of hills hides the world edge.
   const r = Math.hypot(x, z);
-  if (r > 106) h += ((r - 106) / 13) ** 2 * 11;
+  if (r > 106) h += 26 * (1 - Math.exp(-(((r - 106) / 22) ** 2)));
   return h;
 }
 

@@ -67,7 +67,8 @@ export class Sim {
   private happeningCount = 0;
   private blockedCooldown = 0;
   private prevDrift = 0;
-  private assists: boolean;
+  /** Aim-assist + generous boop radius; can be toggled mid-run. */
+  assists: boolean;
 
   constructor(loadout: Loadout, opts: SimOptions = {}) {
     this.rng = mulberry32(opts.seed ?? (Math.random() * 2 ** 32) >>> 0);
@@ -158,6 +159,11 @@ export class Sim {
   }
 
   // ------------------------------------------------------------ step
+
+  /** Garage ambience: animals mill about, nothing else happens. */
+  idle(dt: number): void {
+    for (const a of this.animals) stepAnimal(a, dt, 1e4, 1e4, 0, this.rng);
+  }
 
   step(rawInput: DriveInput, dt: number): void {
     if (this.over) return;

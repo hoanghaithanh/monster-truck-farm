@@ -3,10 +3,7 @@ import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  // scripts/ holds one-off Node dev tooling (e.g. regenerating the ADR 0010
-  // test-fixture .glb) -- plain Node JS, not part of the app's TS/browser
-  // lint scope.
-  { ignores: ['dist/**', 'node_modules/**', 'scripts/**'] },
+  { ignores: ['dist/**', 'node_modules/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -16,22 +13,20 @@ export default tseslint.config(
     },
   },
   {
-    // ADR 0001 boundary: core/ is pure TypeScript and must never import the
-    // rendering or physics engines. This is the seam that keeps core/ unit
-    // testable in Vitest without a browser or WASM context.
+    // core/ is the headless simulation: pure TypeScript that must never import
+    // the renderer, audio, input or UI. That seam is what lets Vitest (and the
+    // bot runs in core.test.ts) play whole games without a browser.
     files: ['src/core/**/*.ts'],
     rules: {
       'no-restricted-imports': [
         'error',
         {
           paths: [
-            { name: 'three', message: 'core/ must not import three — keep rendering out of pure simulation code (see ADR 0001).' },
-            { name: '@dimforge/rapier3d-compat', message: 'core/ must not import Rapier — keep physics out of pure simulation code (see ADR 0001).' },
+            { name: 'three', message: 'core/ must not import three: keep rendering out of the simulation.' },
           ],
           patterns: [
-            { group: ['three/*'], message: 'core/ must not import three (see ADR 0001).' },
-            { group: ['../physics/*', '../../physics/*', '**/physics/**'], message: 'core/ must not import the physics adapter (see ADR 0001).' },
-            { group: ['../render/*', '../../render/*', '**/render/**'], message: 'core/ must not import the render layer (see ADR 0001).' },
+            { group: ['three/*'], message: 'core/ must not import three.' },
+            { group: ['**/render/**', '**/audio/**', '**/ui/**', '**/input/**'], message: 'core/ must not import presentation layers.' },
           ],
         },
       ],
