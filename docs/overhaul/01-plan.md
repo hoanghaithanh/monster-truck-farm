@@ -46,6 +46,6 @@ Palette: grass `#7ed957` / `#5fc24a`, path `#f2c98a`, water `#4fd0e8`, sky `#6ec
 
 ## Performance budget
 
-- 60 fps on mid laptop @1080p on Medium. Draw calls < 300, triangles < 400k.
+- 60 fps on mid laptop @1080p on Medium. ~~Draw calls < 300, triangles < 400k.~~ **Revised 2026-11-12 after measuring:** ~230 draw calls and ~1.25M triangles per frame on High (including the shadow pass), ~90 calls / ~0.63M on Low. The 400k target was unrealistic for a dense instanced world; see the report.
 - Quality Low/Med/High toggles shadows, bloom, grass density, particle caps, pixel ratio; auto-picked from a frame-time probe.
-- Download: JS only, **< 350 kB gzipped total** (was ~5 MB of models + 2 MB WASM). No model/texture/audio files.
+- Download: JS only, **< 350 kB gzipped total** (actual: ~185 kB) (was ~5 MB of models + 2 MB WASM). No model/texture/audio files.

@@ -464,7 +464,7 @@ export class Game {
     const fl = (this.flipVis = t.grounded ? damp(Math.atan2(Math.sin(this.flipVis), Math.cos(this.flipVis)), 0, 16, rawDt) : t.flip);
     g.position.set(t.x - Math.sin(t.heading) * c * Math.sin(fl), t.y + c * (1 - Math.cos(fl)), t.z - Math.cos(t.heading) * c * Math.sin(fl));
     g.rotation.set(fl, t.heading, 0);
-    g.visible = sim.invuln <= 0 || Math.floor(sim.invuln * 12) % 2 === 0;
+    g.visible = sim.invuln <= 0 || Math.floor(sim.invuln * 16) % 4 !== 0; // quick flicker while invulnerable
     this.truck.update(dt, { speed: fwd, steer: t.steer, throttle: input.throttle, boosting: t.boosting, grounded: t.grounded, nitro: t.nitro / sim.stats.nitro, wheelLift: lifts, slip: t.slip });
     SHARED.uTruck.value.set(t.x, t.y, t.z);
 
