@@ -1,0 +1,10 @@
+# Homelab deployment: `docker compose up -d --build`, then point the tunnel's
+# public hostname at http://localhost:8087 (or http://monster-truck-farm:80 if
+# cloudflared runs in Docker on the same network).
+services:
+  monster-truck-farm:
+    build: .
+    container_name: monster-truck-farm
+    restart: unless-stopped
+    ports:
+      - "8087:80"
