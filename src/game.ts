@@ -101,7 +101,8 @@ export class Game {
     this.summary = new Summary(this.root, () => this.enterGarage(), () => this.startRun(), () => this.audio.tick(), (m) => (m >= 0 ? this.audio.fanfare() : this.audio.mission()));
     this.pause = new PauseMenu(this.root, this.save.settings, {
       onResume: () => this.setPaused(false),
-      onQuit: () => { this.setPaused(false); this.enterGarage(); },
+      // Leaving early still banks everything earned so far.
+      onQuit: () => { const midRun = this.state === 'run'; this.setPaused(false); if (midRun) this.bankRun(); this.enterGarage(); },
       onChange: () => this.applySettings(),
     });
     this.hud.pauseBtn.addEventListener('click', () => this.setPaused(true));
@@ -299,15 +300,22 @@ export class Game {
     if (reason === 'sunset') { this.hud.toast('🌇 SUNSET!', 'big'); this.confetti(80); } else { this.hud.toast('BUSTED!', 'big bad'); this.audio.womp(); }
   }
 
-  private showSummary(): void {
+  /** Pays the current run's coins into the save. Returns whether it set a new best score. */
+  private bankRun(): boolean {
     const sim = this.sim, s = this.save;
-    const total = sim.coins + sim.styleCoins, score = sim.score, newBest = score > s.best;
-    s.coins += total;
+    const score = sim.score, newBest = score > s.best;
+    s.coins += sim.coins + sim.styleCoins;
     s.runs++;
     s.lastBusted = sim.over === 'busted';
     if (newBest) s.best = score;
     s.bestMedal = Math.max(s.bestMedal, medalFor(score));
     persist(window.localStorage, s);
+    return newBest;
+  }
+
+  private showSummary(): void {
+    const sim = this.sim, s = this.save;
+    const score = sim.score, newBest = this.bankRun();
     this.state = 'summary';
     this.hud.show(false);
     this.input.setTouchVisible(false);
