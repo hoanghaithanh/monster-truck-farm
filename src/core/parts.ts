@@ -9,26 +9,26 @@ export const PARTS: Record<Axis, PartTier[]> = {
   body: [
     { name: 'Pickup', cost: 0, blurb: '3 hearts' },
     { name: 'Bruiser', cost: 45, blurb: '4 hearts + roll bar' },
-    { name: 'Crusher', cost: 240, blurb: '5 hearts + light bar' },
-    { name: 'Titan', cost: 850, blurb: '6 hearts + neon glow' },
+    { name: 'Crusher', cost: 450, blurb: '5 hearts + light bar' },
+    { name: 'Titan', cost: 1700, blurb: '6 hearts + neon glow' },
   ],
   wheels: [
     { name: 'Street', cost: 0, blurb: 'Smash hay & fences' },
     { name: 'Mudders', cost: 30, blurb: 'Smash rocks' },
-    { name: 'Monsters', cost: 200, blurb: 'Smash boulders' },
-    { name: 'Mega Crushers', cost: 750, blurb: 'Crush old cars!' },
+    { name: 'Monsters', cost: 400, blurb: 'Smash boulders' },
+    { name: 'Mega Crushers', cost: 1500, blurb: 'Crush old cars!' },
   ],
   engine: [
     { name: 'Putt-Putt', cost: 0, blurb: 'Zoom' },
     { name: 'V8', cost: 40, blurb: 'Zoom zoom' },
-    { name: 'Blower', cost: 240, blurb: 'ZOOM' },
-    { name: 'Rocket', cost: 850, blurb: 'ZOOOOOM!!' },
+    { name: 'Blower', cost: 450, blurb: 'ZOOM' },
+    { name: 'Rocket', cost: 1700, blurb: 'ZOOOOOM!!' },
   ],
   tank: [
     { name: 'Lil Can', cost: 0, blurb: 'A puff of nitro' },
     { name: 'Twin Cans', cost: 30, blurb: 'More nitro' },
-    { name: 'Big Bottles', cost: 180, blurb: 'Lots of nitro' },
-    { name: 'Mega Nitro', cost: 650, blurb: 'Nitro for days' },
+    { name: 'Big Bottles', cost: 350, blurb: 'Lots of nitro' },
+    { name: 'Mega Nitro', cost: 1300, blurb: 'Nitro for days' },
   ],
 };
 

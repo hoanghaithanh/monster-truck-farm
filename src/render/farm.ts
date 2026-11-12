@@ -71,7 +71,7 @@ function buildGround(): THREE.Mesh {
 }
 
 function buildWater(): THREE.Mesh {
-  const seg = 180;
+  const seg = 120;
   const geo = new THREE.PlaneGeometry(EXTENT * 2, EXTENT * 2, seg, seg);
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position;
@@ -150,9 +150,9 @@ function buildGrass(): THREE.InstancedMesh {
 
 function buildFlowers(): THREE.InstancedMesh {
   const geo = merged([
-    { geo: ball(0.16, 8, 6), color: C.white, pos: [0, 0.42, 0], scale: [1, 0.55, 1] },
-    { geo: ball(0.08, 6, 5), color: C.sun, pos: [0, 0.48, 0] },
-    { geo: cyl(0.025, 0.025, 0.42, 5), color: C.leafDark, pos: [0, 0.21, 0] },
+    { geo: ball(0.16, 6, 4), color: C.white, pos: [0, 0.42, 0], scale: [1, 0.55, 1] },
+    { geo: ball(0.08, 5, 3), color: C.sun, pos: [0, 0.48, 0] },
+    { geo: cyl(0.025, 0.025, 0.42, 3), color: C.leafDark, pos: [0, 0.21, 0] },
   ]);
   const rng = mulberry32(5);
   const tints = [0xffffff, 0xff9fcf, 0xffe066, 0xc9a6ff, 0xff7a7a, 0x9fe3ff];
@@ -167,7 +167,11 @@ function buildFlowers(): THREE.InstancedMesh {
       items.push({ x, y: h, z, rot: rng() * TAU, s: range(rng, 0.9, 1.6), color: tint });
     }
   }
-  return instanced(geo, windify(MAT.vinyl.clone(), 0.2, 1), items, false);
+  // Shuffle so a reduced instance count thins the drifts evenly.
+  for (let i = items.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [items[i], items[j]] = [items[j], items[i]]; }
+  const im = instanced(geo, windify(MAT.vinyl.clone(), 0.2, 1), items, false);
+  im.userData.full = items.length;
+  return im;
 }
 
 function buildCrops(): THREE.Object3D {
@@ -182,12 +186,12 @@ function buildCrops(): THREE.Object3D {
     { geo: cone(0.08, 0.35, 5), color: C.hay, pos: [0, 2.55, 0] },
   ]);
   const wheat = merged([
-    { geo: cyl(0.03, 0.04, 1.0, 5), color: C.hayDark, pos: [0, 0.5, 0] },
-    { geo: ball(0.09, 6, 5), color: C.hay, pos: [0, 1.1, 0], scale: [1, 2.6, 1] },
-    { geo: cyl(0.03, 0.04, 0.9, 5), color: C.hayDark, pos: [0.16, 0.45, 0.1], rot: [0.15, 0, -0.2] },
-    { geo: ball(0.08, 6, 5), color: C.hay, pos: [0.26, 0.98, 0.17], scale: [1, 2.6, 1] },
-    { geo: cyl(0.03, 0.04, 0.95, 5), color: C.hayDark, pos: [-0.14, 0.47, -0.1], rot: [-0.15, 0, 0.2] },
-    { geo: ball(0.08, 6, 5), color: C.hay, pos: [-0.24, 1.02, -0.17], scale: [1, 2.6, 1] },
+    { geo: cyl(0.03, 0.04, 1.0, 3), color: C.hayDark, pos: [0, 0.5, 0] },
+    { geo: ball(0.09, 5, 3), color: C.hay, pos: [0, 1.1, 0], scale: [1, 2.6, 1] },
+    { geo: cyl(0.03, 0.04, 0.9, 3), color: C.hayDark, pos: [0.16, 0.45, 0.1], rot: [0.15, 0, -0.2] },
+    { geo: ball(0.08, 5, 3), color: C.hay, pos: [0.26, 0.98, 0.17], scale: [1, 2.6, 1] },
+    { geo: cyl(0.03, 0.04, 0.95, 3), color: C.hayDark, pos: [-0.14, 0.47, -0.1], rot: [-0.15, 0, 0.2] },
+    { geo: ball(0.08, 5, 3), color: C.hay, pos: [-0.24, 1.02, -0.17], scale: [1, 2.6, 1] },
   ]);
   const sunflower = merged([
     { geo: cyl(0.06, 0.08, 2.0, 6), color: C.leafDark, pos: [0, 1.0, 0] },
@@ -217,23 +221,23 @@ function buildTrees(): THREE.Object3D {
   const g = new THREE.Group();
   const round = merged([
     { geo: cyl(0.35, 0.55, 2.6, 8), color: C.wood, pos: [0, 1.3, 0] },
-    { geo: ball(2.0, 12, 9), color: C.leaf, pos: [0, 4.0, 0] },
-    { geo: ball(1.4, 10, 8), color: C.leafDark, pos: [1.3, 3.2, 0.4] },
-    { geo: ball(1.5, 10, 8), color: 0x6fd86a, pos: [-1.1, 3.5, -0.6] },
-    { geo: ball(1.1, 10, 8), color: 0x6fd86a, pos: [0.2, 5.3, 0.3] },
+    { geo: ball(2.0, 9, 6), color: C.leaf, pos: [0, 4.0, 0] },
+    { geo: ball(1.4, 8, 5), color: C.leafDark, pos: [1.3, 3.2, 0.4] },
+    { geo: ball(1.5, 8, 5), color: 0x6fd86a, pos: [-1.1, 3.5, -0.6] },
+    { geo: ball(1.1, 8, 5), color: 0x6fd86a, pos: [0.2, 5.3, 0.3] },
   ]);
   const apple = merged([
     { geo: cyl(0.3, 0.5, 2.2, 8), color: C.wood, pos: [0, 1.1, 0] },
-    { geo: ball(2.1, 12, 9), color: 0x66cf5f, pos: [0, 3.6, 0], scale: [1, 0.85, 1] },
+    { geo: ball(2.1, 9, 6), color: 0x66cf5f, pos: [0, 3.6, 0], scale: [1, 0.85, 1] },
     ...[[1.4, 3.2, 1.2], [-1.3, 3.8, 1.1], [0.2, 4.6, 1.5], [-0.6, 2.8, 1.7], [1.6, 4.2, -0.6], [-1.7, 3.3, -0.7], [0.4, 3.4, -2.0]].map(
-      (p): Part => ({ geo: ball(0.26, 8, 6), color: C.red, pos: p as [number, number, number] }),
+      (p): Part => ({ geo: ball(0.26, 6, 4), color: C.red, pos: p as [number, number, number] }),
     ),
   ]);
   const pine = merged([
     { geo: cyl(0.3, 0.45, 1.6, 8), color: C.woodDark, pos: [0, 0.8, 0] },
-    { geo: cone(2.0, 2.6, 10), color: 0x2f9a5a, pos: [0, 2.6, 0] },
-    { geo: cone(1.55, 2.3, 10), color: 0x3fb06a, pos: [0, 4.0, 0] },
-    { geo: cone(1.05, 2.0, 10), color: 0x55c47a, pos: [0, 5.3, 0] },
+    { geo: cone(2.0, 2.6, 8), color: 0x2f9a5a, pos: [0, 2.6, 0] },
+    { geo: cone(1.55, 2.3, 8), color: 0x3fb06a, pos: [0, 4.0, 0] },
+    { geo: cone(1.05, 2.0, 8), color: 0x55c47a, pos: [0, 5.3, 0] },
   ]);
   const geos = [round, apple, pine];
   const rng = mulberry32(3);
@@ -427,7 +431,7 @@ const PROP_GEO: Record<Exclude<PropKind, 'car'>, () => THREE.BufferGeometry> = {
     { geo: cyl(0.4, 0.4, 1.54, 12), color: C.hayDark, pos: [0, 1.05, 0], rot: [0, 0, Math.PI / 2] },
   ]),
   crate: () => merged([
-    { geo: box(1.3, 1.3, 1.3, 0.1), color: C.wood, pos: [0, 0.65, 0] },
+    { geo: box(1.3, 1.3, 1.3, 0.1, 2), color: C.wood, pos: [0, 0.65, 0] },
     ...[-1, 1].flatMap((s): Part[] => [
       { geo: box(1.4, 0.2, 1.4, 0.05, 1), color: C.woodDark, pos: [0, 0.65 + s * 0.56, 0] },
       { geo: box(0.2, 1.36, 1.4, 0.05, 1), color: C.woodDark, pos: [s * 0.6, 0.65, 0] },
@@ -493,15 +497,18 @@ export class Farm {
   /** World-space chimney top, for smoke puffs. */
   readonly chimney = new THREE.Vector3();
   private grass: THREE.InstancedMesh;
+  private flowers: THREE.InstancedMesh;
   private spinners: THREE.Object3D[] = [];
   private propSlots = new Map<number, { mesh: THREE.InstancedMesh; index: number; matrix: THREE.Matrix4 }>();
   private cars = new Map<number, THREE.Mesh>();
   private water: THREE.Mesh;
+  private birds: { root: THREE.Group; wings: THREE.Mesh[]; phase: number; r: number; h: number; cx: number; cz: number }[] = [];
 
   constructor() {
     this.group.add(buildGround());
     this.water = buildWater();
-    this.group.add(this.water, buildMountains(), buildTrees(), buildCrops(), buildFlowers(), buildBridge());
+    this.flowers = buildFlowers();
+    this.group.add(this.water, buildMountains(), buildTrees(), buildCrops(), this.flowers, buildBridge());
     this.grass = buildGrass();
     this.group.add(this.grass);
     for (const r of RAMPS) this.group.add(rampMesh(r));
@@ -513,6 +520,22 @@ export class Farm {
     }
     this.buildProps();
     this.buildDecor();
+    this.buildBirds();
+  }
+
+  /** A few birds wheeling overhead: cheap, and the sky stops looking empty. */
+  private buildBirds(): void {
+    const wing = box(1.5, 0.08, 0.5, 0.03, 1).translate(0.75, 0, 0);
+    const mat = new THREE.MeshStandardMaterial({ color: C.white, roughness: 1 });
+    for (let i = 0; i < 9; i++) {
+      const root = new THREE.Group();
+      const wings = [new THREE.Mesh(wing, mat), new THREE.Mesh(wing, mat)];
+      wings[1].scale.x = -1;
+      root.add(...wings);
+      this.group.add(root);
+      const flock = i < 5 ? 0 : 1;
+      this.birds.push({ root, wings, phase: i * 0.7, r: 26 + (i % 5) * 5, h: 30 + (i % 3) * 4 + flock * 8, cx: flock ? 60 : -30, cz: flock ? -40 : 40 });
+    }
   }
 
   private buildProps(): void {
@@ -571,6 +594,7 @@ export class Farm {
   /** Scale grass density with the quality level. */
   setGrassDensity(frac: number): void {
     this.grass.count = Math.floor(this.grass.userData.full * clamp(frac, 0, 1));
+    this.flowers.count = Math.floor(this.flowers.userData.full * clamp(frac * 1.5, 0, 1));
   }
 
   setSunColor(c: THREE.Color): void {
@@ -597,6 +621,13 @@ export class Farm {
 
   update(dt: number, time: number): void {
     for (const s of this.spinners) s.rotation.z += dt * 0.9;
+    for (const b of this.birds) {
+      const a = time * 0.22 + b.phase;
+      b.root.position.set(b.cx + Math.cos(a) * b.r, b.h + Math.sin(a * 3) * 1.5, b.cz + Math.sin(a) * b.r);
+      b.root.rotation.y = -a;
+      const flap = Math.sin(time * 7 + b.phase * 3) * 0.6;
+      b.wings[0].rotation.z = flap; b.wings[1].rotation.z = -flap;
+    }
     for (const car of this.cars.values()) { // crushed cars pancake with a wobble
       if (!car.userData.crush) continue;
       const k = (car.userData.crush = Math.max(0.0001, car.userData.crush - dt * 5));

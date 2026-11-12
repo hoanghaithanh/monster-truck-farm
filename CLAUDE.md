@@ -1,26 +1,26 @@
 # Monster Truck Farm — Project Intent
 
-A simple 3D browser game built for the developer's son.
+> **2026-11-12: the game was rebuilt end to end on branch `overhaul/fable`** (human handed over full creative authority for that pass; see `docs/overhaul/`). The intent below describes the game as it is now. ~~The earlier intent (gas meter with limp mode, farmer capped at 1/3 truck speed, hard game over back to the builder, Rapier physics, sourced glTF models, keyboard only)~~ is superseded, as are ADRs 0001-0020 and the old requirements docs, which are kept only as history.
+
+A cute, lively 3D browser game built for the developer's son, meant to be fun for a 6-year-old and a 30-year-old at once ("easy to play, deep to master").
 
 **Core loop:**
-1. **Build** — player assembles a monster truck by picking a body, wheels, an engine, and a gas tank.
-2. **Drive** — the truck spawns on a farm map with terrain variety (hills, mountains, a river) and farm structures (windmill, barn, farmhouse, fences, etc).
-3. **Chase** — animals (cows, chickens, pigs, etc.) spawn randomly around the farm and wander/flee.
-4. **Reward** — hitting an animal awards coins; payout scales with the animal's size and speed (bigger/faster = more coins).
-5. **Upgrade** — coins buy better parts, each on its own axis: body = more hits survived from the farmer (base 3, +1/tier), wheels = bigger obstacles clearable (bush → rock → derelict car), engine = higher top speed, gas tank = more range before needing to stop and recover. Looping back into the build step.
-6. **Gas** — driving continuously drains a gas meter; it auto-regenerates while the truck is stopped/idle. Running out limits the truck rather than ending the session.
-7. **Farmer chase** — an angry farmer occasionally appears, chases the truck, and can bump it, draining one hit from the body's capacity. Farmer speed is capped at 1/3 of the truck's speed. Sprint 1 ships only this minimal bump behavior; the full ~10s-chase-then-"tired" giveup is Sprint 2.
-8. **Game over** — if the farmer drains the body's hits to 0, it's a **hard game over**: the player restarts from the beginning (rebuild/reselect truck). This is a deliberate exception to the "forgiving" bias below — confirmed with the human on 2026-07-06 — because losing the truck and starting over is itself part of the challenge/fun for this player.
+1. **Garage** — the truck sits on a turntable in the farmyard. Coins buy parts on four axes, four tiers each, and every tier visibly changes the truck: body = hearts (3 to 6), wheels = what can be smashed (hay/fences, rocks, boulders, old cars), engine = speed, tank = nitro capacity. Paint and decals are free.
+2. **One farm day** — a run is 150 s from sunrise to sunset; the sky is the timer. Completing a mission adds 10 s.
+3. **Boop** — animals (chicken, pig, sheep, cow, rare golden variants) are booped for coins; they fly, land, shake it off and trot away, never harmed. Boops chain into a combo multiplier.
+4. **Style** — air time, spins, backflips, drifts and smashing props score style points (converted to coins at the end, and they refill nitro).
+5. **Farmer** — a grumpy farmer on a tractor is telegraphed, chases, and takes one heart per visit if he bumps the truck. Coins are doubled while he chases. He eases off each time he catches the player. He cannot cross the river.
+6. **End of day** — sunset or zero hearts ends the run with a tally and a medal; coins and parts persist (localStorage). There is no hard reset.
 
-**Target player:** a young child. Design bias: forgiving, colorful, no violence framing (animals aren't harmed, they "boop" and scatter for coins), short session length, simple controls (keyboard only for v1 — arrow keys / WASD, no complex combos). The one deliberate exception to "forgiving" is the hard game-over described above.
+**Target player:** a young child first (icon-first UI, assists on by default, near-impossible to fail badly, animals are never hurt), with an optional skill ceiling for adults (combos, tricks, risk/reward farmer baiting, secrets, medals).
 
-**Tech stack:** Three.js + Vite web app.
-- Runs in any browser, nothing to install for the player.
-- Rapier or Cannon-es for physics/collision (truck vs. terrain, truck vs. animal).
-- glTF models for truck parts, animals, and farm structures.
-- Deployed as a static site (see devops-engineer's scaffold once Phase 2 runs).
+**Tech stack:** Three.js + Vite + TypeScript, static site.
+- No physics engine: custom arcade truck physics in `src/core/truck.ts`.
+- No asset files: all models are procedural (`src/render/`), all audio is synthesized (`src/audio/`).
+- `src/core/` is a headless deterministic simulation (ESLint forbids it importing three/render/ui), so Vitest can play whole runs with bots.
+- Keyboard, gamepad and touch input.
 
-**Out of scope for v1** (revisit later if there's appetite): multiplayer, save-game persistence beyond local storage, mobile touch controls, sound design beyond basic SFX.
+**Out of scope for now:** multiplayer, server-side saves, more than one map.
 
 ---
 
@@ -120,6 +120,8 @@ A feature is done when all applicable gates are met:
 
 ## Sourcing real art assets (learned 2026-07-09, sourced-truck-art work)
 
+> **Historical as of 2026-11-12:** the overhaul replaced all sourced glTF art with procedural models, so nothing currently needs sourcing. The notes below are kept in case sourced assets are ever wanted again. The "look at it rendered, twice" rule (step 5) still applies to procedural art.
+
 The `developer` subagent has no web-browsing tool, so it cannot fetch real CC0/CC-BY asset packs — left alone, it will fall back to procedurally-generating primitive placeholder geometry (boxes/cylinders) and disclose that as a stopgap. **The orchestrating main session has `WebSearch`/`WebFetch`/`Bash` and can do real asset sourcing directly** — this is the capability gap that made the original truck-art placeholder happen, and closing it (searching poly.pizza/Kenney.nl/similar CC0-friendly sources, downloading, license-checking, inspecting glTF node/material structure, picking a tier progression) is orchestrator work, not something to hand to `developer`.
 
 Workflow that worked well and should repeat for future art sourcing (farmer model #29 is the next one left; chicken #28, structures/river/mountain #46/#47 are done as of 2026-07-10):
@@ -131,6 +133,8 @@ Workflow that worked well and should repeat for future art sourcing (farmer mode
 6. **If a sourced texture is oversized for the budget** (ADR 0010 §3's ~1.5MB gzipped driving-scene ceiling — e.g. a 2048×2048 baked texture ate ~65% of it alone on one building), downscale it rather than rejecting the whole model. `sharp` fails to load its native binary on this Windows dev environment (`ERR_DLOPEN_FAILED`, even after `npm rebuild`/approving install scripts) — use `jimp` (pure JS, no native deps) to decode/resize/re-encode the image, and `@gltf-transform/core`'s `NodeIO` to read the `.glb`, swap the texture bytes via `texture.setImage()`, and write it back out. Document the before/after size and "no visible quality loss at driving-scene distance" in `CREDITS.md` under a "Modified from the original" note (see the farmhouse entry for the template).
 
 ## QA/testing gotchas (learned 2026-07-11, terrain/hills + truck-scale/suspension work)
+
+> **Note (2026-11-12):** Rapier is gone, so the `world.step()` teleport crash no longer applies; with the new `Sim`, a temporary `window.__game` hook can safely write truck/farmer/timer state for QA. The rule that debug hooks must be removed before committing still stands.
 
 - **A `world.step()`-based teleport helper used to quickly reposition the truck for a screenshot/telemetry QA pass can crash Rapier's WASM state if called mid-session** (hit independently during both the #49 and #63 acceptance passes). To reach specific coordinates quickly without a multi-minute real drive, prefer real keyboard-driven bang-bang steering, or a debug hook that only *reads* state (position/telemetry) rather than one that force-writes physics state via `world.step()`.
 - **Debug/QA hooks added to `main.ts`/`scene.ts` for a live pass (e.g. `window.__qa` telemetry, teleport helpers) must always be fully reverted before the agent finishes** — verify with `git diff` showing no diff on the touched file, plus a clean re-run of tests/typecheck/build afterward. Every acceptance pass this session followed this discipline correctly; keep it standard practice, never commit a debug hook.

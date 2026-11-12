@@ -1,5 +1,28 @@
 # Backlog
 
+## Post-overhaul backlog (2026-11-12, branch `overhaul/fable`)
+
+The game was rebuilt end to end in the overhaul (see [overhaul/99-report.md](overhaul/99-report.md)). **Everything in the old table further down is superseded** — most rows were either delivered differently (ramps, river splash, grass/ground variation, clouds, mountain landmark, body lift, fields, more animals) or no longer apply (gas limp mode, glTF asset pipeline, hard game over).
+
+What is next, in priority order:
+
+| Priority | Item | Size | Notes |
+|---|---|---|---|
+| 1 | Human playtest tuning pass with the real 6-year-old: farmer pressure, day length, coin economy, steering assist strength | S | All numbers live in `src/core/` (`parts.ts`, `sim.ts`, `farmer.ts`, `missions.ts`) |
+| 2 | Listen-test and tune the synthesized audio on real speakers (engine loop, music mix, per-species voices) | S | Authored blind; see report |
+| 3 | Leg/limb animation for animals and a waving/steering farmer | M | Animals currently hop as single rigid bodies with squash/stretch |
+| 4 | Second map zone or seasonal variants (snow farm, beach farm) reusing the procedural kit | L | `core/world.ts` is one deterministic layout today |
+| 5 | More trick depth: grabs, wheelies, landing-quality bonus, trick combos across airs | M | |
+| 6 | Persistent achievements / sticker book and unlockable decals/paints tied to medals | M | Decals and paints are all free today |
+| 7 | Real touch-device playtest and layout polish | S | Touch controls exist but were only emulated |
+| 8 | Ghost/best-run replay or daily seeded challenge for the grown-up | M | `Sim` is deterministic per seed, so this is cheap to build |
+| 9 | Shadow cascade / texel snapping to remove shadow shimmer at speed | S | |
+| 10 | Split-screen or pass-the-pad two-player | L | |
+
+---
+
+## Pre-overhaul backlog (historical, superseded)
+
 The single prioritized list of work not yet pulled into a sprint. Owned by the `project-manager` agent (ordering/prioritization); populated by the `requirements-analyst` agent (new stories) as it writes requirements docs.
 
 Ordered top-to-bottom by priority. Entries move out of this list into a sprint milestone during sprint planning, and back in if they're descoped or carried over undecided.

@@ -108,19 +108,21 @@ class AnimalView {
 
   get headHeight(): number { return this.model.height; }
 
-  update(a: Animal, dt: number): void {
+  /** Returns true on the frame the animal first gets spooked. */
+  update(a: Animal, dt: number): boolean {
     this.t += dt;
+    let startled = false;
     const moving = a.mode === 'flee' || a.mode === 'stampede';
     if (a.mode !== this.prevMode) {
       if (a.mode === 'fly') { this.tumble.set(6 + Math.random() * 6, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 6); this.squashV = -6; }
       if (a.mode === 'dizzy') this.squashV = 7;
       if (this.prevMode === 'gone') this.pop = 0;
-      if (a.mode === 'flee' && this.prevMode !== 'stampede') this.squashV = -4; // startled hop
+      if (a.mode === 'flee' && this.prevMode !== 'stampede') { this.squashV = -4; startled = this.prevMode !== ''; } // startled hop
       this.prevMode = a.mode;
     }
     this.pop = damp(this.pop, a.mode === 'gone' ? 0 : 1, a.mode === 'gone' ? 18 : 9, dt);
     this.root.visible = this.pop > 0.02;
-    if (!this.root.visible) return;
+    if (!this.root.visible) return false;
     this.root.position.set(a.x, a.y, a.z);
     this.root.rotation.y = a.heading;
 
@@ -156,6 +158,7 @@ class AnimalView {
     if (this.blink < -0.1) this.blink = 1 + Math.random() * 4;
     const eye = moving || a.mode === 'fly' ? 1.45 : this.blink < 0 ? 0.1 : 1;
     this.eyes.scale.set(moving || a.mode === 'fly' ? 1.3 : 1, damp(this.eyes.scale.y, eye, 25, dt), 1);
+    return startled;
   }
 }
 
@@ -234,7 +237,8 @@ const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vect
 
 export class Critters {
   readonly group = new THREE.Group();
-  readonly farmerPos = new THREE.Vector3();
+  /** Fired when a calm animal gets spooked (for squeaks). */
+  onStartle: (species: Species, x: number, z: number) => void = () => {};
   private animals = new Map<number, AnimalView>();
   private farmer = buildFarmer();
   private farmerT = 0;
@@ -281,7 +285,7 @@ export class Critters {
       seen.add(a.id);
       let v = this.animals.get(a.id);
       if (!v) { v = new AnimalView(a); this.animals.set(a.id, v); this.group.add(v.root); }
-      v.update(a, dt);
+      if (v.update(a, dt)) this.onStartle(a.species, a.x, a.z);
     }
     for (const [id, v] of this.animals) if (!seen.has(id)) { v.root.removeFromParent(); this.animals.delete(id); }
 
@@ -331,7 +335,6 @@ export class Critters {
     const rev = farmer.mode === 'warn' ? Math.sin(t * 40) * 0.05 : Math.abs(Math.sin(t * 9)) * 0.08 * Math.min(1, farmer.speed / 6);
     g.position.set(farmer.x, y + rev, farmer.z);
     g.rotation.set(0, farmer.heading, farmer.mode === 'stunned' ? Math.sin(t * 20) * 0.08 : 0);
-    this.farmerPos.set(farmer.x, y + 3.6, farmer.z);
     for (const w of f.wheels) w.rotation.x += farmer.speed * dt;
     const angry = farmer.mode === 'chase' || farmer.mode === 'stuck' || farmer.mode === 'warn';
     f.fist.rotation.z = angry ? -0.4 + Math.sin(t * (farmer.mode === 'stuck' ? 22 : 13)) * 0.5 : farmer.mode === 'laugh' ? -2.4 : 0.6;

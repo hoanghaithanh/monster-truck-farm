@@ -1,4 +1,21 @@
-# Third-party art credits
+# Credits
+
+## Current game (2026-11 overhaul onward)
+
+All art and audio in the shipped game is **original and procedural**: every model is built in code (`src/render/`) and every sound is synthesized at runtime (`src/audio/audio.ts`). The build contains no third-party model, texture or audio files.
+
+Third-party software and fonts:
+
+- [three.js](https://threejs.org/) — MIT License. Includes the bundled example modules used here (`RoundedBoxGeometry`, `BufferGeometryUtils`, `RoomEnvironment`, `EffectComposer` and passes).
+- [Fredoka](https://fonts.google.com/specimen/Fredoka) typeface — SIL Open Font License 1.1, loaded from Google Fonts at runtime (the UI falls back to system fonts when offline).
+- Emoji glyphs in the UI are rendered by the player's own system emoji font.
+- Tooling: Vite, TypeScript, Vitest, ESLint (MIT / Apache-2.0).
+
+---
+
+# Historical: third-party art removed in the 2026-11 overhaul
+
+The sections below credit the glTF models the **pre-overhaul** game shipped. Those files were deleted from the working tree on the `overhaul/fable` branch (they remain in git history on `main`). The attributions are kept so that history stays properly credited; none of this art is in the current build.
 
 ## Truck body/wheel models (ADR 0011, issue #33 follow-up)
 

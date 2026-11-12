@@ -70,9 +70,9 @@ export const comboMult = (count: number) => Math.min(8, 1 + Math.floor(Math.max(
 export const COMBO_WINDOW = 4;
 
 export const MEDALS = [
-  { name: 'Bronze', icon: '🥉', score: 2000 },
-  { name: 'Silver', icon: '🥈', score: 6000 },
-  { name: 'Gold', icon: '🥇', score: 12000 },
-  { name: 'Rainbow', icon: '🌈', score: 25000 },
+  { name: 'Bronze', icon: '🥉', score: 2500 },
+  { name: 'Silver', icon: '🥈', score: 8000 },
+  { name: 'Gold', icon: '🥇', score: 20000 },
+  { name: 'Rainbow', icon: '🌈', score: 45000 },
 ] as const;
 export const medalFor = (score: number) => MEDALS.reduce((best, m, i) => (score >= m.score ? i : best), -1);

@@ -79,6 +79,17 @@ describe('truck', () => {
     expect(air).toBeGreaterThan(0.8);
     expect(spins).toBeGreaterThanOrEqual(1);
   });
+  it('backflips only when braking in the air', () => {
+    const fly = (throttle: number) => {
+      const t = createTruck(0, -8, 0, stats);
+      t.y += 12; t.grounded = false;
+      let flips = -1;
+      for (let i = 0; i < 240 && flips < 0; i++) for (const e of stepTruck(t, drive({ throttle }), stats, DT, [])) if (e.type === 'land') flips = e.flips;
+      return flips;
+    };
+    expect(fly(1)).toBe(0);
+    expect(fly(-1)).toBeGreaterThanOrEqual(1);
+  });
   it('cannot drive through a building or out of the world', () => {
     const barn = WORLD.solids[0];
     const t = createTruck(barn.x, barn.z + 20, Math.PI, stats);
@@ -175,7 +186,7 @@ describe('missions and scoring', () => {
   });
   it('medals', () => {
     expect(medalFor(0)).toBe(-1);
-    expect(medalFor(6000)).toBe(1);
+    expect(medalFor(8000)).toBe(1);
     expect(medalFor(1e6)).toBe(3);
   });
 });

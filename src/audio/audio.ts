@@ -160,6 +160,14 @@ export class GameAudio {
     if (golden) this.sparkle();
   }
 
+  /** A spooked animal's little yelp. */
+  squeak(species: Species): void {
+    if (species === 'chicken') this.tone(900, 0.07, { type: 'square', to: 1300, gain: 0.035, filter: 2600 });
+    else if (species === 'pig') this.tone(520, 0.1, { type: 'sawtooth', to: 760, gain: 0.04, filter: 1800 });
+    else if (species === 'sheep') this.tone(470, 0.16, { type: 'sawtooth', gain: 0.035, vibrato: 11, filter: 1500 });
+    else this.tone(190, 0.22, { type: 'sawtooth', to: 230, gain: 0.05, filter: 700, attack: 0.03 });
+  }
+
   /** Coin ping that climbs a pentatonic ladder with the combo. */
   coin(step = 0): void {
     const s = PENTA[Math.min(PENTA.length - 1, Math.max(0, step - 1))];

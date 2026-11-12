@@ -57,6 +57,7 @@ export class Game {
   private autoLevel: QualityLevel = 'high';
   private lost = false;
   private flipVis = 0;
+  private squeakCooldown = 0;
 
   constructor(private root: HTMLElement) {
     this.save = loadSave(window.localStorage);
@@ -75,6 +76,11 @@ export class Game {
     loading.progress(0.7, 'Waking the chickens…');
     await nextFrame();
     this.critters = new Critters();
+    this.critters.onStartle = (species, x, z) => {
+      if (this.state !== 'run' || this.squeakCooldown > 0 || Math.hypot(x - this.sim.truck.x, z - this.sim.truck.z) > 30) return;
+      this.squeakCooldown = 0.18;
+      this.audio.squeak(species);
+    };
     this.particles = new Particles();
     this.engine.scene.add(this.critters.group, this.particles.group);
     this.cam = new ChaseCam(this.engine.camera);
@@ -511,7 +517,7 @@ export class Game {
     this.critters.sync(sim.animals, sim.pickups, sim.farmer, dt);
     this.cam.update(t, sim.stats.topSpeed, rawDt);
     this.focus.set(t.x, t.y, t.z);
-    this.engine.speedFx = damp(this.engine.speedFx, this.save.settings.shake ? clamp((speed / sim.stats.topSpeed - 0.8) * 1.6, 0, 0.6) + (t.boosting ? 0.5 : 0) : 0, 6, rawDt);
+    this.engine.speedFx = damp(this.engine.speedFx, this.save.settings.shake && this.state === 'run' ? clamp((speed / sim.stats.topSpeed - 0.8) * 1.6, 0, 0.6) + (t.boosting ? 0.5 : 0) : 0, 6, rawDt);
     if (this.state === 'run') {
       this.audio.updateEngine(speed / sim.stats.topSpeed, input.throttle, t.boosting, t.grounded, t.slip);
       this.audio.intensity = sim.chased || t.boosting || sim.timeLeft < 15 ? 2 : 1;
@@ -553,6 +559,7 @@ export class Game {
     const input = this.input.read();
     if (this.paused) { this.engine.render(0, this.focus); return; }
     this.probeQuality(rawDt);
+    this.squeakCooldown -= rawDt;
     if (this.state === 'garage' || this.state === 'summary') {
       if (this.state === 'garage') this.frameGarage(rawDt); else this.frameRun(rawDt * 0.25, { throttle: 0, steer: 0, boost: false, jump: false, horn: false });
     } else this.frameRun(rawDt, input);

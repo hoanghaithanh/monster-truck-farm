@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { angleDelta, clamp, damp, lerp } from '../core/math';
 import type { Truck } from '../core/truck';
-import { surfaceHeight, WORLD, type Solid } from '../core/world';
+import { surfaceHeight, WORLD, WORLD_R, type Solid } from '../core/world';
 
 const inSolid = (s: Solid, x: number, z: number, pad: number): boolean => {
   if (s.kind === 'circle') return Math.hypot(x - s.x, z - s.z) < s.r + pad;
@@ -11,7 +11,11 @@ const inSolid = (s: Solid, x: number, z: number, pad: number): boolean => {
   const c = Math.cos(s.rot), sn = Math.sin(s.rot), dx = x - s.x, dz = z - s.z;
   return Math.abs(dx * c - dz * sn) < s.hw + pad && Math.abs(dx * sn + dz * c) < s.hd + pad;
 };
-const BIG_SOLIDS = WORLD.solids.filter((s) => s.kind === 'box' || s.r > 2);
+// Buildings, plus tree crowns (so foliage never fills the screen).
+const BIG_SOLIDS: Solid[] = [
+  ...WORLD.solids.filter((s) => s.kind === 'box' || s.r > 2),
+  ...WORLD.trees.filter((t) => Math.hypot(t.x, t.z) < WORLD_R).map((t): Solid => ({ kind: 'circle', x: t.x, z: t.z, r: 2.3 * t.s })),
+];
 
 export class ChaseCam {
   shakeEnabled = true;
@@ -55,7 +59,7 @@ export class ChaseCam {
     let boom = 1;
     for (; boom > 0.3; boom -= 0.14) {
       const x = truck.x + bx * dist * boom, z = truck.z + bz * dist * boom;
-      if (!BIG_SOLIDS.some((s) => inSolid(s, x, z, 1.2))) break;
+      if (!BIG_SOLIDS.some((s) => inSolid(s, x, z, 0.8))) break;
     }
     this.boom = damp(this.boom, boom, boom < this.boom ? 14 : 3, dt);
     const d = dist * this.boom;

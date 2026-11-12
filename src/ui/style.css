@@ -1,6 +1,6 @@
 :root {
   /* Everything is sized in rem; the root scales with the viewport so the UI reads at 1366x768 and 4K alike. */
-  font-size: clamp(13px, 1.85vmin, 40px);
+  font-size: clamp(8.5px, 1.85vmin, 40px);
   --ink: #2b2440; --cream: #fff6e0; --sun: #ffd23f; --red: #ff4d4d; --green: #58d04a; --blue: #2fa8ff; --pink: #ff8fc7; --purple: #9b6bff; --orange: #ff8a1f;
   --font: 'Fredoka', 'Baloo 2', 'Nunito', 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif;
 }

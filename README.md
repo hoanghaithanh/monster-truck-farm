@@ -1,91 +1,67 @@
 # Monster Truck Farm
 
-A simple 3D browser game built for the developer's son. Build a monster truck, drive it around a farm, boop animals for coins, and upgrade your truck to take on bigger obstacles and a chase-happy farmer.
+A cute, bouncy 3D browser game: build a toy monster truck, tear around a farm, **boop** animals for coins (they fly, land, shake it off and trot away — nobody gets hurt), pull stunts, dodge a grumpy farmer on a tractor, and upgrade your truck until it's a neon-rimmed, rocket-powered legend.
 
-Runs entirely in the browser — nothing to install for the player.
+Built for a 6-year-old and the 30-year-old sitting next to him. Runs in any modern browser; nothing to install, nothing to download but ~180 kB of JavaScript.
 
-## Core gameplay loop
+## How to play
 
-1. **Build** — pick a body, wheels, an engine, and a gas tank for your truck. Each part is its own upgrade axis: body = how many hits you can take from the farmer, wheels = how big an obstacle you can clear, engine = top speed, gas tank = how long you can drive before needing to stop and refuel.
-2. **Drive** — the truck spawns on a farm map with hills, a river, a landmark mountain, and farm structures (windmill, barn, farmhouse, silo, chicken coop, fences, fields).
-3. **Chase** — cows, chickens, and pigs spawn around the farm and wander or flee.
-4. **Reward** — booping an animal (they aren't harmed — just scatter) awards coins. Bigger, faster animals pay out more.
-5. **Upgrade** — spend coins in the builder on better parts, looping back into the build step.
-6. **Gas** — driving continuously drains a gas meter, which regenerates while stopped or idle. Running out just limits the truck; it doesn't end the run.
-7. **Farmer chase** — an angry farmer occasionally shows up, chases the truck, and can bump it, draining one hit from the body's capacity. The farmer's top speed is capped at a third of the truck's.
-8. **Game over** — if the farmer drains the body's hits to zero, it's a hard game over: rebuild your truck and start again. That's a deliberate exception to the game's otherwise-forgiving design, since starting over is part of the challenge for this player.
+| | Keyboard | Gamepad | Touch |
+|---|---|---|---|
+| Drive | `W A S D` / arrow keys | left stick, `RT` gas, `LT` brake | ◀ ▶ ▲ ▼ |
+| Jump | `Space` | `A` | ⤴ |
+| Nitro boost | `Shift` (or `X`) | `X` / `RB` | 🔥 |
+| Honk | `H` (or `E`, `F`) | `Y` / `B` | 📯 |
+| Pause / settings | `Esc` (or `P`) | `Start` | ⏸ |
 
-Target player is a young child, so the game favors forgiving mechanics, bright colors, no violence framing, short sessions, and simple keyboard-only controls.
+**In the air:** steer to spin, hold brake to backflip. **On the ground:** brake + steer to drift.
 
-For the full design rationale, requirements, and technical decisions, see [`docs/`](docs/) — in particular [`docs/requirements/`](docs/requirements/) for acceptance criteria per feature, [`docs/architecture/`](docs/architecture/) for ADRs, [`docs/backlog.md`](docs/backlog.md) for the prioritized backlog, and [`docs/retrospectives.md`](docs/retrospectives.md) for sprint retros.
+### The loop
 
-## Tech stack
+1. **Garage** — your truck spins on a turntable in the farmyard. Spend coins on four parts (4 tiers each), pick paint and a decal, hit **GO**.
+   - 🛡️ **Body** = hearts (3 → 6) · 🛞 **Wheels** = what you can smash (hay/fences → rocks → boulders → old cars) · 🔥 **Engine** = speed · ⚡ **Tank** = nitro
+2. **One farm day** — a run lasts from sunrise to sunset (150 s). The sky is the clock.
+3. **Boop animals** for coins. Chain boops for a multiplier (up to x8). Bigger animals pay more; rare **golden** animals pay 5x. A flying animal that lands on another one is a **Strike!**
+4. **Missions** (three at a time, top-left) pay coins and add **+10 s of daylight**.
+5. **Style**: big air, spins, backflips, drifts and smashing things earn style points, which convert to coins at the end and refill your nitro.
+6. **The farmer** shows up on his tractor now and then. While he's chasing you, coins are **doubled**. If he bumps you, you lose a heart and drop some coins (grab them back). Escape by outrunning him, juking (he turns wide), jumping over him, honking in his face, or crossing the river — tractors can't swim.
+7. **Surprises**: stampedes, chicken parties, nitro drops, five hidden **golden corn** per run, ramps, a stunt park, a mud pit, a big hill.
+8. **Sunset** (or zero hearts) ends the day: tally, medal (🥉 2,500 · 🥈 8,000 · 🥇 20,000 · 🌈 45,000), back to the garage.
 
-- [Three.js](https://threejs.org/) for 3D rendering
-- [Rapier](https://rapier.rs/) (via `@dimforge/rapier3d-compat`) for physics/collision
-- [Vite](https://vitejs.dev/) for dev server/bundling
-- TypeScript, [Vitest](https://vitest.dev/) for tests, ESLint for linting
-- glTF models for truck parts, animals, and farm structures (see [`CREDITS.md`](CREDITS.md) for sourcing/licensing)
-- Deployed as a static site
+Coins, parts, paint, best score and settings are saved in the browser (`localStorage`).
 
-## Getting started
+### For little players
+
+Driving helpers are on by default (gentle aim-assist toward animals, generous boop radius). The farmer takes at most one heart per visit and eases off every time he catches you. Nothing needs reading: missions are icon + progress bar. Helpers, screen shake/flashes, volume, music and graphics quality are in the pause menu (`Esc` or ⚙️).
+
+## Running it
 
 ```bash
 npm install
-npm run dev
+npm run dev        # dev server, open the printed URL
+npm run build      # typecheck + production build into dist/
+npm run preview    # serve the production build
+npm test           # unit tests + headless bot playthroughs
+npm run typecheck
+npm run lint
 ```
 
-Then open the printed local URL in a browser.
+## Tech
 
-### Other scripts
+- [Three.js](https://threejs.org/) for rendering, [Vite](https://vitejs.dev/) + TypeScript, [Vitest](https://vitest.dev/), ESLint.
+- **No physics engine, no model files, no textures, no audio files.** Physics is a small custom arcade model; every model is built in code from rounded primitives; every sound is synthesized with WebAudio.
+- Layout:
+  - `src/core/` — the whole game as a headless, deterministic simulation (`Sim`): world layout, truck physics, animals, farmer, missions, scoring, save. Pure TypeScript, no DOM/three (enforced by ESLint), so tests can play entire runs with bots.
+  - `src/render/` — three.js: engine (sky, time of day, shadows, post-FX, quality levels), farm scenery, truck model, critters, particles, chase camera.
+  - `src/audio/` — WebAudio synth (engine loop, SFX, adaptive music).
+  - `src/input/` — keyboard, gamepad, touch.
+  - `src/ui/` — DOM HUD, garage, summary, pause/settings.
+  - `src/game.ts` — glue: state machine, and turning simulation events into juice.
+- Graphics quality: Low / Med / High (shadows, post-processing, grass density, particle counts, pixel ratio), auto-picked from measured frame time.
 
-| Command | What it does |
-| --- | --- |
-| `npm run dev` | Start the Vite dev server with hot reload |
-| `npm run build` | Typecheck, then produce a production build |
-| `npm run preview` | Serve the production build locally |
-| `npm run typecheck` | Run TypeScript in `--noEmit` mode |
-| `npm run lint` | Run ESLint |
-| `npm test` | Run the Vitest suite once |
-| `npm run test:watch` | Run Vitest in watch mode |
+## Docs
 
-## Controls
-
-Keyboard only — no mouse required to play (a couple of buttons, like the in-HUD Shop button, are also mouse-clickable, but every action has a keyboard equivalent).
-
-**Driving:**
-
-| Key | Action |
-| --- | --- |
-| `Arrow Up` / `W` | Accelerate forward |
-| `Arrow Down` / `S` | Reverse/brake |
-| `Arrow Left` / `A` | Steer left |
-| `Arrow Right` / `D` | Steer right |
-
-**Builder screen:**
-
-| Key | Action |
-| --- | --- |
-| `Arrow Up` / `Arrow Down` | Move focus between rows (body, wheels, engine, gas tank, wheel look) |
-| `Arrow Left` / `Arrow Right` | Move the highlight within the focused row |
-| `Space` | Buy/equip the highlighted option |
-| `Enter` | Confirm and start driving (or resume, if this is a mid-run pause) |
-
-**Game over screen:**
-
-| Key | Action |
-| --- | --- |
-| `Enter` / `Space` | Restart (back to the builder) |
-
-## Project structure
-
-- `src/core/` — pure game logic (physics-adjacent math, state machines, systems) kept framework-agnostic and easy to unit test
-- `src/render/` — Three.js scene setup, truck rig assembly, asset loading
-- `src/ui/` — DOM-based overlay screens (builder, HUD, game over)
-- `src/input/` — keyboard input handling
-- `src/systems/` — cross-cutting gameplay systems (e.g. gas)
-- `src/main.ts` — wires everything together and drives the frame loop
-
-## Contributing
-
-This project is developed using a small pipeline of specialized Claude Code subagents (requirements-analyst, architect, developer, test-engineer, code-reviewer, security-auditor, tech-writer, project-manager) — see `CLAUDE.md` for how that pipeline is orchestrated if you're picking up work here.
+- [`docs/overhaul/`](docs/overhaul/) — the 2026-11 overhaul: diagnosis of the old game, plan, before/after screenshots, final report.
+- [`docs/backlog.md`](docs/backlog.md) — what's next.
+- `docs/requirements/`, `docs/architecture/`, `docs/acceptance/` — history of the pre-overhaul game (superseded; kept for reference).
+- [`CREDITS.md`](CREDITS.md)

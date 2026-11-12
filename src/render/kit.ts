@@ -56,7 +56,7 @@ export const MAT = {
   clay: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0 }),
   vinyl: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0 }),
   chrome: new THREE.MeshStandardMaterial({ color: C.chrome, roughness: 0.12, metalness: 1 }),
-  gold: new THREE.MeshStandardMaterial({ color: C.gold, roughness: 0.22, metalness: 1, emissive: 0x7a4a00, emissiveIntensity: 0.35 }),
+  gold: new THREE.MeshStandardMaterial({ color: 0xffd23f, roughness: 0.28, metalness: 0.55, emissive: 0xff9a00, emissiveIntensity: 0.55 }),
   glass: new THREE.MeshStandardMaterial({ color: 0x9fe3ff, roughness: 0.05, metalness: 0.6 }),
 };
 
@@ -72,9 +72,9 @@ export function eyeParts(r: number, gap: number, y: number, z: number, look = 0)
   const parts: Part[] = [];
   for (const side of [-1, 1]) {
     const x = (side * gap) / 2;
-    parts.push({ geo: ball(r), color: C.white, pos: [x, y, z] });
-    parts.push({ geo: ball(r * 0.55), color: C.black, pos: [x + look * r * 0.3, y, z + r * 0.62] });
-    parts.push({ geo: ball(r * 0.2), color: C.white, pos: [x + r * 0.22 + look * r * 0.3, y + r * 0.25, z + r * 1.05] });
+    parts.push({ geo: ball(r, 10, 7), color: C.white, pos: [x, y, z] });
+    parts.push({ geo: ball(r * 0.55, 8, 5), color: C.black, pos: [x + look * r * 0.3, y, z + r * 0.62] });
+    parts.push({ geo: ball(r * 0.2, 5, 3), color: C.white, pos: [x + r * 0.22 + look * r * 0.3, y + r * 0.25, z + r * 1.05] });
   }
   return parts;
 }
