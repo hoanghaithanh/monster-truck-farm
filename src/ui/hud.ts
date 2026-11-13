@@ -1,6 +1,6 @@
 // In-run HUD: icon-first for a pre-reader, with numbers for the grown-up.
 import { MISSIONS, type Mission } from '../core/missions';
-import { BRIDGE, POND, RAMPS, riverCenterZ, WORLD_R } from '../core/world';
+import { BRIDGE, LAKE, POND, RAMPS, riverCenterZ, WORLD_R } from '../core/world';
 
 export function h<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', text = ''): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -170,7 +170,7 @@ export class Hud {
     if ((this.mapTick -= dt) > 0) return;
     this.mapTick = 0.08;
     const g = this.map.getContext('2d')!;
-    const S = 220, R = 75, k = S / 2 / R;
+    const S = 220, R = 90, k = S / 2 / R;
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.fillStyle = '#3f9a4a';
     g.fillRect(0, 0, S, S);
@@ -187,8 +187,9 @@ export class Hud {
     g.stroke();
     g.fillStyle = '#4fd0e8';
     g.beginPath(); g.arc(POND.x, POND.z, POND.r, 0, 7); g.fill();
+    g.beginPath(); g.arc(LAKE.x, LAKE.z, LAKE.r, 0, 7); g.fill();
     g.fillStyle = '#c98850';
-    g.fillRect(BRIDGE.x - 4, riverCenterZ(BRIDGE.x) - 9, 8, 18);
+    g.fillRect(BRIDGE.x - 4, riverCenterZ(BRIDGE.x) - BRIDGE.halfL, 8, BRIDGE.halfL * 2);
     g.fillStyle = '#ff8a1f';
     for (const r of RAMPS) { g.beginPath(); g.arc(r.x + Math.sin(r.heading) * 4, r.z + Math.cos(r.heading) * 4, 3.2, 0, 7); g.fill(); }
     g.fillStyle = '#ff5a4f';

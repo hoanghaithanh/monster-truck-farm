@@ -29,7 +29,7 @@ describe('world', () => {
   });
   it('rim hills hide the edge and props sit on open ground', () => {
     expect(groundHeight(WORLD_R + 12, 0)).toBeGreaterThan(8);
-    for (const p of WORLD.props) expect(groundHeight(p.x, p.z)).toBeGreaterThan(WATER_Y);
+    for (const p of WORLD.props) expect(groundHeight(p.x, p.z), `${p.kind} at ${p.x.toFixed(0)},${p.z.toFixed(0)}`).toBeGreaterThan(WATER_Y);
     expect(WORLD.props.length).toBeGreaterThan(100);
     expect(isOpenGround(0, 40)).toBe(true);
   });
@@ -97,7 +97,8 @@ describe('truck', () => {
     expect(back.air).toBe(0);
     // Into the side, near the tall end.
     const side = run(r.x + fx * r.len * 0.8 + rx * 14, r.z + fz * r.len * 0.8 + rz * 14, Math.atan2(-rx, -rz));
-    expect(side.peak).toBeLessThan(1);
+    expect(side.air).toBe(0);
+    expect(side.peak).toBeLessThan(2);
     // Into the bridge from the riverbed.
     const bz = riverCenterZ(BRIDGE.x);
     const flank = createTruck(BRIDGE.x - 14, bz, Math.PI / 2, stats);

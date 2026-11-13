@@ -7,9 +7,9 @@ import { angleDelta, clamp, mulberry32, pick, range, TAU, type Rng } from './mat
 import { COMBO_WINDOW, comboMult, dealMission, MISSIONS, updateMission, zeroCounters, type Counters, type Mission } from './missions';
 import { statsFor, type Loadout, type TruckStats } from './parts';
 import { createTruck, stepTruck, truckSpeed, TRUCK_RADIUS, type Circle, type DriveInput, type Truck } from './truck';
-import { BIG_HILL, groundHeight, isOpenGround, MUD, PROP_DEFS, RAMPS, SPAWN, STUNT_PARK, surfaceHeight, WATER_Y, WORLD, type PropKind } from './world';
+import { BIG_HILL, LAKE, NORTH_HILL, groundHeight, isOpenGround, MUD, PROP_DEFS, RAMPS, SPAWN, STUNT_PARK, surfaceHeight, WATER_Y, WORLD, type PropKind } from './world';
 
-export const DAY_SECONDS = 150;
+export const DAY_SECONDS = 180;
 export const MISSION_BONUS_SECONDS = 10;
 const INVULN_SECONDS = 2.5;
 const STYLE_PER_COIN = 25;
@@ -106,18 +106,24 @@ export class Sim {
       }
     };
     herd('chicken', 5, 0, 26, 7); // right in front of the spawn: instant first boops
-    herd('chicken', 9, -6, -36, 14);
-    herd('chicken', 8, 40, 50, 60);
-    herd('pig', 7, MUD.x, MUD.z, 13);
-    herd('pig', 4, -40, 8, 10);
-    herd('sheep', 8, -84, -14, 16);
-    herd('sheep', 5, -28, 90, 14);
-    herd('sheep', 3, BIG_HILL.x - 20, BIG_HILL.z + 24, 10);
-    herd('cow', 8, 44, 90, 20);
-    herd('cow', 4, 62, -36, 12);
-    herd('cow', 3, -20, 36, 10);
+    herd('chicken', 9, -6, -38, 14);
+    herd('chicken', 10, 50, 60, 70);
+    herd('chicken', 7, -40, -140, 22);
+    herd('chicken', 6, 110, 110, 24);
+    herd('pig', 8, MUD.x, MUD.z, 15);
+    herd('pig', 5, -48, 10, 12);
+    herd('pig', 5, LAKE.x - LAKE.r - 14, LAKE.z + 26, 14);
+    herd('sheep', 9, -140, -14, 20);
+    herd('sheep', 7, NORTH_HILL.x, NORTH_HILL.z, 26);
+    herd('sheep', 5, BIG_HILL.x - 30, BIG_HILL.z + 34, 14);
+    herd('sheep', 4, 30, -128, 16);
+    herd('cow', 9, 60, 140, 26);
+    herd('cow', 6, 96, -52, 16);
+    herd('cow', 4, -24, 44, 12);
+    herd('cow', 5, -150, 96, 18);
+    herd('cow', 4, 150, -30, 16);
 
-    for (let i = 0; i < 7; i++) this.spawnFuel();
+    for (let i = 0; i < 12; i++) this.spawnFuel();
     // Coin arcs teach the ramps.
     for (const r of RAMPS) {
       for (let i = 0; i < 5; i++) {
@@ -129,8 +135,10 @@ export class Sim {
     }
     // Coin trail leading out of the yard, and a ring in the stunt park.
     for (let i = 0; i < 6; i++) this.addCoin(0, 12 + i * 3.5, 1);
-    for (let i = 0; i < 10; i++) this.addCoin(STUNT_PARK.x + Math.cos(i * 0.628) * 15, STUNT_PARK.z + Math.sin(i * 0.628) * 15, 1);
-    for (let i = 0; i < 8; i++) this.addCoin(BIG_HILL.x + Math.cos(i * 0.785) * 9, BIG_HILL.z + Math.sin(i * 0.785) * 9, 2);
+    for (let i = 0; i < 10; i++) this.addCoin(STUNT_PARK.x + Math.cos(i * 0.628) * 22, STUNT_PARK.z + Math.sin(i * 0.628) * 22, 1);
+    for (let i = 0; i < 8; i++) this.addCoin(BIG_HILL.x + Math.cos(i * 0.785) * 12, BIG_HILL.z + Math.sin(i * 0.785) * 12, 2);
+    for (let i = 0; i < 8; i++) this.addCoin(NORTH_HILL.x + Math.cos(i * 0.785) * 10, NORTH_HILL.z + Math.sin(i * 0.785) * 10, 2);
+    for (let i = 0; i < 12; i++) this.addCoin(LAKE.x + Math.cos(i * 0.524) * (LAKE.r - 6), LAKE.z + Math.sin(i * 0.524) * (LAKE.r - 6), 1);
     // Five hidden golden corn out of ten possible spots.
     const spots = [...WORLD.secrets];
     for (let i = 0; i < 5; i++) {
@@ -153,7 +161,7 @@ export class Sim {
   }
 
   private spawnFuel(life = Infinity, near?: [number, number]): void {
-    const spot = near ? this.randomOpenSpot(10, 26) : this.randomOpenSpot(0, 100, 0, 10);
+    const spot = near ? this.randomOpenSpot(10, 26) : this.randomOpenSpot(0, 165, 0, 10);
     if (!spot) return;
     this.pickups.push({ id: this.nextId++, kind: 'fuel', x: spot[0], y: surfaceHeight(spot[0], spot[1]) + 1.1, z: spot[1], value: 0, life, cool: 0, respawn: life === Infinity ? 12 : 0 });
   }

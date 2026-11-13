@@ -2,47 +2,54 @@
 // placed on it. Pure data; both the simulation and the renderer read this.
 import { clamp, lerp, mulberry32, range, smoothstep, TAU, type Rng } from './math';
 
-export const WORLD_R = 116; // soft wall radius
+export const WORLD_R = 185; // soft wall radius
 export const WATER_Y = -0.9;
 export const SPAWN = { x: 0, z: 6, heading: 0 };
 
-export const BIG_HILL = { x: 74, z: -60, h: 13, r: 21 };
-export const POND = { x: -64, z: -58, r: 13 };
-export const MUD = { x: 44, z: 18, r: 9 };
-export const STUNT_PARK = { x: -72, z: 24 };
-export const BRIDGE = { x: 12, halfW: 3.6, halfL: 10 };
+export const BIG_HILL = { x: 118, z: -96, h: 16, r: 30 };
+/** Second, gentler hill north of the river. */
+export const NORTH_HILL = { x: -70, z: 142, h: 10, r: 24 };
+export const POND = { x: -104, z: -94, r: 17 };
+/** Big shallow lake in the east: splash straight through it. */
+export const LAKE = { x: 132, z: 22, r: 26 };
+export const MUD = { x: 62, z: 30, r: 11 };
+export const STUNT_PARK = { x: -112, z: 30 };
+export const BRIDGE = { x: 12, halfW: 3.6, halfL: 11 };
 
 export function riverCenterZ(x: number): number {
-  return 56 + 10 * Math.sin(x * 0.035) + 4 * Math.sin(x * 0.09 + 1);
+  return 86 + 14 * Math.sin(x * 0.022) + 5 * Math.sin(x * 0.06 + 1);
 }
-const RIVER_HALF = 5.5;
+const RIVER_HALF = 6;
 
 /** Bare terrain (no ramps/bridge). */
 export function groundHeight(x: number, z: number): number {
   let h =
-    1.9 * Math.sin(x * 0.043 + 0.5) * Math.cos(z * 0.039 - 0.8) +
-    1.1 * Math.sin((x + z) * 0.071) +
-    0.45 * Math.sin(x * 0.13 - z * 0.11);
+    2.3 * Math.sin(x * 0.031 + 0.5) * Math.cos(z * 0.028 - 0.8) +
+    1.2 * Math.sin((x + z) * 0.052) +
+    0.45 * Math.sin(x * 0.11 - z * 0.09);
+  // Keep valleys shallow: only the river, pond and lake should hold water.
+  if (h < 0.2) h = 0.2 - (0.2 - h) * 0.2;
   // Flat farmstead and stunt park.
-  h *= smoothstep(24, 46, Math.hypot(x, z + 8));
-  h *= smoothstep(16, 30, Math.hypot(x - STUNT_PARK.x, z - STUNT_PARK.z));
-  // Big hill + a few friendly bumps.
+  h *= smoothstep(26, 50, Math.hypot(x, z + 8));
+  h *= smoothstep(24, 40, Math.hypot(x - STUNT_PARK.x, z - STUNT_PARK.z));
+  // Hills + a few friendly bumps.
   const bump = (cx: number, cz: number, height: number, r: number) => {
     const d2 = (x - cx) ** 2 + (z - cz) ** 2;
     return height * Math.exp(-d2 / (2 * r * r));
   };
-  h += bump(BIG_HILL.x, BIG_HILL.z, BIG_HILL.h, BIG_HILL.r);
-  h += bump(-30, 88, 5, 12) + bump(52, 92, 4, 10) + bump(-88, -8, 4.5, 11) + bump(20, -78, 3.5, 9);
+  h += bump(BIG_HILL.x, BIG_HILL.z, BIG_HILL.h, BIG_HILL.r) + bump(NORTH_HILL.x, NORTH_HILL.z, NORTH_HILL.h, NORTH_HILL.r);
+  h += bump(84, 148, 5, 15) + bump(-140, -14, 5, 15) + bump(30, -128, 4.5, 13) + bump(-40, -66, 3, 10) + bump(150, -30, 4, 14) + bump(-150, 96, 4.5, 14);
   // River channel.
   const dRiver = Math.abs(z - riverCenterZ(x));
   h = lerp(h, -2.3, 1 - smoothstep(RIVER_HALF * 0.45, RIVER_HALF + 5, dRiver));
-  // Pond with a little island.
+  // Pond with a little island; shallow lake.
   const dPond = Math.hypot(x - POND.x, z - POND.z);
   h = lerp(h, -2.5, 1 - smoothstep(POND.r * 0.55, POND.r + 4, dPond));
   h = lerp(h, 0.7, 1 - smoothstep(2.2, 5, dPond));
+  h = lerp(h, -1.9, 1 - smoothstep(LAKE.r * 0.6, LAKE.r + 6, Math.hypot(x - LAKE.x, z - LAKE.z)));
   // Rim of hills hides the world edge.
   const r = Math.hypot(x, z);
-  if (r > 106) h += 26 * (1 - Math.exp(-(((r - 106) / 22) ** 2)));
+  if (r > WORLD_R - 10) h += 26 * (1 - Math.exp(-(((r - WORLD_R + 10) / 22) ** 2)));
   return h;
 }
 
@@ -53,13 +60,18 @@ function ramp(x: number, z: number, heading: number, len = 9, width = 6, height 
 }
 
 export const RAMPS: Ramp[] = [
-  ramp(STUNT_PARK.x - 8, STUNT_PARK.z - 10, 0, 10, 7, 3.8),
-  ramp(STUNT_PARK.x + 8, STUNT_PARK.z + 10, Math.PI, 10, 7, 3.8),
-  ramp(STUNT_PARK.x + 12, STUNT_PARK.z - 6, -Math.PI / 2, 8, 6, 2.6),
-  ramp(-34, riverCenterZ(-34) - 22, 0, 11, 7, 4.4), // river jump
-  ramp(BIG_HILL.x - 3, BIG_HILL.z + 2, Math.PI * 0.75, 8, 7, 3), // hilltop launcher
-  ramp(34, -34, Math.PI / 2, 8, 6, 2.8),
-  ramp(-20, 30, -Math.PI / 2, 8, 6, 2.6),
+  ramp(STUNT_PARK.x - 14, STUNT_PARK.z - 16, 0, 10, 7, 3.8),
+  ramp(STUNT_PARK.x + 14, STUNT_PARK.z + 16, Math.PI, 10, 7, 3.8),
+  ramp(STUNT_PARK.x + 20, STUNT_PARK.z - 10, -Math.PI / 2, 8, 6, 2.6),
+  ramp(-50, riverCenterZ(-50) - 24, 0, 11, 7, 4.4), // river jump
+  ramp(BIG_HILL.x - 4, BIG_HILL.z + 3, Math.PI * 0.75, 8, 7, 3), // hilltop launcher
+  ramp(40, -40, Math.PI / 2, 8, 6, 2.8),
+  ramp(-24, 34, -Math.PI / 2, 8, 6, 2.6),
+  ramp(STUNT_PARK.x - 2, STUNT_PARK.z + 2, 0, 12, 8, 5), // the big one
+  ramp(LAKE.x - LAKE.r - 14, LAKE.z, Math.PI / 2, 10, 7, 4), // lake jump
+  ramp(NORTH_HILL.x + 4, NORTH_HILL.z - 3, Math.PI * 0.9, 8, 7, 3),
+  ramp(70, 150, -Math.PI / 2, 9, 6, 3),
+  ramp(-30, -120, 0.4, 9, 6, 3),
 ];
 
 function rampHeightAt(r: Ramp, x: number, z: number): number {
@@ -71,11 +83,21 @@ function rampHeightAt(r: Ramp, x: number, z: number): number {
   return r.base - 0.1 + r.height * (0.35 * t + 0.65 * t * t); // curved kicker
 }
 
+/**
+ * Bridge deck height at u in [-1, 1] along its length. The arch starts and
+ * ends exactly at ground level so the truck can roll on without a lip.
+ */
+export function bridgeDeckY(u: number): number {
+  const zc = riverCenterZ(BRIDGE.x);
+  const end = groundHeight(BRIDGE.x, zc + Math.sign(u || 1) * BRIDGE.halfL);
+  return end + (2.1 - end) * (1 - u * u);
+}
+
 function bridgeHeightAt(x: number, z: number): number {
   if (Math.abs(x - BRIDGE.x) > BRIDGE.halfW) return -Infinity;
   const u = (z - riverCenterZ(BRIDGE.x)) / BRIDGE.halfL;
   if (Math.abs(u) > 1) return -Infinity;
-  return 0.3 + 1.7 * (1 - u * u);
+  return bridgeDeckY(u);
 }
 
 /** What wheels actually touch: terrain, ramps, bridge deck. */
@@ -117,18 +139,23 @@ const BUILDING_SOLIDS: Record<BuildingKind, (b: Building) => Solid> = {
 
 export interface Field { kind: 'corn' | 'wheat' | 'sunflower'; x: number; z: number; hw: number; hd: number }
 export const FIELDS: Field[] = [
-  { kind: 'corn', x: 58, z: -8, hw: 13, hd: 11 },
-  { kind: 'wheat', x: -52, z: -18, hw: 12, hd: 10 },
-  { kind: 'sunflower', x: 12, z: 92, hw: 14, hd: 8 },
+  { kind: 'corn', x: 88, z: -14, hw: 18, hd: 15 },
+  { kind: 'wheat', x: -82, z: -24, hw: 17, hd: 14 },
+  { kind: 'sunflower', x: 30, z: 146, hw: 20, hd: 11 },
+  { kind: 'corn', x: -36, z: -150, hw: 16, hd: 11 },
+  { kind: 'wheat', x: 120, z: 120, hw: 15, hd: 12 },
 ];
 
 /** Dirt tracks, for ground colouring only. */
 export const PATHS: [number, number][][] = [
-  [[0, -12], [0, 20], [BRIDGE.x, 40], [BRIDGE.x, riverCenterZ(BRIDGE.x) + 14], [0, 86], [-30, 100]],
-  [[0, 20], [-30, 26], [STUNT_PARK.x + 16, STUNT_PARK.z]],
-  [[0, 0], [30, -6], [44, -26], [BIG_HILL.x - 14, BIG_HILL.z + 6], [BIG_HILL.x, BIG_HILL.z]],
+  [[0, -12], [0, 24], [BRIDGE.x, 56], [BRIDGE.x, riverCenterZ(BRIDGE.x) + 16], [6, 128], [-40, 150], [NORTH_HILL.x, NORTH_HILL.z]],
+  [[0, 24], [-44, 32], [STUNT_PARK.x + 26, STUNT_PARK.z]],
+  [[0, 0], [36, -8], [60, -40], [BIG_HILL.x - 22, BIG_HILL.z + 10], [BIG_HILL.x, BIG_HILL.z]],
   [[-20, -8], [20, -10]],
-  [[0, -12], [-10, -44], [-40, -52]],
+  [[0, -12], [-14, -52], [-60, -80], [POND.x + POND.r + 6, POND.z + 4]],
+  [[36, -8], [70, 4], [LAKE.x - LAKE.r - 30, LAKE.z]],
+  [[-14, -52], [-30, -110], [-36, -132]],
+  [[6, 128], [70, 140], [112, 104]],
 ];
 
 export function distToPath(x: number, z: number): number {
@@ -192,7 +219,7 @@ function buildWorld(): World {
   const addProp = (kind: PropKind, x: number, z: number, rot = rng() * TAU) => props.push({ id: id++, kind, x, z, rot });
   const free = (x: number, z: number, pad: number) =>
     isOpenGround(x, z, pad) && !inField(x, z, 1) && distToPath(x, z) > 3 + pad * 0.5 &&
-    Math.hypot(x - SPAWN.x, z - SPAWN.z) > 10 && Math.hypot(x - STUNT_PARK.x, z - STUNT_PARK.z) > 24 &&
+    Math.hypot(x - SPAWN.x, z - SPAWN.z) > 10 && Math.hypot(x - STUNT_PARK.x, z - STUNT_PARK.z) > 34 &&
     !props.some((p) => Math.hypot(p.x - x, p.z - z) < PROP_DEFS[p.kind].r + pad + 1) &&
     !trees.some((t) => Math.hypot(t.x - x, t.z - z) < pad + 2);
   const scatter = (n: number, pad: number, place: (x: number, z: number) => void, where?: (rng: Rng) => [number, number]) => {
@@ -231,39 +258,46 @@ function buildWorld(): World {
   }
   // Hay: stacks by the barn + scattered bales in the wheat stubble and meadows.
   scatter(8, 0.5, (x, z) => addProp('hay', x, z), around(-8, -8, 9));
-  scatter(26, 1.5, (x, z) => addProp('hay', x, z));
-  scatter(14, 1, (x, z) => addProp('crate', x, z), around(STUNT_PARK.x, STUNT_PARK.z, 44));
+  scatter(56, 1.5, (x, z) => addProp('hay', x, z));
+  scatter(22, 1, (x, z) => addProp('crate', x, z), around(STUNT_PARK.x, STUNT_PARK.z, 58));
+  scatter(16, 1, (x, z) => addProp('crate', x, z));
   scatter(8, 1, (x, z) => addProp('crate', x, z), around(18, -4, 14));
   for (const f of FIELDS) addProp('scarecrow', f.x, f.z);
-  scatter(5, 2, (x, z) => addProp('scarecrow', x, z));
-  scatter(16, 2, (x, z) => addProp('rock', x, z));
-  scatter(8, 3, (x, z) => addProp('boulder', x, z));
-  scatter(6, 3, (x, z) => addProp('car', x, z));
+  scatter(10, 2, (x, z) => addProp('scarecrow', x, z));
+  scatter(34, 2, (x, z) => addProp('rock', x, z));
+  scatter(16, 3, (x, z) => addProp('boulder', x, z));
+  scatter(12, 3, (x, z) => addProp('car', x, z));
+  // A second pumpkin patch out by the far corn.
+  for (let p = 0; p < 16; p++) addProp('pumpkin', -62 + (p % 4) * 2.8 + range(rng, -0.5, 0.5), -150 + Math.floor(p / 4) * 2.8 + range(rng, -0.5, 0.5));
 
   // Trees: an orchard, scattered clumps, and a thick rim forest outside the wall.
-  for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) {
-    const x = -62 + i * 7 + range(rng, -1, 1), z = 76 + j * 7 + range(rng, -1, 1);
+  for (let i = 0; i < 5; i++) for (let j = 0; j < 5; j++) {
+    const x = -134 + i * 7 + range(rng, -1, 1), z = 126 + j * 7 + range(rng, -1, 1);
     if (free(x, z, 1.5)) trees.push({ x, z, s: range(rng, 0.9, 1.15), kind: 1 });
   }
-  scatter(70, 2.5, (x, z) => trees.push({ x, z, s: range(rng, 0.85, 1.5), kind: rng() < 0.7 ? 0 : 2 }));
+  scatter(170, 2.5, (x, z) => trees.push({ x, z, s: range(rng, 0.85, 1.5), kind: rng() < 0.7 ? 0 : 2 }));
   for (const t of trees) solids.push({ kind: 'circle', x: t.x, z: t.z, r: 0.7 * t.s });
-  for (let i = 0; i < 150; i++) {
-    const a = rng() * TAU, d = range(rng, WORLD_R + 4, WORLD_R + 24);
+  for (let i = 0; i < 240; i++) {
+    const a = rng() * TAU, d = range(rng, WORLD_R + 4, WORLD_R + 28);
     trees.push({ x: Math.cos(a) * d, z: Math.sin(a) * d, s: range(rng, 1.3, 2.4), kind: rng() < 0.5 ? 0 : 2 });
   }
 
-  const riverRamp = RAMPS[3];
+  const riverRamp = RAMPS[3], bigRamp = RAMPS[7], lakeRamp = RAMPS[8];
   const secrets: [number, number, number][] = [
-    [BIG_HILL.x + 6, BIG_HILL.z - 6, 0.6],
+    [BIG_HILL.x + 8, BIG_HILL.z - 8, 0.6],
     [POND.x, POND.z, 0.6],
     [BRIDGE.x, riverCenterZ(BRIDGE.x), 0.8],
     [riverRamp.x, riverRamp.z + riverRamp.len + 12, 5.5], // mid-air over the river
     [-27, -22, 0.6], // tucked behind the barn
-    [58, -8, 0.6], // middle of the corn
-    [-92, 60, 0.6],
-    [88, 44, 0.6],
-    [STUNT_PARK.x - 8, STUNT_PARK.z + 7, 5], // above a stunt ramp
-    [-30, 88, 0.6],
+    [88, -14, 0.6], // middle of the corn
+    [-150, 96, 0.6],
+    [150, -30, 0.6],
+    [bigRamp.x, bigRamp.z + bigRamp.len + 12, 7], // off the big ramp
+    [NORTH_HILL.x - 6, NORTH_HILL.z + 6, 0.6],
+    [lakeRamp.x + lakeRamp.len + 14, lakeRamp.z, 5.5], // mid-air over the lake
+    [-36, -150, 0.6],
+    [120, 120, 0.6],
+    [30, -128, 0.6],
   ];
   return { solids, trees, props, secrets };
 }

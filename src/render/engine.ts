@@ -92,7 +92,7 @@ const FinalShader = {
 export class Engine {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
-  readonly camera = new THREE.PerspectiveCamera(62, 1, 0.3, 700);
+  readonly camera = new THREE.PerspectiveCamera(62, 1, 0.3, 1100);
   readonly sun = new THREE.DirectionalLight(0xffffff, 3);
   readonly hemi = new THREE.HemisphereLight(0xcfeaff, 0x8fd66a, 1);
   readonly sunDir = new THREE.Vector3(0.4, 0.8, 0.3);
@@ -107,7 +107,7 @@ export class Engine {
   private sky: THREE.Mesh;
   private skyUniforms = { uTop: { value: new THREE.Color() }, uHorizon: { value: new THREE.Color() }, uSunDir: { value: new THREE.Vector3() }, uSunColor: { value: new THREE.Color() } };
   private clouds = new THREE.Group();
-  private fog = new THREE.Fog(0xdff3ff, 110, 420);
+  private fog = new THREE.Fog(0xdff3ff, 140, 620);
 
   constructor(private container: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -131,7 +131,7 @@ export class Engine {
     this.scene.add(this.sun, this.sun.target, this.hemi);
 
     this.sky = new THREE.Mesh(
-      new THREE.SphereGeometry(600, 24, 16),
+      new THREE.SphereGeometry(950, 24, 16),
       new THREE.ShaderMaterial({
         side: THREE.BackSide, depthWrite: false, fog: false, uniforms: this.skyUniforms,
         vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
@@ -168,7 +168,7 @@ export class Engine {
         m.scale.set(r, r * 0.62, r * 0.8);
         cloud.add(m);
       }
-      const a = (i / 16) * Math.PI * 2 + (i % 2) * 0.3, d = 150 + ((i * 53) % 190);
+      const a = (i / 16) * Math.PI * 2 + (i % 2) * 0.3, d = 200 + ((i * 53) % 300);
       cloud.position.set(Math.cos(a) * d, 62 + ((i * 17) % 40), Math.sin(a) * d);
       cloud.userData.speed = 1.2 + (i % 4) * 0.5;
       this.clouds.add(cloud);
@@ -238,7 +238,7 @@ export class Engine {
     this.sky.position.copy(this.camera.position);
     for (const c of this.clouds.children) {
       c.position.x += c.userData.speed * dt;
-      if (c.position.x > 380) c.position.x = -380;
+      if (c.position.x > 560) c.position.x = -560;
     }
     if (this.composer && this.finalPass) {
       const u = this.finalPass.uniforms;

@@ -3,13 +3,13 @@
 import * as THREE from 'three';
 import { clamp, lerp, mulberry32, range, smoothstep, TAU } from '../core/math';
 import {
-  BIG_HILL, BRIDGE, BUILDINGS, FIELDS, MUD, RAMPS, SPAWN, STUNT_PARK, WATER_Y, WORLD, WORLD_R,
-  distToPath, groundHeight, riverCenterZ, surfaceHeight, type Building, type PropKind, type Ramp,
+  BIG_HILL, BRIDGE, BUILDINGS, FIELDS, LAKE, MUD, NORTH_HILL, POND, RAMPS, SPAWN, STUNT_PARK, WATER_Y, WORLD, WORLD_R,
+  bridgeDeckY, distToPath, groundHeight, riverCenterZ, surfaceHeight, type Building, type PropKind, type Ramp,
 } from '../core/world';
 import { SHARED, windify } from './engine';
 import { C, MAT, ball, box, cone, cyl, eyeParts, merged, mesh, type Part } from './kit';
 
-const EXTENT = 170;
+const EXTENT = 260;
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(), _c = new THREE.Color();
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 
@@ -33,7 +33,7 @@ const inField = (x: number, z: number, pad = 0) => FIELDS.some((f) => Math.abs(x
 // ------------------------------------------------------------------ ground
 
 function buildGround(): THREE.Mesh {
-  const seg = 220;
+  const seg = 300;
   const geo = new THREE.PlaneGeometry(EXTENT * 2, EXTENT * 2, seg, seg);
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position;
@@ -56,7 +56,7 @@ function buildGround(): THREE.Mesh {
       const e = Math.max(Math.abs(x - f.x) - f.hw, Math.abs(z - f.z) - f.hd);
       _c.lerp(f.kind === 'wheat' ? stubble : soil, 1 - smoothstep(-0.5, 1.5, e));
     }
-    _c.lerp(arena, 1 - smoothstep(15, 21, Math.hypot(x - STUNT_PARK.x, z - STUNT_PARK.z)));
+    _c.lerp(arena, 1 - smoothstep(26, 33, Math.hypot(x - STUNT_PARK.x, z - STUNT_PARK.z)));
     _c.lerp(dirt, (1 - smoothstep(1.6, 3.4, distToPath(x, z))) * 0.95);
     _c.lerp(mud, 1 - smoothstep(MUD.r - 2.5, MUD.r + 0.5, Math.hypot(x - MUD.x, z - MUD.z)));
     _c.lerp(sand, 1 - smoothstep(WATER_Y + 0.3, WATER_Y + 1.3, h));
@@ -71,7 +71,7 @@ function buildGround(): THREE.Mesh {
 }
 
 function buildWater(): THREE.Mesh {
-  const seg = 120;
+  const seg = 180;
   const geo = new THREE.PlaneGeometry(EXTENT * 2, EXTENT * 2, seg, seg);
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position;
@@ -135,12 +135,12 @@ function buildGrass(): THREE.InstancedMesh {
   const rng = mulberry32(99);
   const items: Inst[] = [];
   const tints = [0xffffff, 0xeaffd0, 0xd8f5b0, 0xfff7c0];
-  for (let tries = 0; items.length < 26000 && tries < 200000; tries++) {
+  for (let tries = 0; items.length < 46000 && tries < 400000; tries++) {
     const a = rng() * TAU, d = Math.sqrt(rng()) * (WORLD_R + 10);
     const x = Math.cos(a) * d, z = Math.sin(a) * d;
     const h = groundHeight(x, z);
     if (h < WATER_Y + 0.7 || distToPath(x, z) < 2.6 || inField(x, z, 0.5) || Math.hypot(x - SPAWN.x, z - SPAWN.z) < 7) continue;
-    if (Math.hypot(x - MUD.x, z - MUD.z) < MUD.r || Math.hypot(x - STUNT_PARK.x, z - STUNT_PARK.z) < 17) continue;
+    if (Math.hypot(x - MUD.x, z - MUD.z) < MUD.r || Math.hypot(x - STUNT_PARK.x, z - STUNT_PARK.z) < 28) continue;
     items.push({ x, y: h - 0.03, z, rot: rng() * TAU, s: range(rng, 0.6, 1.25), color: tints[Math.floor(rng() * tints.length)] });
   }
   const im = instanced(geo, mat, items, false);
@@ -158,12 +158,12 @@ function buildFlowers(): THREE.InstancedMesh {
   const tints = [0xffffff, 0xff9fcf, 0xffe066, 0xc9a6ff, 0xff7a7a, 0x9fe3ff];
   const items: Inst[] = [];
   // Flowers grow in drifts, not evenly.
-  for (let patch = 0; patch < 90; patch++) {
+  for (let patch = 0; patch < 190; patch++) {
     const a = rng() * TAU, d = Math.sqrt(rng()) * (WORLD_R - 4);
     const cx = Math.cos(a) * d, cz = Math.sin(a) * d, tint = tints[Math.floor(rng() * tints.length)];
     for (let i = 0; i < 26; i++) {
       const x = cx + range(rng, -5, 5), z = cz + range(rng, -5, 5), h = groundHeight(x, z);
-      if (h < WATER_Y + 0.8 || distToPath(x, z) < 2.4 || inField(x, z, 0.5) || Math.hypot(x - STUNT_PARK.x, z - STUNT_PARK.z) < 17) continue;
+      if (h < WATER_Y + 0.8 || distToPath(x, z) < 2.4 || inField(x, z, 0.5) || Math.hypot(x - STUNT_PARK.x, z - STUNT_PARK.z) < 28) continue;
       items.push({ x, y: h, z, rot: rng() * TAU, s: range(rng, 0.9, 1.6), color: tint });
     }
   }
@@ -252,7 +252,7 @@ function buildMountains(): THREE.Mesh {
   const parts: Part[] = [];
   const rng = mulberry32(8);
   for (let i = 0; i < 16; i++) {
-    const a = (i / 16) * TAU + range(rng, -0.1, 0.1), d = range(rng, 230, 300), h = range(rng, 60, 120), r = h * range(rng, 0.7, 1.0);
+    const a = (i / 16) * TAU + range(rng, -0.1, 0.1), d = range(rng, 350, 430), h = range(rng, 80, 150), r = h * range(rng, 0.7, 1.0);
     const x = Math.cos(a) * d, z = Math.sin(a) * d;
     parts.push({ geo: cone(r, h, 7), color: i % 2 ? 0x9aa6e8 : 0xa992e0, pos: [x, h / 2 - 6, z], rot: [0, rng() * 3, 0] });
     parts.push({ geo: cone(r * 0.33, h * 0.33, 7), color: 0xffffff, pos: [x, h * 0.835 - 6 + 0.5, z], rot: [0, rng() * 3, 0], scale: [1.04, 1, 1.04] });
@@ -293,8 +293,8 @@ function buildBridge(): THREE.Mesh {
   const parts: Part[] = [];
   const zc = riverCenterZ(BRIDGE.x), N = 14;
   for (let i = 0; i < N; i++) {
-    const u = ((i + 0.5) / N) * 2 - 1, z = zc + u * BRIDGE.halfL, y = 0.3 + 1.7 * (1 - u * u);
-    const slope = Math.atan2(-3.4 * u, BRIDGE.halfL);
+    const u = ((i + 0.5) / N) * 2 - 1, z = zc + u * BRIDGE.halfL, y = bridgeDeckY(u);
+    const slope = Math.atan2(bridgeDeckY(u + 0.02) - bridgeDeckY(u - 0.02), BRIDGE.halfL * 0.04);
     parts.push({ geo: box(BRIDGE.halfW * 2 + 0.6, 0.35, (BRIDGE.halfL * 2) / N + 0.08, 0.08, 1), color: i % 2 ? C.wood : 0xdba36a, pos: [BRIDGE.x, y - 0.2, z], rot: [-slope, 0, 0] });
     if (i % 2 === 0) {
       for (const sx of [-1, 1]) {
@@ -306,7 +306,7 @@ function buildBridge(): THREE.Mesh {
   for (const sx of [-1, 1]) {
     for (let i = 0; i < N; i++) {
       const u = ((i + 0.5) / N) * 2 - 1;
-      parts.push({ geo: box(0.18, 0.18, (BRIDGE.halfL * 2) / N + 0.1, 0.05, 1), color: C.cream, pos: [BRIDGE.x + sx * (BRIDGE.halfW + 0.15), 0.3 + 1.7 * (1 - u * u) + 0.85, zc + u * BRIDGE.halfL], rot: [-Math.atan2(-3.4 * u, BRIDGE.halfL), 0, 0] });
+      parts.push({ geo: box(0.18, 0.18, (BRIDGE.halfL * 2) / N + 0.1, 0.05, 1), color: C.cream, pos: [BRIDGE.x + sx * (BRIDGE.halfW + 0.15), bridgeDeckY(u) + 0.85, zc + u * BRIDGE.halfL], rot: [-Math.atan2(bridgeDeckY(u + 0.02) - bridgeDeckY(u - 0.02), BRIDGE.halfL * 0.04), 0, 0] });
     }
   }
   return mesh(merged(parts), MAT.clay);
@@ -570,15 +570,17 @@ export class Farm {
       parts.push({ geo: ball(0.2, 6, 5), color: C.sun, pos: [x, y + h + 0.1, z] });
     };
     const cols = [C.red, C.sun, C.blue, C.purple, C.orange, C.blossom];
-    for (let i = 0; i < 12; i++) {
-      const a = (i / 12) * TAU;
-      flag(STUNT_PARK.x + Math.cos(a) * 20, STUNT_PARK.z + Math.sin(a) * 20, cols[i % cols.length], 4.5);
+    for (let i = 0; i < 18; i++) {
+      const a = (i / 18) * TAU;
+      flag(STUNT_PARK.x + Math.cos(a) * 31, STUNT_PARK.z + Math.sin(a) * 31, cols[i % cols.length], 4.5);
     }
     flag(BIG_HILL.x, BIG_HILL.z, C.red, 7);
+    flag(NORTH_HILL.x, NORTH_HILL.z, C.blue, 7);
     const rng = mulberry32(12);
-    for (let i = 0; i < 40; i++) { // lily pads on calm water
-      const x = range(rng, -WORLD_R, WORLD_R), z = i < 12 ? -58 + range(rng, -11, 11) : riverCenterZ(x) + range(rng, -3, 3);
-      const px = i < 12 ? -64 + range(rng, -11, 11) : x;
+    for (let i = 0; i < 80; i++) { // lily pads on calm water
+      const still = i < 14 ? POND : i < 40 ? LAKE : null;
+      const x = range(rng, -WORLD_R, WORLD_R), z = still ? still.z + range(rng, -still.r, still.r) : riverCenterZ(x) + range(rng, -3, 3);
+      const px = still ? still.x + range(rng, -still.r, still.r) : x;
       if (groundHeight(px, z) > WATER_Y - 0.5) continue;
       parts.push({ geo: cyl(0.7, 0.7, 0.06, 10), color: C.leaf, pos: [px, WATER_Y + 0.04, z] });
       if (i % 3 === 0) parts.push({ geo: ball(0.22, 6, 5), color: C.blossom, pos: [px, WATER_Y + 0.2, z] });
