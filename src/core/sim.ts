@@ -5,7 +5,7 @@ import { GOLDEN_COIN_MULT, isBoopable, launchAnimal, makeAnimal, SPECIES, stepAn
 import { createFarmer, farmerBumped, farmerDangerous, farmerHonked, FARMER_RADIUS, stepFarmer, type Farmer } from './farmer';
 import { angleDelta, clamp, mulberry32, pick, range, TAU, type Rng } from './math';
 import { COMBO_WINDOW, comboMult, dealMission, MISSIONS, updateMission, zeroCounters, type Counters, type Mission } from './missions';
-import { statsFor, type Loadout, type TruckStats } from './parts';
+import { statsFor, type Loadout, type TruckId, type TruckStats } from './parts';
 import { createTruck, stepTruck, truckSpeed, TRUCK_RADIUS, type Circle, type DriveInput, type Truck } from './truck';
 import { BIG_HILL, LAKE, NORTH_HILL, groundHeight, isOpenGround, MUD, PROP_DEFS, RAMPS, SPAWN, STUNT_PARK, surfaceHeight, WATER_Y, WORLD, type PropKind } from './world';
 
@@ -35,7 +35,7 @@ export type GameEvent =
   | { type: 'happening'; kind: HappeningKind }
   | { type: 'end'; reason: 'sunset' | 'busted' };
 
-export interface SimOptions { seed?: number; assists?: boolean; farmerEase?: number; firstRun?: boolean }
+export interface SimOptions { seed?: number; assists?: boolean; farmerEase?: number; firstRun?: boolean; truck?: TruckId }
 
 export class Sim {
   readonly stats: TruckStats;
@@ -73,7 +73,7 @@ export class Sim {
   constructor(loadout: Loadout, opts: SimOptions = {}) {
     this.rng = mulberry32(opts.seed ?? (Math.random() * 2 ** 32) >>> 0);
     this.assists = opts.assists ?? true;
-    this.stats = statsFor(loadout);
+    this.stats = statsFor(loadout, opts.truck);
     this.hearts = this.stats.hearts;
     this.truck = createTruck(SPAWN.x, SPAWN.z, SPAWN.heading, this.stats);
     this.farmer = createFarmer(this.rng, opts.farmerEase ?? 1);
@@ -325,7 +325,7 @@ export class Sim {
     this.combo.count++;
     this.combo.timer = COMBO_WINDOW;
     const mult = comboMult(this.combo.count) * (this.chased ? 2 : 1);
-    const coins = SPECIES[a.species].coins * (a.golden ? GOLDEN_COIN_MULT : 1) * mult;
+    const coins = Math.round(SPECIES[a.species].coins * (a.golden ? GOLDEN_COIN_MULT : 1) * mult * this.stats.coinMult);
     this.coins += coins;
     const c = this.counters;
     c.boops++; c[a.species]++;

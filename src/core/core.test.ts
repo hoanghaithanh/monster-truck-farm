@@ -3,8 +3,8 @@ import { SPECIES, launchAnimal, makeAnimal, stepAnimal } from './animals';
 import { createFarmer, farmerBumped, farmerHonked, stepFarmer } from './farmer';
 import { angleDelta, mulberry32 } from './math';
 import { MISSIONS, comboMult, dealMission, medalFor, updateMission, zeroCounters } from './missions';
-import { AXES, PARTS, STOCK, statsFor } from './parts';
-import { buy, canBuy, defaultSave, farmerEaseFor, loadSave, persist } from './save';
+import { AXES, PARTS, STOCK, TRUCKS, statsFor } from './parts';
+import { buy, canBuy, chooseTruck, defaultSave, farmerEaseFor, loadSave, persist } from './save';
 import { DAY_SECONDS, Sim } from './sim';
 import { NO_INPUT, createTruck, forwardSpeed, stepTruck, truckSpeed, type DriveInput } from './truck';
 import { BRIDGE, RAMPS, SPAWN, WATER_Y, WORLD, WORLD_R, groundHeight, isOpenGround, isWater, riverCenterZ, surfaceHeight } from './world';
@@ -252,6 +252,38 @@ describe('save', () => {
     expect(s.owned.body).toBe(3);
     expect(s.equipped.wheels).toBe(0);
     expect(loadSave(undefined).coins).toBe(0);
+  });
+  it('truck collection: buy once, switch freely, perks change stats, old saves migrate', () => {
+    const s = defaultSave();
+    expect(chooseTruck(s, 'dino')).toBe(null);
+    s.coins = 2000;
+    expect(chooseTruck(s, 'dino')).toBe('bought');
+    const left = s.coins;
+    expect(chooseTruck(s, 'pickup')).toBe('selected');
+    expect(chooseTruck(s, 'dino')).toBe('selected');
+    expect(s.coins).toBe(left);
+    expect(statsFor(STOCK, 'dino').wheelTier).toBe(1);
+    expect(statsFor(STOCK, 'bus').hearts).toBe(5);
+    expect(statsFor(STOCK, 'shark').swims).toBe(true);
+    expect(statsFor(STOCK, 'buggy').accel).toBeGreaterThan(statsFor(STOCK).accel);
+    expect(new Set(TRUCKS.map((t) => t.id)).size).toBe(TRUCKS.length);
+    const store = mem();
+    store.setItem('monster-truck-farm-v2', JSON.stringify({ coins: 10, paint: 4, truck: 'ufo', owned: { wheels: 2 } }));
+    const old = loadSave(store);
+    expect(old.trucks).toEqual(['pickup']);
+    expect(old.truck).toBe('pickup');
+    expect(old.paint).toBe(5); // Sky kept its colour
+    expect(old.owned.wheels).toBe(2);
+  });
+  it('the shark keeps its speed in water', () => {
+    const rz = riverCenterZ(-40);
+    const speedIn = (truck: 'pickup' | 'shark') => {
+      const st = statsFor(STOCK, truck);
+      const t = createTruck(-70, rz, Math.PI / 2, st);
+      for (let i = 0; i < 180; i++) stepTruck(t, drive({ throttle: 1 }), st, DT, []);
+      return truckSpeed(t) / st.topSpeed;
+    };
+    expect(speedIn('shark')).toBeGreaterThan(speedIn('pickup') + 0.2);
   });
   it('first upgrade is cheap and the farmer eases after a bust', () => {
     expect(Math.min(...AXES.map((a) => PARTS[a][1].cost))).toBeLessThanOrEqual(30);

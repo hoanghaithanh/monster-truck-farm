@@ -75,7 +75,7 @@ export function stepTruck(t: Truck, input: DriveInput, stats: TruckStats, dt: nu
     let vf = t.vx * fx + t.vz * fz;
     let vl = -t.vx * fz + t.vz * fx;
 
-    const maxSpeed = stats.topSpeed * (t.boosting ? BOOST_SPEED : 1) * (t.inWater ? 0.6 : t.inMud ? 0.72 : 1);
+    const maxSpeed = stats.topSpeed * (t.boosting ? BOOST_SPEED : 1) * (t.inWater ? (stats.swims ? 0.95 : 0.6) : t.inMud ? 0.72 : 1);
     const throttle = t.boosting ? 1 : input.throttle;
     const handbrake = input.throttle < 0 && vf > 4 && Math.abs(t.steer) > 0.3;
     if (throttle > 0) {

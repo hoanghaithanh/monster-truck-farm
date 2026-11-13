@@ -111,19 +111,33 @@ button { font-family: inherit; color: inherit; cursor: pointer; border: 0; }
 .buy .up { font-size: 0.75rem; opacity: 0.9; }
 .g-side { grid-column: 3; grid-row: 2; display: flex; flex-direction: column; gap: 0.7rem; justify-content: center; }
 .g-side h3 { margin: 0 0 0.4rem; font-size: 1rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.7; }
-.swatches { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.4rem; }
+.swatches { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0.35rem; }
 .swatch { aspect-ratio: 1; border-radius: 50%; border: 0.22rem solid var(--ink); box-shadow: 0 0.22rem 0 var(--ink); background-image: radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0) 45%); }
 .swatch.on { outline: 0.3rem solid #fff; transform: scale(1.12); }
-.decals { display: flex; gap: 0.35rem; margin-top: 0.6rem; }
-.decals .btn { flex: 1; padding: 0.25rem 0; font-size: 1.3rem; }
+.decals { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.5rem; }
+.decals .btn { flex: 1 0 20%; padding: 0.22rem 0; font-size: 1.05rem; white-space: nowrap; }
 .decals .btn.on { background: #fff; outline: 0.25rem solid var(--orange); }
 .stat { display: grid; grid-template-columns: 1.8rem 1fr; align-items: center; gap: 0.4rem; margin: 0.25rem 0; font-size: 1.2rem; }
 .stat .bar { height: 0.8rem; border-radius: 999px; background: #d9cfb8; border: 0.14rem solid var(--ink); overflow: hidden; }
 .stat .bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--orange), var(--sun)); transition: width 0.5s cubic-bezier(0.3, 1.6, 0.5, 1); }
 .best { font-weight: 700; font-size: 1.05rem; display: flex; justify-content: space-between; align-items: center; }
-.g-bottom { grid-column: 1 / 4; grid-row: 3; display: flex; justify-content: center; align-items: flex-end; gap: 1rem; pointer-events: none; }
+.g-bottom { grid-column: 1 / 4; grid-row: 3; display: flex; justify-content: center; align-items: flex-end; gap: 1.2rem; pointer-events: none; }
+.g-pick { display: flex; flex-direction: column; align-items: center; gap: 0.35rem; }
+.perk { background: var(--ink); color: #fff; border-radius: 999px; padding: 0.15rem 1rem; font-weight: 600; font-size: 1rem; }
+.trucks { display: flex; gap: 0.45rem; }
+.truck-card { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 6.2rem; height: 5.6rem; background: rgba(255, 246, 224, 0.95); border: 0.22rem solid var(--ink); border-radius: 1.1rem; box-shadow: 0 0.35rem 0 var(--ink); transition: transform 0.1s; padding: 0.2rem; }
+.truck-card:hover { transform: translateY(-0.2rem) rotate(-2deg); }
+.truck-card .ico { font-size: 2.2rem; line-height: 1.1; }
+.truck-card .nm { font-weight: 700; font-size: 0.78rem; line-height: 1; }
+.truck-card .cost { display: flex; align-items: center; gap: 0.2rem; font-weight: 700; font-size: 0.9rem; margin-top: 0.15rem; }
+.truck-card .cost .coin-ico { width: 1rem; height: 1rem; }
+.truck-card.on { background: var(--sun); transform: translateY(-0.35rem) scale(1.06); outline: 0.25rem solid #fff; }
+.truck-card.locked { background: #d8d2c4; }
+.truck-card.locked .ico { filter: grayscale(1) brightness(0.75); }
+.truck-card.locked.can { background: #c9ffb0; border-color: #2c9a25; box-shadow: 0 0.35rem 0 #2c9a25, 0 0 1rem #9dff7a; animation: pulse 1.2s infinite; }
+.truck-card.locked.can .ico { filter: none; }
 .g-bottom > * { pointer-events: auto; }
-.go { font-size: 3rem; padding: 0.6rem 3.4rem; border-radius: 2rem; animation: pulse 1s infinite; box-shadow: 0 0.6rem 0 var(--ink); }
+.go { font-size: 2.6rem; padding: 0.6rem 2.6rem; border-radius: 2rem; animation: pulse 1s infinite; box-shadow: 0 0.6rem 0 var(--ink); }
 .reveal { position: absolute; left: 50%; top: 16%; transform: translateX(-50%); text-align: center; pointer-events: none; animation: toast 2.4s forwards; }
 .reveal .a { font-size: 1.6rem; font-weight: 700; color: #fff; text-shadow: 0 0.18rem 0 var(--ink); }
 .reveal .b { font-size: 4.2rem; font-weight: 700; color: var(--sun); -webkit-text-stroke: 0.28rem var(--ink); paint-order: stroke fill; text-shadow: 0 0.4rem 0 var(--ink); }

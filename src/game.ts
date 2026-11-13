@@ -5,8 +5,8 @@ import { GameAudio } from './audio/audio';
 import { SPECIES } from './core/animals';
 import { clamp, damp } from './core/math';
 import { medalFor } from './core/missions';
-import { STOCK, type Axis } from './core/parts';
-import { buy, farmerEaseFor, loadSave, persist, type Save } from './core/save';
+import { STOCK, truckDef, type Axis, type TruckId } from './core/parts';
+import { buy, chooseTruck, farmerEaseFor, loadSave, persist, type Save } from './core/save';
 import { Sim, type GameEvent } from './core/sim';
 import { forwardSpeed, truckSpeed, type DriveInput } from './core/truck';
 import { groundHeight, inMud, isWater, distToPath, SPAWN, surfaceHeight, WATER_Y } from './core/world';
@@ -94,6 +94,8 @@ export class Game {
       onBuy: (axis) => this.buyPart(axis),
       onPaint: (i) => { this.save.paint = i; this.audio.click(); this.refreshTruck(false); },
       onDecal: (d) => { this.save.decal = d; this.audio.click(); this.refreshTruck(false); },
+      onFinish: (f) => { this.save.finish = f; this.audio.click(); this.refreshTruck(false); },
+      onTruck: (id) => this.pickTruck(id),
       onGo: () => this.startRun(),
       onSettings: () => { this.audio.click(); this.pause.show(true, false); },
       onHover: (axis) => (this.hover = axis),
@@ -180,7 +182,7 @@ export class Game {
 
   private refreshTruck(celebrate: boolean): void {
     this.truck?.dispose();
-    this.truck = new TruckModel({ loadout: this.save.equipped, paint: this.save.paint, decal: this.save.decal });
+    this.truck = new TruckModel({ loadout: this.save.equipped, truck: this.save.truck, paint: this.save.paint, decal: this.save.decal, finish: this.save.finish });
     this.engine.scene.add(this.truck.group);
     this.placeGarageTruck();
     if (celebrate) this.truck.kick(9);
@@ -197,7 +199,22 @@ export class Game {
     const tier = buy(this.save, axis);
     if (tier === null) { this.audio.deny(); return; }
     this.refreshTruck(true);
-    this.garage.reveal(axis, tier);
+    this.garage.reveal(...Garage.axisReveal(axis, tier));
+    this.celebrate();
+  }
+
+  private pickTruck(id: TruckId): void {
+    const result = chooseTruck(this.save, id);
+    if (result === null) { this.audio.deny(); return; }
+    this.refreshTruck(true);
+    if (result === 'selected') { this.audio.click(); this.audio.horn(this.save.equipped.engine); return; }
+    const t = truckDef(id);
+    this.garage.reveal(t.icon, 'NEW TRUCK!', t.name);
+    this.celebrate();
+  }
+
+  /** Purchase fanfare: flash, punch-in, confetti, horn. */
+  private celebrate(): void {
     this.audio.buy();
     window.setTimeout(() => this.audio.horn(this.save.equipped.engine), 350);
     if (this.save.settings.shake) this.engine.flash = 0.8;
@@ -233,8 +250,8 @@ export class Game {
     this.sim.idle(dt);
     this.critters.sync(this.sim.animals, [], this.sim.farmer, dt);
     // Bigger trucks need a longer lens: frame by the equipped size.
-    const e = this.save.equipped, baseR = 9.5 + e.body * 1.2 + e.wheels * 1.1, baseH = 3.2 + e.wheels * 0.55;
-    const targets: Record<Axis, [number, number, number]> = { body: [1.1, baseR * 0.9, baseH], wheels: [2.0, baseR * 0.82, baseH * 0.55], engine: [0.6, baseR * 0.78, baseH * 1.1], tank: [3.6, baseR * 0.8, baseH * 1.3] };
+    const baseR = 3.6 + this.truck.length * 0.75 + this.truck.height * 1.2, baseH = 1.3 + this.truck.height * 0.5;
+    const targets: Record<Axis, [number, number, number]> = { body: [1.1, baseR * 0.9, baseH], wheels: [2.0, baseR * 0.95, baseH * 0.6], engine: [0.6, baseR * 0.78, baseH * 1.1], tank: [3.6, baseR * 0.8, baseH * 1.3] };
     if (this.hover) {
       const [a, r, hgt] = targets[this.hover];
       this.orbit += Math.atan2(Math.sin(a - this.orbit), Math.cos(a - this.orbit)) * Math.min(1, dt * 3);
@@ -247,7 +264,7 @@ export class Game {
     this.truck.update(dt, { speed: 0, steer: Math.sin(performance.now() / 1300) * 0.5, throttle: 0, boosting: false, grounded: true, nitro: 1, slip: 0 });
     const cam = this.engine.camera;
     cam.position.set(p.x + Math.sin(this.orbit) * this.orbitR, p.y + this.orbitH, p.z + Math.cos(this.orbit) * this.orbitR);
-    this.focus.set(p.x, p.y + 1.5 + e.wheels * 0.45, p.z);
+    this.focus.set(p.x, p.y + this.truck.height * 0.48, p.z);
     cam.lookAt(this.focus);
     if (cam.fov !== 46) { cam.fov = 46; cam.updateProjectionMatrix(); }
     if (Math.random() < dt * 6) { // showroom sparkle
@@ -268,7 +285,7 @@ export class Game {
     this.critters.clear();
     this.particles.clear();
     const s = this.save;
-    this.sim = new Sim(s.equipped, { assists: s.settings.assists, farmerEase: farmerEaseFor(s), firstRun: s.runs === 0 });
+    this.sim = new Sim(s.equipped, { assists: s.settings.assists, farmerEase: farmerEaseFor(s), firstRun: s.runs === 0, truck: s.truck });
     this.truck.group.rotation.order = 'YXZ';
     this.cam.snap(this.sim.truck);
     this.hud.show(true);
