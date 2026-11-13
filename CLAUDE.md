@@ -5,11 +5,11 @@
 A cute, lively 3D browser game built for the developer's son, meant to be fun for a 6-year-old and a 30-year-old at once ("easy to play, deep to master").
 
 **Core loop:**
-1. **Garage** — the truck sits on a turntable in the farmyard. Coins buy parts on four axes, four tiers each, and every tier visibly changes the truck: body = hearts (3 to 6), wheels = what can be smashed (hay/fences, rocks, boulders, old cars), engine = speed, tank = nitro capacity. Paint and decals are free.
-2. **One farm day** — a run is 150 s from sunrise to sunset; the sky is the timer. Completing a mission adds 10 s.
+1. **Garage** — the truck sits on a turntable in the farmyard. Coins buy **truck types** (pickup, dune buggy, school bus, shark, dino, bull — each a distinct body with one passive perk) and upgrades on four axes, four tiers each, that apply to whichever truck is driven and visibly change it: armor = hearts (3 to 6) plus bolt-ons, wheels = what can be smashed (hay/fences, rocks, boulders, old cars), engine = speed, tank = nitro capacity. Paint, finish and decals are free. (Truck collection added 2026-11-12, replacing the single-body design.)
+2. **One farm day** — a run is 180 s from sunrise to sunset (~~150 s~~, lengthened 2026-11-12 with the bigger map); the sky is the timer. Completing a mission adds 10 s.
 3. **Boop** — animals (chicken, pig, sheep, cow, rare golden variants) are booped for coins; they fly, land, shake it off and trot away, never harmed. Boops chain into a combo multiplier.
 4. **Style** — air time, spins, backflips, drifts and smashing props score style points (converted to coins at the end, and they refill nitro).
-5. **Farmer** — a grumpy farmer on a tractor is telegraphed, chases, and takes one heart per visit if he bumps the truck. Coins are doubled while he chases. He eases off each time he catches the player. He cannot cross the river.
+5. **Farmer** — a grumpy farmer on a tractor is telegraphed, chases, and takes one heart per visit if he bumps the truck. Coins are doubled while he chases. He eases off each time he catches the player. He cannot cross the river. With helpers on (the default) he can never take the last heart.
 6. **End of day** — sunset or zero hearts ends the run with a tally and a medal; coins and parts persist (localStorage). There is no hard reset.
 
 **Target player:** a young child first (icon-first UI, assists on by default, near-impossible to fail badly, animals are never hurt), with an optional skill ceiling for adults (combos, tricks, risk/reward farmer baiting, secrets, medals).

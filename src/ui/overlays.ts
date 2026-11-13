@@ -147,7 +147,7 @@ export class PauseMenu {
       row('🎵 Music', toggle(s.music, (v) => (s.music = v))),
       row('✨ Graphics', quality),
       row('📳 Screen shake & flashes', toggle(s.shake, (v) => (s.shake = v))),
-      row('🧲 Driving helpers', toggle(s.assists, (v) => (s.assists = v))),
+      row('🧲 Helpers (aim assist, last ❤️ is safe)', toggle(s.assists, (v) => (s.assists = v))),
     );
   }
 }

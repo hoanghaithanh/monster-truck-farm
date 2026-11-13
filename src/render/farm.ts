@@ -7,7 +7,7 @@ import {
   bridgeDeckY, distToPath, groundHeight, riverCenterZ, surfaceHeight, type Building, type PropKind, type Ramp,
 } from '../core/world';
 import { SHARED, windify } from './engine';
-import { C, MAT, ball, box, cone, cyl, eyeParts, merged, mesh, type Part } from './kit';
+import { C, MAT, ball, box, cone, cyl, eyeParts, merged, mesh, slab, type Part } from './kit';
 
 const EXTENT = 260;
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(), _c = new THREE.Color();
@@ -33,7 +33,7 @@ const inField = (x: number, z: number, pad = 0) => FIELDS.some((f) => Math.abs(x
 // ------------------------------------------------------------------ ground
 
 function buildGround(): THREE.Mesh {
-  const seg = 300;
+  const seg = 240;
   const geo = new THREE.PlaneGeometry(EXTENT * 2, EXTENT * 2, seg, seg);
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position;
@@ -135,7 +135,7 @@ function buildGrass(): THREE.InstancedMesh {
   const rng = mulberry32(99);
   const items: Inst[] = [];
   const tints = [0xffffff, 0xeaffd0, 0xd8f5b0, 0xfff7c0];
-  for (let tries = 0; items.length < 46000 && tries < 400000; tries++) {
+  for (let tries = 0; items.length < 40000 && tries < 400000; tries++) {
     const a = rng() * TAU, d = Math.sqrt(rng()) * (WORLD_R + 10);
     const x = Math.cos(a) * d, z = Math.sin(a) * d;
     const h = groundHeight(x, z);
@@ -158,7 +158,7 @@ function buildFlowers(): THREE.InstancedMesh {
   const tints = [0xffffff, 0xff9fcf, 0xffe066, 0xc9a6ff, 0xff7a7a, 0x9fe3ff];
   const items: Inst[] = [];
   // Flowers grow in drifts, not evenly.
-  for (let patch = 0; patch < 190; patch++) {
+  for (let patch = 0; patch < 125; patch++) {
     const a = rng() * TAU, d = Math.sqrt(rng()) * (WORLD_R - 4);
     const cx = Math.cos(a) * d, cz = Math.sin(a) * d, tint = tints[Math.floor(rng() * tints.length)];
     for (let i = 0; i < 26; i++) {
@@ -179,10 +179,10 @@ function buildCrops(): THREE.Object3D {
   const rng = mulberry32(31);
   const corn = merged([
     { geo: cyl(0.07, 0.1, 2.4, 6), color: C.leafDark, pos: [0, 1.2, 0] },
-    { geo: box(0.9, 0.06, 0.28, 0.03, 1), color: C.leaf, pos: [0.35, 1.0, 0], rot: [0, 0, 0.5] },
-    { geo: box(0.9, 0.06, 0.28, 0.03, 1), color: C.leaf, pos: [-0.35, 1.5, 0], rot: [0, 0, -0.5] },
-    { geo: box(0.7, 0.06, 0.24, 0.03, 1), color: C.leaf, pos: [0, 2.0, 0.3], rot: [0.5, Math.PI / 2, 0] },
-    { geo: ball(0.16, 8, 6), color: C.sun, pos: [0.14, 1.55, 0.08], scale: [1, 2.3, 1] },
+    { geo: slab(0.9, 0.06, 0.28), color: C.leaf, pos: [0.35, 1.0, 0], rot: [0, 0, 0.5] },
+    { geo: slab(0.9, 0.06, 0.28), color: C.leaf, pos: [-0.35, 1.5, 0], rot: [0, 0, -0.5] },
+    { geo: slab(0.7, 0.06, 0.24), color: C.leaf, pos: [0, 2.0, 0.3], rot: [0.5, Math.PI / 2, 0] },
+    { geo: ball(0.16, 6, 4), color: C.sun, pos: [0.14, 1.55, 0.08], scale: [1, 2.3, 1] },
     { geo: cone(0.08, 0.35, 5), color: C.hay, pos: [0, 2.55, 0] },
   ]);
   const wheat = merged([
@@ -195,8 +195,8 @@ function buildCrops(): THREE.Object3D {
   ]);
   const sunflower = merged([
     { geo: cyl(0.06, 0.08, 2.0, 6), color: C.leafDark, pos: [0, 1.0, 0] },
-    { geo: box(0.7, 0.05, 0.3, 0.03, 1), color: C.leaf, pos: [0.3, 0.9, 0], rot: [0, 0, 0.4] },
-    { geo: box(0.7, 0.05, 0.3, 0.03, 1), color: C.leaf, pos: [-0.3, 1.3, 0], rot: [0, 0, -0.4] },
+    { geo: slab(0.7, 0.05, 0.3), color: C.leaf, pos: [0.3, 0.9, 0], rot: [0, 0, 0.4] },
+    { geo: slab(0.7, 0.05, 0.3), color: C.leaf, pos: [-0.3, 1.3, 0], rot: [0, 0, -0.4] },
     { geo: cyl(0.55, 0.55, 0.08, 14), color: C.sun, pos: [0, 2.1, 0.08], rot: [Math.PI / 2 - 0.3, 0, 0] },
     { geo: cyl(0.3, 0.3, 0.12, 12), color: C.woodDark, pos: [0, 2.11, 0.12], rot: [Math.PI / 2 - 0.3, 0, 0] },
     ...eyeParts(0.07, 0.2, 2.16, 0.17),
@@ -458,10 +458,10 @@ const PROP_GEO: Record<Exclude<PropKind, 'car'>, () => THREE.BufferGeometry> = {
     ...[-1.25, 1.25].map((x): Part => ({ geo: ball(0.22, 6, 5), color: C.hay, pos: [x, 2.2, 0] })),
   ]),
   fence: () => merged([
-    ...[-1.35, 0, 1.35].map((z): Part => ({ geo: box(0.28, 1.5, 0.28, 0.08, 1), color: C.cream, pos: [0, 0.75, z] })),
+    ...[-1.35, 0, 1.35].map((z): Part => ({ geo: slab(0.28, 1.5, 0.28), color: C.cream, pos: [0, 0.75, z] })),
     ...[-1.35, 0, 1.35].map((z): Part => ({ geo: ball(0.2, 6, 5), color: C.barn, pos: [0, 1.55, z] })),
-    { geo: box(0.14, 0.24, 3, 0.05, 1), color: C.cream, pos: [0, 1.1, 0] },
-    { geo: box(0.14, 0.24, 3, 0.05, 1), color: C.cream, pos: [0, 0.55, 0] },
+    { geo: slab(0.14, 0.24, 3), color: C.cream, pos: [0, 1.1, 0] },
+    { geo: slab(0.14, 0.24, 3), color: C.cream, pos: [0, 0.55, 0] },
   ]),
   rock: () => merged([
     { geo: new THREE.IcosahedronGeometry(1.25, 1), color: C.rock, pos: [0, 0.7, 0], scale: [1, 0.75, 0.9] },

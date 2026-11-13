@@ -37,7 +37,7 @@ export interface Truck {
 
 export type TruckEvent =
   | { type: 'jump' }
-  | { type: 'land'; impact: number; airTime: number; spins: number; flips: number }
+  | { type: 'land'; impact: number; airTime: number; spins: number; flips: number; /** Wheels down and pointing the way it's travelling. */ clean: boolean }
   | { type: 'bonk'; speed: number }
   | { type: 'splash' };
 
@@ -185,7 +185,9 @@ export function stepTruck(t: Truck, input: DriveInput, stats: TruckStats, dt: nu
   if (t.y <= ground + stick) {
     if (!t.grounded) {
       if (t.airTime > 0.25) {
-        events.push({ type: 'land', impact: slopeVy - t.vy, airTime: t.airTime, spins: Math.floor(t.spin / TAU + 0.2), flips: Math.floor(Math.abs(t.flip) / TAU + 0.25) });
+        events.push({ type: 'land', impact: slopeVy - t.vy, airTime: t.airTime, spins: Math.floor(t.spin / TAU + 0.2), flips: Math.floor(Math.abs(t.flip) / TAU + 0.25),
+          clean: Math.abs(Math.sin(t.flip / 2)) < 0.2 && (truckSpeed(t) < 3 || Math.abs(Math.sin((Math.atan2(t.vx, t.vz) - t.heading) / 2)) < 0.2),
+        });
       }
       t.grounded = true;
     }

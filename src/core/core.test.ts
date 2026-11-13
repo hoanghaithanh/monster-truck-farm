@@ -340,6 +340,29 @@ describe('full runs', () => {
       expect(sim.coins + sim.styleCoins).toBeGreaterThan(5);
     }
   });
+  it('helpers keep the last heart safe; without them the farmer can bust you', () => {
+    const run = (assists: boolean) => {
+      const sim = new Sim(STOCK, { seed: 5, assists });
+      for (let i = 0; i < 60 * 400 && !sim.over; i++) {
+        if (sim.farmer.mode === 'away') sim.farmer.timer = 0; // constant visits, truck parked
+        sim.step(NO_INPUT, DT);
+        sim.drainEvents();
+      }
+      return sim;
+    };
+    const safe = run(true), risky = run(false);
+    expect(safe.over).toBe('sunset');
+    expect(safe.hearts).toBe(1);
+    expect(risky.over).toBe('busted');
+  });
+  it('a truck pinned against a wall gets popped free', () => {
+    const sim = new Sim(STOCK, { seed: 9 });
+    const barn = WORLD.solids[0];
+    Object.assign(sim.truck, { x: barn.x, z: barn.z + 7.5, heading: Math.PI });
+    let unstuck = false;
+    for (let i = 0; i < 60 * 6 && !unstuck; i++) { sim.step(drive({ throttle: 1 }), DT); unstuck = sim.drainEvents().some((e) => e.type === 'unstuck'); }
+    expect(unstuck).toBe(true);
+  });
   it('is deterministic for a given seed', () => {
     const a = botRun(21).sim, b = botRun(21).sim;
     expect([a.coins, a.style, a.time, a.hearts]).toEqual([b.coins, b.style, b.time, b.hearts]);

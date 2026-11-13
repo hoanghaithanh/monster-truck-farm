@@ -10,7 +10,8 @@ import { C, MAT, ball, box, capsule, cone, cyl, merged, mesh, torus, type Part }
 
 const HALF_PI = Math.PI / 2;
 
-interface SpeciesModel { body: THREE.BufferGeometry; eyes: THREE.BufferGeometry; eyeY: number; eyeZ: number; height: number }
+/** `legA`/`legB` are leg sets hinged at the hip (origin), swung in opposite phase. */
+interface SpeciesModel { body: THREE.BufferGeometry; eyes: THREE.BufferGeometry; eyeY: number; eyeZ: number; height: number; legA: THREE.BufferGeometry; legB: THREE.BufferGeometry; hip: [number, number, number] }
 
 function eyes(r: number, gap: number): THREE.BufferGeometry {
   const parts: Part[] = [];
@@ -23,11 +24,18 @@ function eyes(r: number, gap: number): THREE.BufferGeometry {
 }
 
 function buildSpecies(): Record<Species, SpeciesModel> {
-  const legs = (x: number, z: number, h: number, r: number, color: number, hoof = color): Part[] =>
-    [[x, z], [-x, z], [x, -z], [-x, -z]].flatMap(([lx, lz]): Part[] => [
-      { geo: cyl(r, r, h, 8), color, pos: [lx, h / 2, lz] },
-      { geo: cyl(r * 1.15, r * 1.15, h * 0.3, 8), color: hoof, pos: [lx, h * 0.15, lz] },
-    ]);
+  // A left+right pair of legs hanging down from the hip at the origin.
+  const legPair = (x: number, h: number, r: number, color: number, hoof = color): THREE.BufferGeometry =>
+    merged([x, -x].flatMap((lx): Part[] => [
+      { geo: cyl(r, r, h, 8), color, pos: [lx, -h / 2, 0] },
+      { geo: cyl(r * 1.15, r * 1.15, h * 0.3, 8), color: hoof, pos: [lx, -h * 0.85, 0] },
+    ]));
+  const quad = (x: number, z: number, h: number, r: number, color: number, hoof = color) =>
+    ({ legA: legPair(x, h, r, color, hoof), legB: legPair(x, h, r, color, hoof), hip: [h, z, -z] as [number, number, number] });
+  const chickenLeg = (x: number): THREE.BufferGeometry => merged([
+    { geo: cyl(0.04, 0.04, 0.3, 5), color: C.orange, pos: [x, -0.15, 0] },
+    { geo: box(0.2, 0.06, 0.3, 0.03, 1), color: C.orange, pos: [x, -0.27, 0.08] },
+  ]);
   const chicken: Part[] = [
     { geo: ball(0.48, 14, 10), color: C.white, pos: [0, 0.62, -0.05], scale: [1, 0.95, 1.15] },
     { geo: ball(0.34, 12, 9), color: C.white, pos: [0, 1.08, 0.3] },
@@ -36,10 +44,6 @@ function buildSpecies(): Record<Species, SpeciesModel> {
     ...[-0.12, 0, 0.12].map((z, i): Part => ({ geo: ball(0.11 + (i === 1 ? 0.03 : 0), 6, 5), color: C.red, pos: [0, 1.42 + (i === 1 ? 0.04 : 0), 0.3 + z] })),
     ...[-1, 1].map((s): Part => ({ geo: ball(0.28, 8, 6), color: 0xf2eee0, pos: [s * 0.44, 0.66, -0.05], scale: [0.35, 0.8, 1.1] })),
     ...[0, 1, 2].map((i): Part => ({ geo: ball(0.16, 6, 5), color: C.white, pos: [(i - 1) * 0.14, 0.95 + (i === 1 ? 0.12 : 0), -0.58], scale: [1, 1.6, 0.8] })),
-    ...[-1, 1].flatMap((s): Part[] => [
-      { geo: cyl(0.04, 0.04, 0.3, 5), color: C.orange, pos: [s * 0.18, 0.15, 0] },
-      { geo: box(0.2, 0.06, 0.3, 0.03, 1), color: C.orange, pos: [s * 0.18, 0.03, 0.08] },
-    ]),
   ];
   const pig: Part[] = [
     { geo: capsule(0.56, 0.7), color: C.pink, pos: [0, 0.82, -0.1], rot: [HALF_PI, 0, 0] },
@@ -47,7 +51,6 @@ function buildSpecies(): Record<Species, SpeciesModel> {
     { geo: cyl(0.24, 0.26, 0.24, 12), color: C.pinkDark, pos: [0, 0.92, 1.2], rot: [HALF_PI, 0, 0] },
     ...[-1, 1].map((s): Part => ({ geo: ball(0.055, 6, 5), color: C.ink, pos: [s * 0.09, 0.94, 1.33] })),
     ...[-1, 1].map((s): Part => ({ geo: cone(0.17, 0.3, 4), color: C.pinkDark, pos: [s * 0.3, 1.46, 0.62], rot: [0.3, 0, -s * 0.4] })),
-    ...legs(0.3, 0.42, 0.42, 0.14, C.pink, C.pinkDark),
     { geo: torus(0.13, 0.045, 10), color: C.pinkDark, pos: [0, 1.05, -1.05], rot: [0, HALF_PI, 0] },
   ];
   const wool = 0xfffaf0, face = 0x4a4566;
@@ -57,7 +60,6 @@ function buildSpecies(): Record<Species, SpeciesModel> {
     { geo: ball(0.36, 12, 9), color: face, pos: [0, 1.15, 0.84], scale: [0.9, 1, 1.1] },
     { geo: ball(0.24, 8, 6), color: wool, pos: [0, 1.48, 0.72] },
     ...[-1, 1].map((s): Part => ({ geo: ball(0.14, 6, 5), color: face, pos: [s * 0.4, 1.2, 0.72], scale: [1.6, 0.5, 0.8] })),
-    ...legs(0.3, 0.4, 0.5, 0.1, face),
   ];
   const cow: Part[] = [
     { geo: box(1.3, 1.1, 2.1, 0.5), color: C.white, pos: [0, 1.35, -0.2] },
@@ -70,15 +72,14 @@ function buildSpecies(): Record<Species, SpeciesModel> {
     ...[-1, 1].map((s): Part => ({ geo: cone(0.11, 0.36, 6), color: C.cream, pos: [s * 0.36, 2.28, 1.0], rot: [0, 0, -s * 0.5] })),
     ...[-1, 1].map((s): Part => ({ geo: ball(0.16, 6, 5), color: C.ink, pos: [s * 0.56, 1.98, 0.95], scale: [1.5, 0.6, 0.9] })),
     { geo: ball(0.3, 8, 6), color: C.pink, pos: [0, 0.78, -0.5], scale: [1, 0.7, 1] },
-    ...legs(0.42, 0.72, 0.85, 0.16, C.white, C.ink),
     { geo: cyl(0.04, 0.04, 0.8, 5), color: C.white, pos: [0, 1.45, -1.32], rot: [0.5, 0, 0] },
     { geo: ball(0.1, 6, 5), color: C.ink, pos: [0, 1.1, -1.52] },
   ];
   return {
-    chicken: { body: merged(chicken), eyes: eyes(0.11, 0.36), eyeY: 1.16, eyeZ: 0.5, height: 1.5 },
-    pig: { body: merged(pig), eyes: eyes(0.13, 0.5), eyeY: 1.16, eyeZ: 1.08, height: 1.6 },
-    sheep: { body: merged(sheep), eyes: eyes(0.11, 0.36), eyeY: 1.22, eyeZ: 1.14, height: 1.9 },
-    cow: { body: merged(cow), eyes: eyes(0.15, 0.56), eyeY: 1.92, eyeZ: 1.44, height: 2.5 },
+    chicken: { body: merged(chicken), eyes: eyes(0.11, 0.36), eyeY: 1.16, eyeZ: 0.5, height: 1.5, legA: chickenLeg(0.18), legB: chickenLeg(-0.18), hip: [0.3, 0, 0] },
+    pig: { body: merged(pig), eyes: eyes(0.13, 0.5), eyeY: 1.16, eyeZ: 1.08, height: 1.6, ...quad(0.3, 0.42, 0.42, 0.14, C.pink, C.pinkDark) },
+    sheep: { body: merged(sheep), eyes: eyes(0.11, 0.36), eyeY: 1.22, eyeZ: 1.14, height: 1.9, ...quad(0.3, 0.4, 0.5, 0.1, face) },
+    cow: { body: merged(cow), eyes: eyes(0.15, 0.56), eyeY: 1.92, eyeZ: 1.44, height: 2.5, ...quad(0.42, 0.72, 0.85, 0.16, C.white, C.ink) },
   };
 }
 
@@ -88,6 +89,7 @@ class AnimalView {
   readonly root = new THREE.Group();
   private inner = new THREE.Group();
   private eyes: THREE.Mesh;
+  private legs: [THREE.Mesh, THREE.Mesh];
   private t = Math.random() * 10;
   private pop = 0;
   private squash = 0; private squashV = 0;
@@ -98,7 +100,12 @@ class AnimalView {
 
   constructor(a: Animal) {
     this.model = (SPECIES_MODELS ??= buildSpecies())[a.species];
-    this.inner.add(mesh(this.model.body, a.golden ? MAT.gold : MAT.vinyl));
+    const skin = a.golden ? MAT.gold : MAT.vinyl;
+    this.inner.add(mesh(this.model.body, skin));
+    this.legs = [mesh(this.model.legA, skin), mesh(this.model.legB, skin)];
+    this.legs[0].position.set(0, this.model.hip[0], this.model.hip[1]);
+    this.legs[1].position.set(0, this.model.hip[0], this.model.hip[2]);
+    this.inner.add(...this.legs);
     this.eyes = mesh(this.model.eyes, MAT.vinyl, false);
     this.eyes.position.set(0, this.model.eyeY, this.model.eyeZ);
     this.inner.add(this.eyes);
@@ -153,6 +160,10 @@ class AnimalView {
         if (a.mode === 'graze') inner.rotation.x = Math.max(0, Math.sin(this.t * 0.9 + a.id)) * 0.22;
       }
     }
+    // Legs: trot when walking, gallop when fleeing, flail in the air.
+    const stride = a.mode === 'fly' ? Math.sin(this.t * 26) * 1.1 : moving ? Math.sin(this.t * 15) * 0.85 : a.mode === 'walk' ? Math.sin(this.t * 8) * 0.5 : 0;
+    this.legs[0].rotation.x = damp(this.legs[0].rotation.x, stride, 30, dt);
+    this.legs[1].rotation.x = damp(this.legs[1].rotation.x, -stride, 30, dt);
     // Wide-eyed when scared, blinking when calm.
     this.blink -= dt;
     if (this.blink < -0.1) this.blink = 1 + Math.random() * 4;

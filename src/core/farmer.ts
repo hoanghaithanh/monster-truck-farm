@@ -2,7 +2,7 @@
 // Escapes: outrun him, juke (he turns wide), jump over him, cross the river
 // (tractors can't swim), or honk in his face.
 import { angleDelta, clamp, damp, range, type Rng } from './math';
-import { BUILDINGS, isOpenGround, isWater, riverCenterZ } from './world';
+import { BUILDINGS, isOpenGround, isWater, riverCenterZ, WORLD } from './world';
 
 export type FarmerMode = 'away' | 'warn' | 'chase' | 'laugh' | 'stunned' | 'stuck' | 'leave';
 export interface Farmer {
@@ -35,6 +35,11 @@ export function stepFarmer(f: Farmer, dt: number, t: FarmerTarget, rng: Rng): Fa
     const nx = f.x + Math.sin(f.heading) * f.speed * dt, nz = f.z + Math.cos(f.heading) * f.speed * dt;
     if (isWater(nx, nz)) return false;
     f.x = nx; f.z = nz;
+    for (const s of WORLD.solids) { // squeeze around tree trunks instead of ghosting through them
+      if (s.kind !== 'circle' || s.r > 1.6 || Math.abs(s.x - f.x) > 3 || Math.abs(s.z - f.z) > 3) continue;
+      const tx = f.x - s.x, tz = f.z - s.z, d = Math.hypot(tx, tz), min = s.r + 1.5;
+      if (d < min && d > 0.01) { f.x = s.x + (tx / d) * min; f.z = s.z + (tz / d) * min; }
+    }
     for (const b of BUILDINGS) { // shove out of buildings (coarse circles)
       const bx = f.x - b.x, bz = f.z - b.z, d = Math.hypot(bx, bz);
       if (d < 8 && d > 0.01) { f.x = b.x + (bx / d) * 8; f.z = b.z + (bz / d) * 8; }

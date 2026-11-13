@@ -45,6 +45,8 @@ export function merged(parts: Part[]): THREE.BufferGeometry {
 
 export const box = (w: number, h: number, d: number, r = 0.12, seg = 3): THREE.BufferGeometry =>
   new RoundedBoxGeometry(w, h, d, seg, Math.min(r, w / 2, h / 2, d / 2) * 0.98);
+/** Plain 12-triangle box for things drawn hundreds of times (leaves, fence rails). */
+export const slab = (w: number, h: number, d: number): THREE.BufferGeometry => new THREE.BoxGeometry(w, h, d);
 export const ball = (r: number, ws = 14, hs = 10): THREE.BufferGeometry => new THREE.SphereGeometry(r, ws, hs);
 export const cyl = (rTop: number, rBot: number, h: number, seg = 14): THREE.BufferGeometry => new THREE.CylinderGeometry(rTop, rBot, h, seg);
 export const cone = (r: number, h: number, seg = 12): THREE.BufferGeometry => new THREE.ConeGeometry(r, h, seg);

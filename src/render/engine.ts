@@ -233,8 +233,15 @@ export class Engine {
 
   render(dt: number, focus: THREE.Vector3): void {
     SHARED.uTime.value += dt;
-    this.sun.target.position.copy(focus);
-    this.sun.position.copy(focus).addScaledVector(this.sunDir, 110);
+    // Snap the shadow frustum to whole shadow-map texels so shadows don't crawl as the truck moves.
+    const texel = 92 / Math.max(1, this.sun.shadow.mapSize.x);
+    _right.crossVectors(_up, this.sunDir).normalize();
+    _fwd.crossVectors(this.sunDir, _right);
+    _snap.copy(this.sunDir).multiplyScalar(focus.dot(this.sunDir))
+      .addScaledVector(_right, Math.round(focus.dot(_right) / texel) * texel)
+      .addScaledVector(_fwd, Math.round(focus.dot(_fwd) / texel) * texel);
+    this.sun.target.position.copy(_snap);
+    this.sun.position.copy(_snap).addScaledVector(this.sunDir, 110);
     this.sky.position.copy(this.camera.position);
     for (const c of this.clouds.children) {
       c.position.x += c.userData.speed * dt;
@@ -259,3 +266,4 @@ export class Engine {
 }
 
 const _tmp = new THREE.Color();
+const _up = new THREE.Vector3(0, 1, 0), _right = new THREE.Vector3(), _fwd = new THREE.Vector3(), _snap = new THREE.Vector3();

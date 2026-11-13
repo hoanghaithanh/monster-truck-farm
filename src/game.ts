@@ -458,6 +458,7 @@ export class Game {
         this.hud.toast({ golden: '⭐ GOLDEN ANIMAL!', stampede: '🐮 STAMPEDE!', fuelRain: '⚡ NITRO DROP!', chickenParty: '🐔 CHICKEN PARTY!' }[e.kind], 'big');
         A.event();
         break;
+      case 'unstuck': A.jump(); this.truck.kick(-6); break;
       case 'end': this.endRun(e.reason); break;
     }
   }

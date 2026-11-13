@@ -33,6 +33,7 @@ export type GameEvent =
   | { type: 'farmer'; what: FarmerNews; coinsLost: number }
   | { type: 'mission'; index: number; reward: number }
   | { type: 'happening'; kind: HappeningKind }
+  | { type: 'unstuck' }
   | { type: 'end'; reason: 'sunset' | 'busted' };
 
 export interface SimOptions { seed?: number; assists?: boolean; farmerEase?: number; firstRun?: boolean; truck?: TruckId }
@@ -67,6 +68,7 @@ export class Sim {
   private happeningCount = 0;
   private blockedCooldown = 0;
   private prevDrift = 0;
+  private stuckTime = 0;
   /** Aim-assist + generous boop radius; can be toggled mid-run. */
   assists: boolean;
 
@@ -195,7 +197,7 @@ export class Sim {
       if (Math.abs(p.x - t.x) < 8 && Math.abs(p.z - t.z) < 8) blockers.push({ x: p.x, z: p.z, r: PROP_DEFS[p.kind].r * 0.85, kind: p.kind });
     }
     for (const e of stepTruck(t, input, this.stats, dt, WORLD.solids, blockers)) {
-      if (e.type === 'land') this.landed(e.airTime, e.spins, e.flips, e.impact);
+      if (e.type === 'land') this.landed(e.airTime, e.spins, e.flips, e.impact, e.clean);
       else if (e.type === 'splash') { this.counters.splash++; this.events.push(e); } else if (e.type === 'bonk') {
         this.events.push(e);
         if (this.blockedCooldown <= 0) {
@@ -205,6 +207,15 @@ export class Sim {
       } else this.events.push(e);
     }
     if (!t.grounded) this.counters.air += dt;
+    // Pinned against something while holding the gas? Pop the truck back so nobody stays stuck.
+    this.stuckTime = input.throttle !== 0 && t.grounded && truckSpeed(t) < 1.2 ? this.stuckTime + dt : 0;
+    if (this.stuckTime > 1.6) {
+      this.stuckTime = 0;
+      const back = input.throttle > 0 ? -1 : 1;
+      t.vx = Math.sin(t.heading) * 9 * back; t.vz = Math.cos(t.heading) * 9 * back; t.vy = 6; t.grounded = false; t.y += 0.1;
+      t.heading += 0.5;
+      this.events.push({ type: 'unstuck' });
+    }
     // Drift pays out when it ends.
     if (t.driftTime === 0 && this.prevDrift > 0.9) {
       this.counters.drift += this.prevDrift;
@@ -287,7 +298,7 @@ export class Sim {
     }
   }
 
-  private landed(airTime: number, spins: number, flips: number, impact: number): void {
+  private landed(airTime: number, spins: number, flips: number, impact: number, clean: boolean): void {
     this.events.push({ type: 'land', impact, airTime });
     this.counters.bigAir = Math.max(this.counters.bigAir, airTime);
     this.counters.spins += spins;
@@ -298,6 +309,8 @@ export class Sim {
     if (spins) parts.push(spins > 1 ? `${spins * 360} Spin` : '360 Spin');
     const label = parts.length ? parts.join(' + ') + '!' : airTime > 2 ? 'MEGA AIR!' : airTime > 1.3 ? 'Big Air!' : 'Air!';
     this.addStyle(label, Math.round(airTime * 60) + spins * 150 + flips * 250);
+    // Sticking the landing after a trick is worth extra.
+    if (clean && (spins || flips)) this.addStyle('Clean Landing!', 100);
     // Stunts top up the nitro: tricks feed speed, speed feeds tricks.
     this.truck.nitro = Math.min(this.stats.nitro, this.truck.nitro + airTime * 0.5 + (spins + flips) * 0.5);
   }
@@ -397,7 +410,9 @@ export class Sim {
     if (f.mode !== 'chase' || this.invuln > 0) return;
     if (Math.hypot(f.x - t.x, f.z - t.z) > TRUCK_RADIUS + FARMER_RADIUS || t.y - surfaceHeight(t.x, t.z) > 2) return;
     farmerBumped(f);
-    this.hearts--;
+    // With helpers on, the farmer can never take the last heart: he only scatters coins.
+    const spared = this.assists && this.hearts <= 1;
+    if (!spared) this.hearts--;
     this.invuln = INVULN_SECONDS;
     const lost = Math.min(this.coins, Math.max(5, Math.round(this.coins * 0.15)));
     this.coins -= lost;

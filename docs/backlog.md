@@ -1,6 +1,8 @@
 # Backlog
 
-## Post-overhaul backlog (2026-11-12, branch `overhaul/fable`)
+## Post-overhaul backlog (updated 2026-11-12, branch `feature/big-farm-truck-collection`)
+
+**Done since the first version of this list:** bigger map (radius 116 → 185, lake, second hill, 12 ramps), truck collection (6 types with perks), articulated suspension, 12 paints / 3 finishes / 8 decals, ramp and bridge launch bug, animal leg animation, shadow texel snapping, tractor no longer ghosts through trees, auto-unstick, clean-landing bonus, last-heart-safe helper.
 
 The game was rebuilt end to end in the overhaul (see [overhaul/99-report.md](overhaul/99-report.md)). **Everything in the old table further down is superseded** — most rows were either delivered differently (ramps, river splash, grass/ground variation, clouds, mountain landmark, body lift, fields, more animals) or no longer apply (gas limp mode, glTF asset pipeline, hard game over).
 
@@ -10,13 +12,16 @@ What is next, in priority order:
 |---|---|---|---|
 | 1 | Human playtest tuning pass with the real 6-year-old: farmer pressure, day length, coin economy, steering assist strength | S | All numbers live in `src/core/` (`parts.ts`, `sim.ts`, `farmer.ts`, `missions.ts`) |
 | 2 | Listen-test and tune the synthesized audio on real speakers (engine loop, music mix, per-species voices) | S | Authored blind; see report |
-| 3 | Leg/limb animation for animals and a waving/steering farmer | M | Animals currently hop as single rigid bodies with squash/stretch |
-| 4 | Second map zone or seasonal variants (snow farm, beach farm) reusing the procedural kit | L | `core/world.ts` is one deterministic layout today |
-| 5 | More trick depth: grabs, wheelies, landing-quality bonus, trick combos across airs | M | |
-| 6 | Persistent achievements / sticker book and unlockable decals/paints tied to medals | M | Decals and paints are all free today |
+| 3 | ~~Leg/limb animation for animals~~ (done 2026-11-12); still open: a steering/waving farmer | S | |
+| 4 | Seasonal variants (snow farm, beach farm) reusing the procedural kit | L | The map itself was enlarged 2.5x on 2026-11-12; `core/world.ts` is still one layout |
+| 5 | More trick depth: wheelies, trick combos across airs | M | Clean-landing bonus done 2026-11-12 |
+| 6 | Sticker book: persistent achievements, and special trucks/paints unlocked by medals rather than coins | M | Trucks are coin-bought today; paints and decals are free |
 | 7 | Real touch-device playtest and layout polish | S | Touch controls exist but were only emulated |
 | 8 | Ghost/best-run replay or daily seeded challenge for the grown-up | M | `Sim` is deterministic per seed, so this is cheap to build |
-| 9 | Shadow cascade / texel snapping to remove shadow shimmer at speed | S | |
+| 9 | ~~Shadow texel snapping~~ (done 2026-11-12) | S | |
+| 11 | Truck-specific abilities on a button (shark dive-dash, dino roar that scatters a whole herd, bus picks up animal passengers) | M | Today perks are passive |
+| 12 | Farm jobs mode: herd animals into a pen, deliver hay, race checkpoints against a ghost | L | Would give the big map structured goals |
+| 13 | Photo mode + truck name plate | S | |
 | 10 | Split-screen or pass-the-pad two-player | L | |
 
 ---
