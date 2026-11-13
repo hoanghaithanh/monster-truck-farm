@@ -8,6 +8,9 @@ export const TRUCK_RADIUS = 1.7;
 const GRAVITY = 26;
 const JUMP_V = 9.5;
 const BOOST_SPEED = 1.45;
+/** Steepest drivable gradient (rise/run) and the tallest lip the wheels roll over. */
+const MAX_SLOPE = 1.25;
+const STEP_UP = 0.6;
 const NITRO_REGEN = 0.07; // seconds of nitro regained per second
 
 export interface DriveInput { throttle: number; steer: number; boost: boolean; jump: boolean; horn: boolean }
@@ -113,6 +116,7 @@ export function stepTruck(t: Truck, input: DriveInput, stats: TruckStats, dt: nu
   t.jumpHeld = input.jump;
 
   const prevGround = surfaceHeight(t.x, t.z);
+  const x0 = t.x, z0 = t.z;
   t.x += t.vx * dt;
   t.z += t.vz * dt;
 
@@ -153,11 +157,28 @@ export function stepTruck(t: Truck, input: DriveInput, stats: TruckStats, dt: nu
   if (t.y - prevGround < 1.6) for (const b of blockers) circle(b.x, b.z, b.r);
   const r = Math.hypot(t.x, t.z);
   if (r > WORLD_R) pushOut(-t.x / r, -t.z / r, r - WORLD_R);
+  // Ledges: a sudden rise (ramp side/back, bridge flank) is a wall, not a launcher.
+  // Anything steeper than MAX_SLOPE and taller than STEP_UP blocks; small lips are
+  // stepped over without gaining upward speed.
+  const base = Math.max(t.y, prevGround);
+  const tooSteep = (x: number, z: number) => surfaceHeight(x, z) - base > Math.hypot(x - x0, z - z0) * MAX_SLOPE + 0.04;
+  let stepped = false;
+  if (tooSteep(t.x, t.z)) {
+    if (surfaceHeight(t.x, t.z) - base <= STEP_UP) stepped = true;
+    else {
+      // Slide along the wall if one axis is free, otherwise stop dead.
+      const freeX = !tooSteep(t.x, z0) || surfaceHeight(t.x, z0) - base <= STEP_UP;
+      const freeZ = !tooSteep(x0, t.z) || surfaceHeight(x0, t.z) - base <= STEP_UP;
+      const hit = Math.hypot(t.vx, t.vz);
+      if (freeX && !freeZ) { t.z = z0; t.vz *= -0.3; } else if (freeZ && !freeX) { t.x = x0; t.vx *= -0.3; } else { t.x = x0; t.z = z0; t.vx *= -0.3; t.vz *= -0.3; }
+      if (hit > 4) bonked = true;
+    }
+  }
   if (bonked) events.push({ type: 'bonk', speed: speedBefore });
 
   // Vertical: follow the ground, leave it at crests/ramps, land with a thump.
   const ground = surfaceHeight(t.x, t.z);
-  const slopeVy = clamp((ground - prevGround) / Math.max(dt, 1e-4), -40, 16);
+  const slopeVy = stepped ? 0 : clamp((ground - prevGround) / Math.max(dt, 1e-4), -40, 16);
   t.vy -= GRAVITY * dt;
   t.y += t.vy * dt;
   const stick = t.grounded && t.vy <= slopeVy + 3 ? 0.18 : 0;

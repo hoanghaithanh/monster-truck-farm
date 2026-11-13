@@ -79,6 +79,41 @@ describe('truck', () => {
     expect(air).toBeGreaterThan(0.8);
     expect(spins).toBeGreaterThanOrEqual(1);
   });
+  it('ramp sides, ramp backs and bridge flanks are walls, not launchers', () => {
+    const r = RAMPS[0];
+    const fx = Math.sin(r.heading), fz = Math.cos(r.heading), rx = -fz, rz = fx;
+    const run = (x: number, z: number, heading: number, steps = 240) => {
+      const t = createTruck(x, z, heading, stats);
+      let peak = 0, air = 0;
+      for (let i = 0; i < steps; i++) {
+        for (const e of stepTruck(t, drive({ throttle: 1 }), stats, DT, [])) if (e.type === 'land') air = Math.max(air, e.airTime);
+        peak = Math.max(peak, t.y - r.base);
+      }
+      return { peak, air, t };
+    };
+    // Into the tall back wall, head on.
+    const back = run(r.x + fx * (r.len + 14), r.z + fz * (r.len + 14), r.heading + Math.PI);
+    expect(back.peak).toBeLessThan(1);
+    expect(back.air).toBe(0);
+    // Into the side, near the tall end.
+    const side = run(r.x + fx * r.len * 0.8 + rx * 14, r.z + fz * r.len * 0.8 + rz * 14, Math.atan2(-rx, -rz));
+    expect(side.peak).toBeLessThan(1);
+    // Into the bridge from the riverbed.
+    const bz = riverCenterZ(BRIDGE.x);
+    const flank = createTruck(BRIDGE.x - 14, bz, Math.PI / 2, stats);
+    let top = -99;
+    for (let i = 0; i < 240; i++) { stepTruck(flank, drive({ throttle: 1 }), stats, DT, []); top = Math.max(top, flank.y); }
+    expect(top).toBeLessThan(0);
+    expect(flank.x).toBeLessThan(BRIDGE.x - BRIDGE.halfW + 0.5);
+  });
+  it('driving onto the bridge does not launch the truck', () => {
+    const bz = riverCenterZ(BRIDGE.x);
+    const t = createTruck(BRIDGE.x, bz - BRIDGE.halfL - 12, 0, stats);
+    let maxGap = 0;
+    for (let i = 0; i < 200; i++) { stepTruck(t, drive({ throttle: 1 }), stats, DT, []); if (Math.abs(t.z - bz) < BRIDGE.halfL * 0.6) maxGap = Math.max(maxGap, t.y - surfaceHeight(t.x, t.z)); }
+    expect(t.z).toBeGreaterThan(bz);
+    expect(maxGap).toBeLessThan(0.8);
+  });
   it('backflips only when braking in the air', () => {
     const fly = (throttle: number) => {
       const t = createTruck(0, -8, 0, stats);
